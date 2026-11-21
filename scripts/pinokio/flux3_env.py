@@ -65,7 +65,8 @@ def main():
         print("FLUX 3: installing its separate image engine. Stop cancels this step.", flush=True)
         if not py.is_file():
             subprocess.run([uv, "venv", "--python", "3.12", str(root / "env")], check=True, env=clean_env())
-        subprocess.run([uv, "pip", "install", "--no-cache", "--python", str(py),
+        subprocess.run([sys.executable, str(ROOT / "scripts/python_packages/install.py"),
+                        "flux3", "--", uv, "pip", "install", "--no-cache", "--python", str(py),
                         "-r", str(requirements)], check=True, env=clean_env())
         if not ready():
             raise RuntimeError("FLUX 3 packages did not match their pins. Retry the install.")

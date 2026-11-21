@@ -7,6 +7,8 @@ panel/__init__.py for why P is assigned rather than imported.
 """
 from __future__ import annotations
 
+import secrets
+import threading
 from urllib.parse import parse_qs
 
 from panel.routes import get, get_when, post, post_when
@@ -146,8 +148,13 @@ def get_image(h, parsed) -> None:
     # both sides and require the requested path to live under our
     # OUTPUT, UPLOADS, or STATE_DIR. is_relative_to() already handles
     # the symlink/.. tricks since we resolved both ends.
+    # Saved characters (mlx_models/characters) too: picking a character on
+    # Hailuo H3 puts its pictures in the References slots, and their previews
+    # come from here (blank before, 21 Nov). The images-only check below still
+    # refuses the bundle.json beside them.
     try:
-        roots = [*_output_roots(), P.UPLOADS.resolve(), P.STATE_DIR.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve(), P.STATE_DIR.resolve(),
+                 P._CHARACTERS_CACHE_PATH.resolve()]
     except Exception:
         roots = []
     if not any(path.is_relative_to(r) for r in roots):
@@ -524,6 +531,68 @@ def _reserve_trash_name(trash_dir, c, ts: str):
     raise OSError(f"no free name in the Trash for {c.name}")
 
 
+# Undo for Delete. A delete hands back a one-time token; /output/restore
+# moves exactly the files that delete moved, back to where they were. The
+# client never names a path to restore, so the restore route cannot be used
+# to move anything else. Tokens live in memory for UNDO_TTL_SEC: long enough
+# for the toast's Undo, and Finder's Trash covers everything after that.
+UNDO_TTL_SEC = 15 * 60
+_UNDO: dict = {}
+_UNDO_LOCK = threading.Lock()
+
+
+def _undo_put(moves: list, hidden: list, links: list | None = None) -> str:
+    tok = secrets.token_urlsafe(12)
+    now = P.time.time()
+    with _UNDO_LOCK:
+        for k in [k for k, v in _UNDO.items() if now - v["at"] > UNDO_TTL_SEC]:
+            _UNDO.pop(k, None)
+        _UNDO[tok] = {"at": now, "moves": moves, "hidden": hidden,
+                      "links": links or []}
+    return tok
+
+
+def _undo_take(tok: str):
+    with _UNDO_LOCK:
+        v = _UNDO.pop(tok, None)
+    if v and P.time.time() - v["at"] <= UNDO_TTL_SEC:
+        return v
+    return None
+
+
+def _outputs_roots() -> list:
+    """Where Delete may take files from and Undo may put them back: the
+    outputs folder, every saved files folder, and the uploads folder."""
+    try:
+        return [*_output_roots(), P.UPLOADS.resolve()]
+    except OSError:
+        return []
+
+
+def _trash_dir_for(src) -> "P.Path":
+    """The Trash a file on `src`'s volume belongs in.
+
+    ~/.Trash for the home volume. A file on another volume (an external SSD
+    holding the outputs) goes to that volume's own `.Trashes/<uid>`, which is
+    where Finder puts it too: a rename, not a copy of several GB across
+    drives. Falls back to ~/.Trash when the volume has no usable Trash."""
+    home_trash = P.Path.home() / ".Trash"
+    try:
+        dev = P.os.stat(src).st_dev
+        if dev == P.os.stat(P.Path.home()).st_dev:
+            return home_trash
+        mount = P.Path(src).resolve().parent
+        while mount.parent != mount and P.os.stat(mount.parent).st_dev == dev:
+            mount = mount.parent
+        vol_trash = mount / ".Trashes" / str(P.os.getuid())
+        vol_trash.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if P.os.access(vol_trash, P.os.W_OK):
+            return vol_trash
+    except OSError:
+        pass
+    return home_trash
+
+
 @post("/output/delete")
 def post_output_delete(h, path, qs, ctype) -> None:
     _rb = h._read_form_body()
@@ -583,12 +652,19 @@ def post_output_delete(h, path, qs, ctype) -> None:
     def _add(seen: set, candidates: list, cand: P.Path) -> None:
         # A companion copied to the saved files folder is a link here: trash
         # the real file (the link is removed afterwards), never the link alone.
+        # A link (or a path) that resolves outside the outputs, saved files
+        # and uploads folders is left alone: the clicked file was checked
+        # above, and a planted `<stem>.json -> elsewhere` must not ride along.
         try:
-            if cand.is_symlink():
-                _links.append(cand)
-                cand = cand.resolve()
+            was_link = cand.is_symlink()
+            real = cand.resolve()
+            if not any(real.is_relative_to(r) for r in _outputs_roots()):
+                return
         except OSError:
             return
+        if was_link:
+            _links.append(cand)
+        cand = real
         key = str(cand)
         if key in seen:
             return
@@ -708,15 +784,25 @@ def post_output_delete(h, path, qs, ctype) -> None:
         h._json({"error": in_use, "in_use": True}, 409); return
 
     trashed = []
+    moves = []
+    # Hidden state Undo brings back: the files themselves, and the gallery
+    # links to them when they live in the saved files folder (the upscale
+    # path hid the native clip by its outputs-folder path, now a link).
+    _hid_keys = [str(c) for c in candidates]
+    _hid_keys += [P.os.path.abspath(str(l)) for l in _links]
+    _hid_keys.append(P.os.path.abspath(str(target)))
+    with P.LOCK:
+        was_hidden = list(dict.fromkeys(k for k in _hid_keys if k in P.HIDDEN_PATHS))
     ts = P.time.strftime("%Y%m%d-%H%M%S")
     for c in candidates:
         try:
-            dest = _reserve_trash_name(trash_dir, c, ts)
+            dest = _reserve_trash_name(_trash_dir_for(c), c, ts)
         except OSError as e:
             h._json({"error": f"move to Trash failed: {e}"}, 500); return
         try:
             P.shutil.move(str(c), str(dest))
             trashed.append(str(dest))
+            moves.append([str(dest), str(c)])
         except OSError as e:
             try:
                 dest.unlink()          # our empty placeholder, never a user file
@@ -729,11 +815,27 @@ def post_output_delete(h, path, qs, ctype) -> None:
     # might also have been hidden if the user toggled it.
     for c in candidates:
         P.set_hidden(str(c), False)
+    # Undo also has to put back the links in the outputs folder that point
+    # at a file in the saved files folder, so the gallery shows it again.
+    _relinks: list = []
+
+    def _dangling(paths) -> list:
+        out = []
+        for _p in paths:
+            try:
+                _p = P.Path(_p)
+                if _p.is_symlink() and not _p.exists():
+                    out.append([str(_p), P.os.readlink(_p)])
+            except OSError:
+                continue
+        return out
+
     # A file copied to the saved files folder was clicked through its link in
     # the outputs folder: the real files went to the Trash above, so the links
     # left at the old paths (media, sidecars, companions) now point at nothing.
     try:
         import output_folder
+        _relinks.extend(_dangling(_links))
         output_folder.unlink_dangling_links(_links)
         _clicked = P.Path(P.os.path.abspath(str(target)))
         if _clicked != _resolved:
@@ -742,11 +844,69 @@ def post_output_delete(h, path, qs, ctype) -> None:
             for _p in _clicked.parent.glob("*"):
                 if _p.name.startswith((_cs, _cb)):
                     _links.append(_p)
+            _relinks.extend(_dangling(_links))
             output_folder.unlink_dangling_links(_links)
             P.set_hidden(str(_clicked), False)
     except Exception:
         pass
-    h._json({"ok": True, "trashed": trashed})
+    h._json({"ok": True, "trashed": trashed,
+             "undo": _undo_put(moves, was_hidden, _relinks)})
+
+
+@post("/output/restore")
+def post_output_restore(h, path, qs, ctype) -> None:
+    """Undo a Delete: put back exactly what that delete moved.
+
+    Takes only the token the delete returned. Each file goes back to its
+    original path when that path is free and still under the outputs roots;
+    a file the user already emptied from the Trash, or a name that has been
+    taken since, is reported as `missing` and left alone."""
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, form = _rb
+    tok = qs.get("undo", [""])[0] or form.get("undo", [""])[0]
+    rec = _undo_take(tok) if tok else None
+    if not rec:
+        h._json({"error": "nothing to undo (it may have expired; the files are still in the Trash)"}, 404)
+        return
+    roots = _outputs_roots()
+    restored, missing = [], []
+    for dest, orig in rec["moves"]:
+        o = P.Path(orig)
+        try:
+            ok_root = any(o.parent.resolve().is_relative_to(r) for r in roots)
+        except OSError:
+            ok_root = False
+        if (not ok_root or not P.Path(dest).is_file() or P.Path(dest).is_symlink()
+                or o.exists() or o.is_symlink()):
+            missing.append(orig)
+            continue
+        try:
+            P.shutil.move(dest, orig)
+            restored.append(orig)
+        except OSError:
+            missing.append(orig)
+    # The links the delete removed from the outputs folder (the file itself
+    # lives in the saved files folder) come back only for a file that was
+    # just put back, and only at a free name under the outputs roots.
+    relinked: list = []
+    for link, target in rec.get("links", []):
+        lp = P.Path(link)
+        tp = P.Path(target) if P.os.path.isabs(target) else lp.parent / target
+        try:
+            if (str(tp.resolve()) not in restored
+                    or lp.exists() or lp.is_symlink()
+                    or not any(lp.parent.resolve().is_relative_to(r) for r in roots)):
+                continue
+            P.os.symlink(target, lp)
+            relinked.append(str(lp))
+        except OSError:
+            continue
+    for p_ in rec["hidden"]:
+        if p_ in restored or p_ in relinked:
+            P.set_hidden(p_, True)
+    h._json({"ok": bool(restored), "restored": restored, "missing": missing})
 
 
 # ====== Reveal the outputs folder in Finder (one click, no

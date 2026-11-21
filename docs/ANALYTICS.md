@@ -377,7 +377,7 @@ The surfaces render events cannot see. One event per action, no free text.
 
 | prop | type | example | why |
 |---|---|---|---|
-| `feature` | string | `"storyboard_plan"` | **Closed vocabulary**: `storyboard_plan`, `storyboard_export`, `editor_open`, `editor_export`, `civitai_download`, `sample_character`, `train_start`, `enhance_prompt`, `train_refused`, `enhance_prompt` is sent by the server when an Enhance succeeds, with the mode (`t2v`, `i2v`, `a2v`) as `detail` (from 2026-10-19; before that nothing sent it, so earlier zeros mean unmeasured, not unused). `share` (the clip toolbar's Share: a caption with the Phosphene link copied and the file selected in Finder; only that the button was used is sent, never which clip). Unknown names are dropped locally, never sent. `train_start` fires only past `/train/start`'s RAM refusal (SYS-41) — a refused click counts as `train_refused` with `detail: "ram"` instead, or (4.19.17+) `detail: "models"` when the LTX-2.3 training weights are not downloaded |
+| `feature` | string | `"storyboard_plan"` | **Closed vocabulary**: `storyboard_plan`, `storyboard_export`, `editor_open`, `editor_export`, `civitai_download`, `sample_character`, `train_start`, `enhance_prompt`, `train_refused`, `h3_write` (5.0.78: H3's Write it for me produced a prompt; `detail` is the clip length such as `5s`, never the prompt), `enhance_prompt` is sent by the server when an Enhance succeeds, with the mode (`t2v`, `i2v`, `a2v`) as `detail` (from 2026-10-19; before that nothing sent it, so earlier zeros mean unmeasured, not unused). `share` (the clip toolbar's Share: a caption with the Phosphene link copied and the file selected in Finder; only that the button was used is sent, never which clip). Unknown names are dropped locally, never sent. `train_start` fires only past `/train/start`'s RAM refusal (SYS-41) — a refused click counts as `train_refused` with `detail: "ram"` instead, or (4.19.17+) `detail: "models"` when the LTX-2.3 training weights are not downloaded |
 | `detail` | string | `"nle"` | Optional, lowercase `[a-z0-9_.-]` only, ≤32 chars — a sub-choice within the feature |
 | `version` | string | `"4.9.7"` | As on `app_boot` |
 
@@ -1007,3 +1007,8 @@ Image stall failure signatures place the same filtered last-line detail first.
 Training `train_error` additionally allows permission, network, timeout,
 invalid_data, shape_mismatch, metal_error, io_error, type_error, assertion,
 and process_exit. Training continues to send only closed category/stage words.
+
+Re-voice uses the existing render events with `mode=revoice`. Phrase detection
+(`revoice_detect`) is preparation and emits no render event. Phrase text in
+local alignment errors, including one-word lines, is redacted before any error
+signature leaves the Studio. No transcripts or voice selections are sent.

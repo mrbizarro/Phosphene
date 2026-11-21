@@ -71,14 +71,14 @@ module.exports = {
         //   Step 2: force-reinstall the same version WITHOUT deps so
         //     pip never silently bumps a transitive dep when we
         //     re-run later.
-        message: "./ltx-2-mlx/env/bin/pip install -c scripts/pinokio/engine_constraints.txt 'mflux==0.18.0'"
+        message: "./ltx-2-mlx/env/bin/python scripts/python_packages/install.py mflux -- ./ltx-2-mlx/env/bin/pip install -c scripts/pinokio/engine_constraints.txt 'mflux==0.18.0'"
       }
     },
     {
       method: "shell.run",
       params: {
         // Pin-tightening pass — see two-step rationale above.
-        message: "./ltx-2-mlx/env/bin/pip install -c scripts/pinokio/engine_constraints.txt --force-reinstall --no-deps 'mflux==0.18.0'"
+        message: "./ltx-2-mlx/env/bin/python scripts/python_packages/install.py mflux-repair -- ./ltx-2-mlx/env/bin/pip install -c scripts/pinokio/engine_constraints.txt --force-reinstall --no-deps 'mflux==0.18.0'"
       }
     },
     {
@@ -99,7 +99,7 @@ module.exports = {
         // API moved (so a mflux bump never *breaks* FLUX.2 — worst case it
         // loses the speedup). Bumped to the mflux 0.18 line (Ideogram 4 +
         // Qwen-Edit share this package); re-confirm the FLUX.2 speedup holds.
-        message: "./ltx-2-mlx/env/bin/pip install -c scripts/pinokio/engine_constraints.txt 'mlx-teacache==0.4.1'"
+        message: "./ltx-2-mlx/env/bin/python scripts/python_packages/install.py teacache -- ./ltx-2-mlx/env/bin/pip install -c scripts/pinokio/engine_constraints.txt 'mlx-teacache==0.4.1'"
       }
     },
     {

@@ -42,6 +42,7 @@ capInstall();
 proStatusRefresh();
 musicInit();
 speechInit();
+voicesInit();
 _wireModeGroupTabSemantics();
 // Option A (redesign v2.1): a dimmed mode chip switches to the model that
 // makes it. Capture phase, so it runs before the chip's own onclick.

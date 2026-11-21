@@ -50,9 +50,9 @@ function engineStatus(e) {
 }
 
 // Modes this engine may serve. `excluded_modes` exists because some UI intents
-// resolve to a mode an engine nominally supports but must not get: 'character'
-// submits mode=t2v but stacks LTX LoRAs, and 'i2v_clean_audio' muxes an
-// external track onto LTX video. Mirrors engine_serves_mode() in Python, which
+// resolve to a mode an engine nominally supports but must not get:
+// 'i2v_clean_audio' muxes an external track onto LTX video. Character is
+// an identity selection; the server chooses its engine-specific conditioning. Mirrors engine_serves_mode() in Python, which
 // is the copy that decides.
 function engineServesMode(e, mode) {
   if (!e) return false;
@@ -60,8 +60,8 @@ function engineServesMode(e, mode) {
   // take_seconds; both engines render it — H3 as 15 s parts, LTX as 10 s —
   // so it is asked about as the mode it ships under. Without this the chip
   // would be folded as eng-foreign on H3, the engine the feature was built on.
-  if (mode === 'oneshot') mode = 't2v';
   if ((e.excluded_modes || []).indexOf(mode) !== -1) return false;
+  if (mode === 'oneshot' || mode === 'character') mode = 't2v';
   if (!e.modes) return true;
   return e.modes.indexOf(mode) !== -1;
 }
@@ -441,7 +441,7 @@ function h3FlexModes(which) {
 }
 function h3FlexServesMode(mode, which) {
   if (mode == null) mode = (document.getElementById('mode') || {}).value || 't2v';
-  if (mode === 'oneshot') mode = 't2v';
+  if (mode === 'oneshot' || mode === 'character') mode = 't2v';
   const modes = h3FlexModes(which);
   return !modes || modes.indexOf(mode) !== -1;
 }
@@ -1410,6 +1410,9 @@ function _engineRowVisible() {
 // The Remix parent pill is a UI GROUP whose children are real modes, so it
 // counts as served when the engine serves ANY of them.
 function _modeChipMode(chip) {
+  // A tool for any finished clip (Re-voice): no engine renders it as a mode,
+  // so the picked model never greys it out or switches for it.
+  if (chip.dataset.anyEngine != null) return '';
   if (chip.dataset.lipsync) return 'a2v';
   return chip.dataset.mode || '';
 }

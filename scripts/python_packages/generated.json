@@ -1,0 +1,85 @@
+{
+  "sets": {
+    "engine-core": {
+      "input_sha256": "b91bd057c94c44365bbea9e18a86d7d13132a3b8974b5e60ea77d027786eca47",
+      "lock_sha256": "d5c1de4d92049e157f7ee5d88811ba87faf70ae206bd5568aed9816aeabd4b95"
+    },
+    "mlx-repair": {
+      "input_sha256": "924f065509cb9c2bca43f52184ff6d4b26e78f9d941ebbf3e412903d2d1b149f",
+      "lock_sha256": "5c4d722a7df00a7219d191ff8a2e42ce2213dba6c9c354249eef74c74332d87d"
+    },
+    "vlm": {
+      "input_sha256": "a103456fd3ce5762b77a1975169631cc3fcccb5187bb6f2806333eb33af0a5dd",
+      "lock_sha256": "38f683b82b4129f612fc1ad3c292624c613b5f2f6b3b54e514899102d63c055a"
+    },
+    "mflux": {
+      "input_sha256": "f81412cde2de6cbacc770a1e1dfbae1957b04b57020d4a87bc3edc2e96d1dd53",
+      "lock_sha256": "16cb59387bad997830f61a4c50c111c513e6d4f01739bd2172f9b095aa34e43f"
+    },
+    "mflux-repair": {
+      "input_sha256": "704d5166f7c4d511224cc2e76affc55a6d5e14ca475fed89c89aa18f6a1a0192",
+      "lock_sha256": "37a2046b67e32a80986f78998b6d4bddf4910d912a9dcbe2323b55f26f1dd540"
+    },
+    "teacache": {
+      "input_sha256": "833debb1edccb75ca731ffe92b1170422853b5ef184e82b3d5c77737c149d749",
+      "lock_sha256": "1211a90045460ca3a5850edd525bce6e0500557085ec2dc2c836556d958bfe38"
+    },
+    "sharp": {
+      "input_sha256": "fa2b976aaec64496cc059c82c86a47673899e9452a83966670401f33face5f2a",
+      "lock_sha256": "6a291c45c4a82978670d461172ec3895dc96c3920270ac2231c241f73565948e"
+    },
+    "pillow": {
+      "input_sha256": "4e309eb439548ed27dfd7a14cf53217a3688bf84742e5f1153452124e6fa941e",
+      "lock_sha256": "374eba9819de5153477dcfd7c8a522e4afef3b5d34ff7ef51636da9a8de9c22f"
+    },
+    "utilities": {
+      "input_sha256": "216a22749b726cf5760358bd3bc7b7e89d54dcf5dc7494e4c2913755a90a6200",
+      "lock_sha256": "a4c068fb15aa3de371d3c309608af17fa9cba6e7a1d038016350193e17872486"
+    },
+    "transfer": {
+      "input_sha256": "c433516219905898c14a4137a7400dfe912fba52c45ac496dcaa0791b4c9c6b9",
+      "lock_sha256": "02a37ffeae8467e3a261d97380b9fa831a2165458163c0c2c0a0d6ac195bac13"
+    },
+    "certifi": {
+      "input_sha256": "7e9518f00a24f5a7ca6613d9828815510997e480072928808f495fbf20c5c6ad",
+      "lock_sha256": "bb6a2789e7c327e7e3bf2c37c383332823623d637fa73bcbaa0cfedaf6448608"
+    },
+    "litellm": {
+      "input_sha256": "1e0d0f44e98401389a706d664b959262d63b1e95e449826bdaf8fa92b2f0831e",
+      "lock_sha256": "703098ac9a619679347a088c1670f5ca7a2c777508e6dc73005d441a58654203"
+    },
+    "agents": {
+      "input_sha256": "0d21b1a35fd4f975d7fd8c71acc58bca252e09894806f2543028d6c3328e0c82",
+      "lock_sha256": "cbe2ba2c37fac7f5944abb86aa30cb494cba6ec5162b5a1a79051087df843463"
+    },
+    "face-tools": {
+      "input_sha256": "5cd65fa3a1c9542eefd76f068a4bd3343a224ea1d11a940b3a262b536042f8e3",
+      "lock_sha256": "9bb1f368868daf5d2976738fe583b638b9a271f7bfe4c1d805b2cb8b73156284"
+    },
+    "flux3": {
+      "input_sha256": "69b40aa3a16bf8da303b29e44e2eb39979d0b87e23091c293587b42145ea3288",
+      "lock_sha256": "97e2d6e8a7c4df32d4561da6bb0be92f02de01ca9f81864ee0fb0c5e3105570b"
+    },
+    "h3": {
+      "input_sha256": "d24de0ed40c6d3aca05e30faf889a890794c443df16b6ab78dbdc60a3ff6c853",
+      "lock_sha256": "bdd15b25a7fd5927cc70214622141078f83b6855513ff6ac196b0237689ef420"
+    },
+    "speech": {
+      "input_sha256": "ff2722cdd83f175d5ad15fb5e83ad7cf8369d3dd118aff734376460c187e0288",
+      "lock_sha256": "3c01523088da02d7d1bdfa843809fa823f16cb81d37f2538cde181f55784c0fd"
+    }
+  },
+  "sources": {
+    "scripts/pinokio/ltx_engine_env.sh": "fb6110e0eb9f1dc989bbaf333e4c084b4c0028c4eb8bef7f3bb9a20af61c45b1",
+    "scripts/pinokio/mflux_pack.sh": "a0c2b87ffaedde4cc5c2728e3742f38e072035e26dfa581d56c105c19fa9be70",
+    "scripts/post_update.sh": "a68ee4798cf84a71d0c3aac6a80fd033efc1212989267cfe8b55044055cb81f6",
+    "install_qwen.js": "da81382ae2b8d5f24f87383ca7e9d56fabd6a7af37aaad7d0ed8b32522d3da73",
+    "install_sharp.js": "b1ae706d688abad7c2cec0be05e64bf8f128d523198960faf1ec28959496ed43",
+    "scripts/pinokio/h3_deps.sh": "0efed95c2e32c58d51ea93c846413567105066ac7175207f21b3f73bcfa40c9b",
+    "scripts/pinokio/h3_checkout.sh": "c569b7d4a6fd64e698c4f115ec6a36f8f96c1826f7960bbd4a03bf136a0458c5",
+    "scripts/pinokio/a2v_stems_deps.sh": "bd7cb19d6d4b4c4c14213c303b9b641b31642935dcd7edce2a6a9bf6ae1b6619",
+    "scripts/pinokio/flux3_env.py": "4ee3c6a63fcfb5e960acc3d2a3fa46099e23d82f79a1c202363e88b240b18c0e",
+    "scripts/speech/speech_setup.sh": "113bcc580285bc9b44d6e83abc1eecced65a610d77526fb29c92ccb0df6390d8",
+    "mlx_ltx_panel.py": "1f298b8295ecc377914d580b6e9e17a632a0999a2fb98bc83ff5342f1734be92"
+  }
+}

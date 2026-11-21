@@ -8,6 +8,7 @@
 # step's exit code and stops a script only when the step's OUTPUT matches
 # /error:/i or /errno /i (pinokiod kernel/shells.js default `on` handlers).
 set -euo pipefail
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-60}"
 MUSIC_ARG="${1:-}"
 if [ -z "$MUSIC_ARG" ] || ! MUSIC_CHECKOUT="$(cd "$MUSIC_ARG" 2>/dev/null && pwd)"; then
   echo "FATAL error: the YuE2 music engine folder is missing (${MUSIC_ARG:-<none>}) - its download did not finish. Click Install again."

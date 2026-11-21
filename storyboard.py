@@ -2033,6 +2033,10 @@ def shot_to_job(shot: dict, policy_pass: dict, *,
     elif duration_s > 0:
         job["frames"] = ltx_frames_for(duration_s)
 
+    if "voice_id" in shot:
+        job["voice_id"] = shot["voice_id"]
+    if "voice_method" in shot:
+        job["voice_method"] = shot["voice_method"]
     if shot.get("character_id"):
         job["character_id"] = shot["character_id"]
         # A CHARACTER JOB SPEAKS A DIFFERENT QUALITY VOCABULARY, and make_job

@@ -45,8 +45,11 @@ PARTS = ("pro_remote", "pro_remote_crypto", "pro_relay_grant")
 # paying Pinokio user's licence check said "Pro is active" while every option that asks the add-on
 # (`_ps.extra`) read Free, and clicking Faster Flex Turbo opened the buy window. An install without it
 # is fetched again once (`ADDON` missing from the record, unless the pack had none: `no_addon`).
-OPTIONAL = ("_ps",)
+# Re-voice (since 5.0.78) runs in its own sealed module beside the add-on; a pack without it (before
+# 5.0.78) is fetched again once for it, like the add-on (`no_revoice` once a pack had none).
+OPTIONAL = ("_ps", "pro_revoice")
 ADDON = "_ps" + SO
+REVOICE = "pro_revoice" + SO
 TRUSTED = {"pro-2026-10": "K/27SibA0PprIa5SZ6W8ITdYs8LExFerEUeiJRMB2qg="}   # the app's ProKeys
 MAX_PART = 32 << 20
 MAX_PACK = 1 << 30
@@ -165,8 +168,12 @@ def addon_installed() -> bool:
 
 
 def _needs_addon(rec: dict | None) -> bool:
-    """An install made before the add-on was taken: fetch the same version again, once."""
-    return bool(rec) and ADDON not in rec.get("files", {}) and not rec.get("no_addon")
+    """An install made before the add-on (or Re-voice) was taken: fetch the same version again, once."""
+    if not rec:
+        return False
+    files = rec.get("files", {})
+    return ((ADDON not in files and not rec.get("no_addon"))
+            or (REVOICE not in files and not rec.get("no_revoice")))
 
 
 def addon_bundle() -> str | None:
@@ -371,6 +378,8 @@ def fetch(opener=None) -> dict:
                "installed_at": int(time.time())}
         if ADDON not in files:
             doc["no_addon"] = True                  # this pack has none: do not fetch it again for that
+        if REVOICE not in files:
+            doc["no_revoice"] = True
         old = _record()
         old_ok = _verified(old) if old else None
         cur = root() / "current.json"

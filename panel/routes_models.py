@@ -549,3 +549,31 @@ def post_storage_cleanup(h, path, qs, ctype) -> None:
         h._json({"error": "Cleanup could not finish. Refresh Storage to see what remains."}, 500)
     finally:
         P.pack_folder_unlock(locks)
+
+
+@get("/h3/rewriter")
+def get_h3_rewriter(h, parsed) -> None:
+    # H3 "Write it for me": is the prompt writer on this Mac, what would the
+    # one-time setup cost, and what is the setup doing now. Free for everyone
+    # (Apache 2.0, no licence screen, no Pro check).
+    h._json(P.h3_rewriter.status()); return
+
+
+@post("/h3/rewriter/install")
+def post_h3_rewriter_install(h, path, qs, ctype) -> None:
+    # Opt-in, on the first "Write it for me" click: download the publisher's
+    # checkpoint (pinned), convert it to MLX here, delete the download.
+    # Progress rides GET /h3/rewriter (`fetch`).
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    def _gpu_take() -> None:
+        P._GPU_LOCK.acquire()
+        P.gpu_gate_mark("h3_rewriter_setup")
+
+    def _gpu_give() -> None:
+        P.gpu_gate_unmark()
+        P._GPU_LOCK.release()
+    # The download runs beside renders; the MLX conversion waits its turn on the GPU gate.
+    code, payload = P.h3_rewriter.fetch_start(push=P.push, gpu=(_gpu_take, _gpu_give))
+    h._json(payload, code); return

@@ -115,7 +115,7 @@ LOG="$(mktemp -t phos_engine_env)" || LOG=/dev/null
 defuse() { tee -a "$LOG" | sed -u -e 's/[Ee][Rr][Rr][Oo][Rr]:/problem -/g' -e 's/[Ee]rrno /errno-/g'; }
 
 attempt() {
-  uv pip install --python env/bin/python -c "$EC" 'mlx==0.31.1' 'mlx-lm==0.31.1' \
+  "$PY" "$APP_ROOT/scripts/python_packages/install.py" engine-core -- uv pip install --python env/bin/python -c "$EC" 'mlx==0.31.1' 'mlx-lm==0.31.1' \
     'mlx-metal==0.31.1' 'transformers>=5.0.0,<5.13.0' 2>&1 | defuse || return 1
   # The packages' dependencies resolve WITH the pins, the same as
   # scripts/post_update.sh step 3 (4.19.0). Alone, this resolve took the newest
@@ -124,18 +124,18 @@ attempt() {
   # walked it DOWN to 0.31.2 (mflux 0.18.0 wants <0.32) - every fresh install
   # since late August ran mlx 0.31.2 with an mlx-arsenal that declares it
   # cannot. Pinned here the solver picks mlx-arsenal 0.11.1 and mlx stays 0.31.1.
-  uv pip install --python env/bin/python -c "$EC" --build-constraints ../pip-build-constraints.txt \
+  "$PY" "$APP_ROOT/scripts/python_packages/install.py" pypi-only -- uv pip install --python env/bin/python -c "$EC" --build-constraints ../pip-build-constraints.txt \
     'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1' 'transformers>=5.0.0,<5.13.0' \
     ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer 2>&1 | defuse || return 1
-  uv pip install --python env/bin/python -c "$EC" --reinstall --no-deps \
+  "$PY" "$APP_ROOT/scripts/python_packages/install.py" pypi-only -- uv pip install --python env/bin/python -c "$EC" --reinstall --no-deps \
     --build-constraints ../pip-build-constraints.txt \
     ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer 2>&1 | defuse || return 1
-  uv pip install --python env/bin/python -c "$EC" --no-deps 'mlx-vlm==0.4.4' 2>&1 | defuse || return 1
+  "$PY" "$APP_ROOT/scripts/python_packages/install.py" vlm -- uv pip install --python env/bin/python -c "$EC" --no-deps 'mlx-vlm==0.4.4' 2>&1 | defuse || return 1
   # opencv-python: the lip-sync checks (timing correction, score, Continue the
   # song). Until 19 Nov 2026 only the FLUX 3 image pack brought it, so the Mac
   # app's engine never had it and every one of those checks skipped in silence.
   # The panel also adds it to an older engine on first use (FACE_TOOLS).
-  uv pip install --python env/bin/python -c "$EC" certifi pillow numpy 'huggingface-hub>=1.5.0,<2.0' \
+  "$PY" "$APP_ROOT/scripts/python_packages/install.py" engine-extras -- uv pip install --python env/bin/python -c "$EC" certifi pillow numpy 'huggingface-hub>=1.5.0,<2.0' \
     'hf_transfer>=0.1.6' 'litellm>=1.83.14' 'smolagents>=1.24.0' 'pywebpush>=2.0' \
     'opencv-python>=4.10,<5' 2>&1 | defuse || return 1
   # The --reinstall above replaced the patched ltx_core_mlx: put the codec patch

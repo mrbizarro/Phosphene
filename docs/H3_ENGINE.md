@@ -1064,6 +1064,33 @@ a 298 MB rank-16 adapter (`witcherderivia/minimax-h3-image-restyle` @ b506c0bb, 
   feature-detects the flags from the installed runner (`h3image_lowmem_supported`); an older engine keeps the
   resident path and its 48 GB floor.
 
+## Write it for me — the local H3 prompt writer (R&D L48, Free, first shipped in 5.0.78)
+
+A short idea in, H3's trained three-field prompt out, reviewed in the Enhance
+panel before anything renders. `h3_rewriter.py` (panel side, stdlib),
+`scripts/h3_rewriter_worker.py` (the child, LTX venv, mlx-lm 0.31.1 `qwen3_5`),
+`scripts/pinokio/h3_rewriter_fetch.py` (one-time setup). Routes:
+`GET /h3/rewriter`, `POST /h3/rewriter/install`, `POST /h3/rewrite`.
+
+- **Model:** `lightx2v/MiniMax-H3-Prompt-Rewriter-Qwen3.5-9B-FL2VA` at
+  `ea2a677`, Apache 2.0. Downloaded from the publisher (18.8 GB BF16, the MTP
+  head skipped), converted on the Mac with `mlx_lm convert -q` (vision tower
+  dropped), 8-bit on 32 GB+ (9.5 GB), 4-bit below (about 5 GB), download deleted.
+  LICENSE, MiniMax's writing guide and a NOTICE (source + what changed) sit beside it.
+- **Request format** is the one it was trained on: system = task prefix +
+  `VIDEO_PROMPT_WRITING_GUIDE_base_en.md`; user = task type (T2VA), duration,
+  shot instructions, original prompt. Thinking off; temp 0.7, top-p 0.8, top-k 20.
+- **Memory:** child process, loads, writes, exits; under `_GPU_LOCK` with the
+  LTX helper parked first, so it never shares memory with a render.
+  L48: 11.4 GB peak at 8-bit, median 10.1 s per rewrite on an M4 Max.
+- **Known habits (L48):** cuts 19/20 five-second clips into two shots (the
+  **One shot** switch asks for a single take); occasionally invents unspoken
+  content ("a girl whispers a secret" got a secret). Spoken lines were kept
+  exactly in 20/20.
+- **Not yet:** I2VA / first+last frame (needs the vision tower: an `mlx_vlm`
+  follow-up), the 27B, a cached guide prefix (most of the 10 s is reading the
+  3.9k-token guide).
+
 ## What H3 does *not* do
 
 - **Modes**: Remix and Character are LTX-pipeline-specific; the picker snaps

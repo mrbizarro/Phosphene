@@ -85,7 +85,7 @@ function capVariantNow() {
 
 function capServesMode(row, mode) {
   if (!row || !Array.isArray(row.modes)) return true;
-  if (mode === 'oneshot') mode = 't2v';
+  if (mode === 'oneshot' || mode === 'character') mode = 't2v';
   return row.modes.indexOf(mode) !== -1;
 }
 
@@ -143,6 +143,7 @@ function _capSet(el, reason) {
 
 function _capChipMode(chip) {
   if (typeof _modeChipMode === 'function') return _modeChipMode(chip);
+  if (chip.dataset.anyEngine != null) return '';
   return chip.dataset.lipsync ? 'a2v' : (chip.dataset.mode || '');
 }
 

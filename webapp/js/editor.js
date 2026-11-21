@@ -15804,7 +15804,8 @@ function workflowSwitch(name) {
     if (currentMode === 'image' && typeof setMode === 'function') {
       setMode(_videoModeBeforeImages);
     }
-    if (manual) manual.style.display = '';
+    // Re-voice keeps its own form in place of the video form.
+    if (manual) manual.style.display = currentMode === 'revoice' ? 'none' : '';
   }
   // The Ideogram edit canvas belongs to the Images workflow only — re-sync
   // so leaving suspends it (player/outputs restored) and returning to

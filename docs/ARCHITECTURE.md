@@ -52,6 +52,11 @@ ltx_windows.py          ← PURE: the sliding-window schedule and per-window
 storyboard_editor.py    ← the Editor's document model: clips, overlays
                           (cards and titles), transitions, the mix — every
                           accessor the preview, render and export share
+voices.py              ← saved voices, character assignment and trained-adapter resolution
+(Re-voice of a finished clip runs in the Pro pack; the Studio keeps the hook revoice_addon())
+voice_pass.py          ← H3 phrase ownership, timing validation, LTX sub-renders and residual mix
+scripts/voice_pass_align.py ← short-lived Whisper timing worker; releases MLX before LTX
+scripts/demucs_cli.py  ← relocatable Demucs entry point with FFmpeg output, no torchcodec
 room_tone.py            ← PURE numpy: the Editor's room-tone beds (film-derived
                           or preset ambience, periodic loop, BS.1770 level)
 panel_assets/

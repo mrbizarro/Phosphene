@@ -125,6 +125,7 @@ function osDocument() {
   };
   if (beats.some(Boolean)) doc.beats = beats;
   if (OS.image) doc.image = OS.image;
+  doc.voice_id = document.getElementById('osVoice')?.value ?? 'inherit';
   if (OS.engine === 'ltx' && OS.character) doc.character_id = OS.character;
   const seed = String((osEl('osSeed') || {}).value || '').trim();
   if (seed) doc.seed = seed;
@@ -597,6 +598,10 @@ function oneshotTabLeave() {
 // document is rebuilt from the take block, and the tab opens on it.
 function oneshotOpenFromParams(p) {
   p = p || {};
+  voicesRefresh().then(() => {
+    const voice = osEl('osVoice');
+    if (voice) voice.value = p.voice_id == null ? 'inherit' : (p.voice_id || 'default');
+  }).catch(() => {});
   _osApplyStoredPrefs();
   const take = p.take || {};
   OS.engine = (take.engine || p.engine) === 'h3' ? 'h3' : 'ltx';

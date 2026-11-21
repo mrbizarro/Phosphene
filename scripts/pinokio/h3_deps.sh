@@ -63,7 +63,7 @@ HC_COPY="$(mktemp .venv/.phosphene_constraints.XXXXXX)" || {
 }
 cp "$HC" "$HC_COPY" || { echo 'FATAL error: cannot copy H3 constraints - retry Repair'; exit 1; }
 HC="$HC_COPY"
-if ! uv pip install --python .venv/bin/python -c "$HC" -r requirements.txt; then
+if ! .venv/bin/python "$HERE/../python_packages/install.py" h3 -- uv pip install --python .venv/bin/python -c "$HC" -r requirements.txt; then
   echo 'FATAL error: the H3 packages did not install - the lines above say why (network, disk).'
   exit 1
 fi

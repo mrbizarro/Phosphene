@@ -1431,7 +1431,7 @@ function _renderCharsAppliedNote() {
   // reset the checkbox when hiding so a stale check from a previous
   // selection doesn't accidentally suppress voice on a silent character.
   if (voicePill) {
-    voicePill.hidden = !c.audio_lora_path;
+    voicePill.hidden = !c.has_voice;
     if (voicePill.hidden) {
       const cb = document.getElementById('noVoice');
       if (cb) cb.checked = false;
@@ -1445,9 +1445,14 @@ function _renderCharsAppliedNote() {
   const triggerCode = c.trigger
     ? ` ${T('loras.trigger', '· trigger')} <code>${escapeHtml(c.trigger)}</code>`
     : '';
-  const silentBadge = (!c.audio_lora_path)
+  const silentBadge = (!c.has_voice)
     ? ` · <em title="${TA('loras.no_audio_lora_on_disk', 'No audio LoRA on disk — face only')}">silent</em>`
     : '';
+  if (currentEngine() !== 'ltx' || !c.face_lora_path) {
+    note.innerHTML = `<strong>${name}</strong>`;
+    note.hidden = false;
+    return;
+  }
   const cur = parseFloat(document.getElementById('characterStrength')?.value || '1.0');
   const voi = parseFloat(document.getElementById('characterVoiceStrength')?.value || '1.0');
   const hasVoice = !!c.audio_lora_path;

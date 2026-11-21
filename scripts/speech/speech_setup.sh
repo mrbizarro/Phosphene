@@ -44,7 +44,7 @@ case "$STEP" in
     echo "venv ok"
     ;;
   packages)
-    uv pip install --python "$VENV/bin/python" -c scripts/speech/speech_constraints.txt "mlx-audio==0.5.8" || {
+    "$VENV/bin/python" scripts/python_packages/install.py speech -- uv pip install --python "$VENV/bin/python" -c scripts/speech/speech_constraints.txt "mlx-audio==0.5.8" || {
       echo "FATAL error: could not install the speech engine packages. Check your connection, then click Install again."
       exit 1
     }

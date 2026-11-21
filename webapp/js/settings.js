@@ -736,6 +736,45 @@ async function copyBugDiagnostics() {
     if (statusEl) statusEl.textContent = T('settings.could_not_copy_select_the', 'Could not copy — select the text above manually.');
   }
 }
+// Keep the entire encoded URL below the conservative mail-app limit. Count
+// Unicode code points so Chinese and emoji never leave a broken surrogate.
+function bugEmailLink(title, body, notice) {
+  const prefix = 'mailto:support@phosphene.video?subject=' +
+    encodeURIComponent(Array.from(title).slice(0, 80).join('')) + '&body=';
+  const full = prefix + encodeURIComponent(body);
+  if (full.length <= 1800) return {url: full, cut: false};
+  const chars = Array.from(body);
+  const suffix = '\n\n' + notice;
+  let lo = 0, hi = Math.min(chars.length, 1800);
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if ((prefix + encodeURIComponent(chars.slice(0, mid).join('') + suffix)).length <= 1800) lo = mid;
+    else hi = mid - 1;
+  }
+  return {url: prefix + encodeURIComponent(chars.slice(0, lo).join('') + suffix), cut: true};
+}
+async function emailBugDiagnostics() {
+  const statusEl = document.getElementById('bugStatus');
+  if (!bugWhatOk()) {
+    bugWhatShow(true);
+    document.getElementById('bugWhat')?.focus();
+    return;
+  }
+  const what = bugWhatText();
+  const title = bugComposeTitle(document.getElementById('bugTitle').value, what);
+  const body = bugComposeBody(document.getElementById('bugBody').value, what);
+  try {
+    await navigator.clipboard.writeText(title + '\n\n' + body);
+  } catch (e) {
+    statusEl.textContent = T('settings.could_not_copy_select_the', 'Could not copy — select the text above manually.');
+    return;
+  }
+  const notice = T('settings.email_full_diagnostics_copied', 'The full diagnostics are copied. Paste them into the email.');
+  const mail = bugEmailLink(title, body, notice);
+  statusEl.textContent = mail.cut ? notice :
+    T('settings.email_diagnostics_copied', 'Diagnostics copied. Your mail app will open with the report.');
+  window.location.href = mail.url;
+}
 async function submitBugReport() {
   const submitBtn = document.getElementById('bugSubmitBtn');
   const statusEl = document.getElementById('bugStatus');
@@ -2056,6 +2095,10 @@ const PRO_FEATURES = [
     line: T('settings.ai_paints_real_picture_above', 'AI paints real picture above and below, as if the clip was shot tall. For Macs with 48 GB or more.'),
     short: T('settings.ai_paints_real_picture_above_2', 'AI paints real picture above and below. For Macs with 48 GB or more.'),
     where: T('settings.more_on_any_finished_clip', 'More, on any finished clip') },
+  { id: 'revoice', name: T('settings.revoice', 'Re-voice'),
+    line: T('settings.revoice_line', 'Give any line in a finished video or audio file one of your saved voices. The picture and the rest of the sound stay exactly as they are; a new copy is saved in Outputs.'),
+    short: T('settings.revoice_short', 'give any line in a finished clip one of your saved voices.'),
+    where: T('settings.revoice_where', 'Video, the Re-voice mode; or More, on any finished clip') },
   { id: 'remote', name: T('settings.remote_control', 'Remote Control'),
     line: T('settings.start_and_watch_renders_from', 'Start and watch renders from your iPhone while your Mac does the work. Remote is part of Pro: get the Phosphene Remote app on the App Store and connect it to this Mac.'),
     short: T('settings.start_and_watch_renders_from_2', 'start and watch renders from your iPhone with the Phosphene Remote app.'),
@@ -2321,7 +2364,7 @@ Object.assign(globalThis, {
   appearanceGet, applyAppearance, setAppearance,
   renderNotifyState, toggleNotify, askNotifyPermission,
   updateModelsCard, dismissModelsCard, applyTierGates, openTierModal,
-  closeTierModal, openBugModal, closeBugModal, submitBugReport, copyBugDiagnostics, bugWhatInput,
+  closeTierModal, openBugModal, closeBugModal, submitBugReport, copyBugDiagnostics, emailBugDiagnostics, bugWhatInput,
   openSettingsModal, renderModelsDriveRows, renderGroupDirty, undoRenderSettings, settingsProOpen,
   openMacAppSettings, renderSettingsPro, modelsDriveView, toggleAnalytics, saveAnalyticsKey, clearAnalyticsKey,
   toggleSpicyMode, onTokenInput, toggleTokenVisibility, testToken,

@@ -239,7 +239,11 @@ def prompt(user_prompt: str, n: int) -> str:
     if re.search(r"(?mi)^\s*subject_definitions\s*:", text) or n < 1:
         return text
     f = _fields(text)
-    detail = f.get("integrated_multimodal_description") or (text if not f else "")
+    detail = f.get("integrated_multimodal_description")
+    if detail is None:
+        # Plain text above "overall_soundscape:" is the description (it was dropped, 21 Nov).
+        head = re.search(r"(?m)^\s*(" + "|".join(CORE_FIELDS) + r")\s*:", text)
+        detail = text[:head.start()].strip() if head else text
     subjects = "\n".join(
         f"<Subject {i}> is the subject of <Picture {i}> (a person, a thing or a place), "
         f"preserving exactly how it looks there." for i in range(1, n + 1))

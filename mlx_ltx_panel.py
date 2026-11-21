@@ -139,6 +139,9 @@ import storyboard_planner
 # Pure stdlib; applied in run_h3_job_inner right before the runner argv.
 import h3_prompt_guards
 import h3_refs
+# H3 "Write it for me": a local 9B prompt writer (R&D L48), run in a
+# short-lived child before an H3 render. Pure stdlib on the panel side.
+import h3_rewriter
 import clip_title
 
 # --- Paths -------------------------------------------------------------------
@@ -4656,8 +4659,6 @@ def list_characters() -> list[dict]:
     render appropriately.
     """
     loras_dir = _safe_loras_dir()
-    if not loras_dir.is_dir():
-        return []
     voice_exts = sorted(TRAIN_VOICE_EXTS)
     out: list[dict] = []
     for face_path in sorted(loras_dir.glob("*_v2.safetensors")):
@@ -4727,15 +4728,30 @@ def list_characters() -> list[dict]:
                 if part.get("ltx_fusion_tally")
             ],
         })
+    # A saved character exists before face training. Merge by trigger so
+    # training later upgrades the same picker entry and voice assignment.
+    from character_library import saved_characters
+    known = {c["id"] for c in out}
+    for char in saved_characters(_CHARACTERS_CACHE_PATH):
+        if char["id"] not in known:
+            out.append(char)
+    for char in out:
+        bundle = _character_bundle(char["id"])
+        char["pictures"] = [str((_CHARACTERS_CACHE_PATH / char["id"] / name).resolve())
+                            for name in bundle.get("pictures", [])] or ([char["sample_image_path"]]
+                                                     if char.get("sample_image_path") else [])
+
     return out
 
 
 def list_library_characters() -> list[dict]:
     """Characters the active generation can safely offer in the UI."""
-    return [
-        char for char in list_characters()
-        if char.get("ltx_compatible") is not False
-    ]
+    from voices import VoiceLibrary
+    assignments = VoiceLibrary(STATE_DIR).assignments()
+    chars = [char for char in list_characters() if char.get("ltx_compatible") is not False]
+    for char in chars:
+        char["has_voice"] = bool(char.get("audio_lora_path") or assignments.get(char["id"]))
+    return chars
 
 
 # ---- Shipped sample character ------------------------------------------------
@@ -5893,7 +5909,7 @@ VIDEO_MODEL_FIRST = ("Download the video model first. Open Settings \u2192 Model
                      "and press Download, then generate again.")
 VIDEO_MODEL_ACTION = {"label": "Download the video model", "open": "models",
                       "api": "POST /models/video"}
-_NO_LTX_BASE_MODES = frozenset({"image", "music", "speech", "train", "sharp_export"})
+_NO_LTX_BASE_MODES = frozenset({"image", "music", "speech", "train", "voice_train", "voice_prepare", "revoice_detect", "sharp_export"})
 _NO_LTX_BASE_ENGINES = frozenset({"h3", "music", "speech"})
 
 
@@ -5901,6 +5917,8 @@ def job_needs_ltx_base(params: dict | None) -> bool:
     """Does this job render with the LTX video model? (Images, songs, speech,
     training, Sharp export and Hailuo H3 have their own models and gates.)"""
     p = params or {}
+    if p.get("voice_route") == "voice_pass":
+        return True
     if str(p.get("mode") or "t2v").strip().lower() in _NO_LTX_BASE_MODES:
         return False
     return (str(p.get("engine") or "ltx").strip().lower()) not in _NO_LTX_BASE_ENGINES
@@ -13760,7 +13778,7 @@ def job_recipe_minutes(params: dict, *, calibration: bool = False) -> tuple[str,
     None (never a guess) when the recipe can't be priced reliably."""
     p = params or {}
     mode = str(p.get("mode") or "t2v").strip().lower()
-    if mode in ("image", "train", "upscale", "sharp_export", "vertical_export", "music", "speech"):
+    if mode in ("image", "train", "voice_train", "voice_prepare", "upscale", "sharp_export", "vertical_export", "music", "speech"):
         return None
     engine = str(p.get("engine") or "ltx").strip().lower()
     if engine in ("music", "speech"):
@@ -16263,6 +16281,12 @@ def h3_flex_turbo_spec() -> dict | None:
     """What H3 Flex Turbo needs and runs, from the Pro add-on. None on Free."""
     if not bool(pro_status().get("active")):
         return None
+    try:
+        import _ps
+        if not callable(getattr(_ps, "h3_flex_turbo_argv", None)):
+            return None
+    except ImportError:
+        return None
     return _h3_pro_addon("h3_flex_turbo")
 
 
@@ -16306,7 +16330,10 @@ def h3_flex_turbo_argv(paths: dict | None = None) -> list[str] | None:
     resolved = paths or h3_flex_turbo_paths()
     if not resolved.get("files_ok") or resolved.get("lora") is None:
         raise RuntimeError("the H3 Flex Turbo LoRA is not available")
-    return [str(a).replace("{adapter}", str(resolved["lora"])) for a in spec["argv"]]
+    # A metadata dictionary must not double as an executable recipe. The pack
+    # owns argument construction and checks its licence again at execution time.
+    import _ps
+    return _ps.h3_flex_turbo_argv(str(resolved["lora"]))
 
 
 _h3_flex_turbo_dl_lock = threading.Lock()
@@ -21466,7 +21493,7 @@ ENGINES: tuple[dict, ...] = (
         "builtin": False,
         "probe": "h3",
         "modes": H3_MODES,
-        "excluded_modes": ("character", "i2v_clean_audio"),
+        "excluded_modes": ("i2v_clean_audio",),
         "serves_label": "Text, Image, Keyframes, Extend, Lip-sync and Add sound",
         "surfaces": ("video", "oneshot"),
         # H3 takes ONE adapter through the same `--lora` flag Turbo rides, out
@@ -21612,6 +21639,8 @@ def engine_serves_mode(engine: dict, mode: str) -> bool:
     affordance; make_job calls THIS one for the decision that counts."""
     if mode in (engine.get("excluded_modes") or ()):
         return False
+    if mode == "character":
+        mode = "t2v"
     modes = engine.get("modes")
     if not modes:
         return True
@@ -22504,7 +22533,7 @@ def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | Non
                         "UV_TOOL_BIN_DIR": str(runtime / "tool-bin")})
         # Bound both individual requests and the whole repair. Keep uv's
         # cache so an interrupted download can be reused by the next attempt.
-        env["UV_HTTP_TIMEOUT"] = "60"
+        env.setdefault("UV_HTTP_TIMEOUT", "60")
         env["UV_HTTP_RETRIES"] = "3"
         # One download at a time (H35, fleet 15-17 Nov: Mac app 5.0.25-5.0.43, 4 Macs,
         # "the install took longer than 10 minutes" on every try): parallel
@@ -23824,6 +23853,12 @@ def _analytics_job_secrets(job: dict) -> list:
         v = p.get(k)
         if isinstance(v, str) and v.strip():
             out.append(v.strip())
+    # Phrase-specific alignment errors are useful locally, but their words
+    # are private. Include the complete prefix to redact even "Bro" (<6 chars).
+    for index, phrase in enumerate(p.get("voice_phrases") or []):
+        text = str(phrase.get("text") or "")
+        if text:
+            out.extend((text, f'Phrase {index+1} “{text}”'))
     for k in ("output", "error_path"):
         v = (job or {}).get(k)
         if isinstance(v, str) and v.strip():
@@ -23940,6 +23975,10 @@ _ANALYTICS_FEATURES = ("storyboard_plan", "storyboard_export", "editor_open",
                        # the clicks that never got there, so neither number
                        # silently absorbs the other.
                        "train_refused",
+                       # 5.0.78: H3 "Write it for me" produced a prompt (sent
+                       # on success, with the clip length as detail; never
+                       # the prompt itself).
+                       "h3_write",
                        # Growth pass 2026-10-19: the clip toolbar's Share
                        # (caption with the repo link + the file selected in
                        # Finder). Nothing about the clip is sent - only that
@@ -24009,7 +24048,7 @@ def _star_prompt_counts(job: dict) -> bool:
     and failed, stopped or cancelled jobs produced nothing."""
     if not isinstance(job, dict) or job.get("status") != "done":
         return False
-    return ((job.get("params") or {}).get("mode") or "") != "train"
+    return ((job.get("params") or {}).get("mode") or "") not in ("train", "voice_train", "voice_prepare", "revoice_detect")
 
 
 def _star_prompt_next(settings: dict, job: dict, history: list) -> dict:
@@ -24936,6 +24975,8 @@ def _analytics_render_event(job: dict) -> None:
         if status not in ("done", "failed"):
             return
         p = (job or {}).get("params") or {}
+        if p.get("mode") == "revoice_detect":
+            return  # transcription is preparation, not a completed render
         # An image job that failed before its engine was known has no
         # params["engine"]; defaulting it to "ltx" filed every failed image
         # render (FLUX 3 included) under LTX and hid it from the image fail
@@ -26254,8 +26295,8 @@ def upscale_max_output() -> tuple[int, int]:
 
 def upscale_output_canvas(src_w, src_h) -> tuple[int, int] | None:
     """The canvas an Upscale ×2 of a src_w×src_h clip renders at on this Mac,
-    or None when the size is unknown or the tier refuses it anyway (scale
-    < 1.25 has its own sentence). The worker's own arithmetic, shared."""
+    or None when the size is unknown. Hardware fitting uses the same
+    aspect-preserving grid rounding as the other LTX lanes. S7HT9P7G."""
     try:
         sw, sh = int(src_w or 0), int(src_h or 0)
     except (TypeError, ValueError):
@@ -26263,10 +26304,7 @@ def upscale_output_canvas(src_w, src_h) -> tuple[int, int] | None:
     if sw <= 0 or sh <= 0:
         return None
     cap = int(tier_max_dim("i2v") or 0) or max(sw, sh) * 2
-    scale = min(2.0, cap / float(max(sw, sh)))
-    if scale < 1.25:
-        return None
-    return ltx_floor_canvas(int(sw * scale), int(sh * scale))
+    return ltx_fit_canvas(sw * 2, sh * 2, cap)
 
 
 def upscale_output_refusal(src_w, src_h) -> str | None:
@@ -26288,24 +26326,95 @@ def upscale_output_refusal(src_w, src_h) -> str | None:
             f"{lim_w // 2}×{lim_h // 2} or smaller.")
 
 
-def upscale_frame_plan(src_frames: int, form_frames=None) -> tuple[int, int]:
-    """(frames the ×2 delivers, frames the model renders) for a source clip.
+# S7HT9P7G GPU check (21 Nov 2026, M4 Max 64 GB running a scratch Studio with
+# the Compact 16 GB and 24 GB settings, Q4 + the Pixel Spatial Upscaler, Face
+# Fix preset): this IC-reference lane keeps the whole Q4 transformer resident
+# (it does not stream blocks from disk like T2V/I2V on small Macs) and cannot
+# halve the frame rate, so its peak grows with canvas × frames. 768×512:
+# 121 frames 16.2 GiB MLX peak, 129 frames 16.5, 241 frames ~21 GB process
+# footprint; 768×768 at 241 frames ~25 GB and swapped even on 64 GB. The 241
+# native-frame ceiling first proposed here did not fit. Compact therefore
+# allows the work of 768×512 × 129 frames (the length this lane was measured
+# at, UPSCALE_FULL_CLIP_FRAMES), scaled by the output area. Lab numbers from a
+# 64 GB Mac running the Compact settings, not a real 16/24 GB Mac.
+FACE_FIX_COMPACT_PIXEL_FRAMES = 768 * 512 * UPSCALE_FULL_CLIP_FRAMES
+# Larger Macs also need a ceiling: only this work was measured without swap.
+# In particular, 768×768 × 241 is beyond it even on a 64 GB Mac.
+FACE_FIX_LARGE_PIXEL_FRAMES = 768 * 512 * 241
 
-    Delivered = the source's own count, up to the ceiling; rendered = the
-    next 1+8k at or above it (the held tail is cut off afterwards). A clip
-    past the ceiling is covered from its start, on a grid that fits."""
+
+def face_fix_compact_max_frames(out_w: int, out_h: int) -> int:
+    """Longest LTX grid (1 + 8k) Upscale & Face Fix renders at out_w×out_h on
+    this Mac, bounded by measured pixel × frame work on every tier."""
+    budget = (FACE_FIX_COMPACT_PIXEL_FRAMES if SYSTEM_TIER == "base"
+              else FACE_FIX_LARGE_PIXEL_FRAMES)
+    area = max(1, int(out_w) * int(out_h))
+    frames = budget // area
+    return max(9, 1 + 8 * ((frames - 1) // 8))
+
+
+def face_fix_preflight(source_path: str, *, check_models: bool = True) -> dict:
+    """S7HT9P7G: one read-only plan for the picker, both queue doors and worker.
+
+    Never silently trims a clip: a clip longer than this Mac can fix in one
+    pass is refused before it queues, with the length to trim it to.
+    """
+    def refused(message, code="hardware_tier"):
+        return {"ok": False, "code": code, "error": message}
+
+    src = Path(str(source_path or ""))
+    if not source_path or not src.is_file():
+        return refused("Pick a video clip that is still on this Mac.", "input_missing")
+    sw, sh = _probe_video_dims(str(src))
+    if not (sw and sh):
+        return refused("Could not read this video's size and length. Pick another clip.", "input_missing")
+    canvas = upscale_output_canvas(sw, sh)
+    if not canvas or canvas[0] < sw or canvas[1] < sh or canvas == (sw, sh):
+        return refused("This clip is already at the largest size this Mac can fix. Choose a smaller source clip.")
+    error = upscale_output_refusal(sw, sh)
+    if error:
+        return refused(error)
+    out_w, out_h = canvas
+    frames = _probe_video_frames(str(src))
+    if not frames:
+        return refused("Could not read this video's length. Pick another clip.", "input_missing")
+    grid = ltx_grid_frames_up(frames)
+    cap = face_fix_compact_max_frames(out_w, out_h)
+    if cap and grid > cap:
+        fps = _probe_video_fps(str(src)) or FPS
+        seconds = int((cap - 1) / max(1.0, fps))
+        return refused(f"This clip is too long for Upscale & Face Fix on this Mac at {out_w}×{out_h}. "
+                       f"Trim it to {seconds} seconds or less in the Editor, then try again. "
+                       "The original clip will be kept.")
+    if not upscale_canvas_decodable(out_w, out_h, grid):
+        return refused("This clip is too large to save after Face Fix. Choose a smaller source clip.")
+    if check_models:
+        if not face_fix_adapter_ready():
+            return refused(_face_fix_missing_sentence(), "pack_missing")
+        quant = "q8" if SYSTEM_CAPS.get("allows_q8") and not hq_surface_missing() else "q4"
+        if _canonical_layout() and pack_repo(quant):
+            missing = ([] if pack_available_anywhere(quant) else pack_missing_files(quant))
+            missing += text_encoder_missing_files()
+            if missing:
+                return refused("Upscale & Face Fix is downloaded, but the LTX video model is incomplete. "
+                               "Open Settings → Model files and use Repair to finish downloading it. "
+                               "Your other models and clips will be kept.", "pack_missing")
+    return {"ok": True, "width": out_w, "height": out_h, "frames": frames,
+            "message": f"Output: {out_w}×{out_h}. The whole clip and its sound are kept."}
+
+
+def upscale_frame_plan(src_frames: int, form_frames=None) -> tuple[int, int]:
+    """Keep every source frame; preflight refuses work beyond this Mac's budget.
+
+    The form's generation length is not an upscale control. Only the padded
+    tail added for the model's 1+8k grid is removed from the output.
+    """
     try:
         asked = int(form_frames or 0)
     except (TypeError, ValueError):
         asked = 0
     out_frames = int(src_frames or 0) or asked or 49
-    ceiling = max(UPSCALE_FULL_CLIP_FRAMES, asked)
-    out_frames = min(out_frames, ceiling)
-    grid = ltx_grid_frames_up(out_frames)
-    if grid > ceiling:
-        grid = max(9, 1 + 8 * ((ceiling - 1) // 8))
-        out_frames = grid
-    return out_frames, grid
+    return out_frames, ltx_grid_frames_up(out_frames)
 
 
 # mlx_warm_helper._DECODE_MAX_ELEMENTS: the decoder's int32 limit, with headroom.
@@ -30347,6 +30456,9 @@ def oneshot_form(data: dict) -> tuple[dict, str | None]:
         return {}, "handoff must be 'last' or 'speech'"
     character = g("character_id")
     form: dict[str, str] = {
+        "voice_id": g("voice_id", "inherit"),
+        "voice_method": g("voice_method", "voice_pass"),
+        "voice_character_id": character,
         "engine": engine,
         "mode": "i2v" if image else "t2v",
         "prompt": prompt,
@@ -30852,7 +30964,8 @@ def _face_tools_install_cmd(uv: Path, constraints: Path | None) -> list[str]:
     cmd = [str(uv), "pip", "install", "--python", str(HELPER_PYTHON)]
     if constraints is not None:
         cmd += ["-c", str(constraints)]
-    return cmd + [FACE_TOOLS_SPEC]
+    return [str(HELPER_PYTHON), str(ROOT / "scripts/python_packages/install.py"),
+            "face-tools", "--"] + cmd + [FACE_TOOLS_SPEC]
 
 
 def face_tools_autoinstall(on_log=None, now: float | None = None) -> str | None:
@@ -30901,7 +31014,7 @@ def face_tools_autoinstall(on_log=None, now: float | None = None) -> str | None:
             env.update({"UV_CACHE_DIR": str(runtime / "uv-cache"),
                         "UV_PYTHON_INSTALL_DIR": str(runtime / "python"),
                         "UV_PYTHON_PREFERENCE": "only-managed", "UV_NO_CONFIG": "1"})
-        env["UV_HTTP_TIMEOUT"] = "60"
+        env.setdefault("UV_HTTP_TIMEOUT", "60")
         env["UV_HTTP_RETRIES"] = "3"
         # uv 0.11 splits a -c path at spaces and the Mac app lives under
         # "Application Support" (bootstrap.sh's own workaround): hand it a copy
@@ -37915,22 +38028,18 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
     quality = _f("quality", "balanced").lower()
     cid = _f("character_id", "")
     if cid:
-        # ONLY REFUSE WHEN H3 WOULD ACTUALLY RENDER IT. `engine=h3` in the form
-        # is a REQUEST, not the outcome: make_job downgrades it to LTX when H3
-        # isn't installed, when the Mac lacks the RAM, or when the mode is one
-        # H3 doesn't serve. Refusing on the raw field 400'd requests that were
-        # about to render correctly on LTX with the full character stack — so
-        # this asks the same question make_job answers, through the same
-        # registry, instead of trusting the field.
-        if _engine_would_be_h3(_f("engine", ENGINE_DEFAULT), _f("mode", "t2v")):
-            return ("Hailuo H3 can't load a trained character's face or voice "
-                    "LoRAs. Choose LTX or clear character_id.")
         try:
             char = next((c for c in list_characters() if c.get("id") == cid), None)
         except Exception as exc:  # noqa: BLE001 - turn discovery failure into API 400
             return f"could not resolve character {cid!r}: {exc}"
         if not char:
             return f"character {cid!r} not found; request was not queued"
+        # H3 uses pictures, not the face adapter; LTX can use a picture
+        # before training. Keep the declared-but-missing adapter check below.
+        if _engine_would_be_h3(_f("engine", ENGINE_DEFAULT), _f("mode", "t2v")):
+            return None
+        if not char.get("face_lora_path"):
+            return None
         if char.get("ltx_compatible") is False:
             return str(char.get("ltx_compat_reason") or
                        f"character {cid!r} is incompatible with the active "
@@ -37958,9 +38067,17 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
         # refuses; NEVER DECLARED is silent by construction and renders.
         audio_declared = str(char.get("audio_lora_path") or "").strip()
         if audio_declared and not no_voice and not Path(audio_declared).is_file():
-            return (f"character {cid!r} is missing its trained voice LoRA. "
-                    "Restore/train the voice file, or submit no_voice=on "
-                    "explicitly; request was not queued")
+            # A saved library voice replaces this adapter. A broken original
+            # must not prevent rendering the explicitly selected replacement.
+            from voices import VoiceLibrary, resolve_render_voice
+            try:
+                replacement = resolve_render_voice(VoiceLibrary(STATE_DIR), form, list_characters(), cid)
+            except ValueError as exc:
+                return str(exc)
+            if not replacement:
+                return (f"character {cid!r} is missing its trained voice LoRA. "
+                        "Restore/train the voice file, or submit no_voice=on "
+                        "explicitly; request was not queued")
         # Character mode on Q4 submits with Quick/Balanced/Standard. The
         # identity match is imperfect but the requested face + voice pair is
         # present. Q8 users who pick quality=high get the full-fidelity path.
@@ -39271,7 +39388,9 @@ def job_input_refusal(params: dict) -> str | None:
     m = str(p.get("mode") or "t2v").strip().lower()
     if m == "image":
         return image_job_input_refusal(p)
-    if m in ("music", "train", "speech"):
+    if m in ("revoice_detect", "revoice"):
+        return None if Path(p.get("source_path") or "").is_file() else "The Re-voice source clip is no longer on disk."
+    if m in ("music", "train", "speech", "voice_train", "voice_prepare"):
         return None
     if p.get("engine", "ltx") == "ltx":
         for key in capability_repo_keys("render"):
@@ -39518,6 +39637,41 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # make_job() entry point so /queue/add stays mode-agnostic; the
     # worker dispatches by params.mode in run_job_inner.
     mode_in = f("mode", "t2v")
+    if mode_in == "character":
+        mode_in = "t2v"
+        form["mode"] = "t2v"
+    _selected_character = None
+    if f("character_id"):
+        _selected_character = next((c for c in list_characters()
+                                    if c["id"] == f("character_id")), None)
+        if not _selected_character:
+            raise CharacterRequestError("Character not found")
+        if (not _selected_character.get("face_lora_path") and mode_in == "t2v"
+                and not _engine_would_be_h3(f("engine", ENGINE_DEFAULT), mode_in)):
+            pictures = _selected_character.get("pictures") or []
+            if pictures:
+                mode_in = "i2v"
+                form.update(mode="i2v", image=pictures[0])
+    if mode_in in ("revoice_detect", "revoice"):
+        addon = revoice_addon()
+        if addon is None:
+            raise CharacterRequestError(REVOICE_PRO_ONLY)
+        return addon.make_job(sys.modules[__name__], form)
+    if mode_in in ("voice_prepare", "voice_train"):
+        from voices import VoiceLibrary
+        try:
+            _voice = VoiceLibrary(STATE_DIR).get(f("voice_id"))
+        except ValueError as exc:
+            raise CharacterRequestError(str(exc)) from exc
+        if mode_in in ("voice_train", "voice_prepare") and _voice.get("training") != "ready":
+            if 0 < float(SYSTEM_RAM_GB or 0) < TRAIN_MIN_RAM_GB:
+                raise CharacterRequestError(f"Voice training needs at least {TRAIN_MIN_RAM_GB} GB of memory.")
+        return {"id": _new_job_id(), "status": "queued", "queued_at": iso_now(),
+                "started_at": None, "started_ts": None, "finished_at": None,
+                "elapsed_sec": None, "params": {"mode": mode_in, "engine": "ltx",
+                "voice_id": _voice["id"], "prompt": _voice["name"],
+                "preset_label": "Train voice" if mode_in == "voice_train" else "Clean voice"}}
+
     if mode_in == "music" or f("engine") == "music":
         params = music_params(form)
         # REFUSE WHAT WOULD RENDER SOMETHING ELSE, before it is queued.
@@ -39866,7 +40020,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     _quality_choice_raw = f("quality_choice", "")
     _quality_raw = f("quality", "")
     _character_quality = None
-    if _character_id:
+    if _character_id and _selected_character.get("face_lora_path"):
         _character_quality = resolve_character_quality(
             _quality_choice_raw or _quality_raw, ACTIVE_MODEL_VERSION)
         if _character_quality is None:
@@ -40900,22 +41054,29 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # Bounded to [0, 2.0] same as parse_loras_from_form for any user-picked
     # LoRA — overriding to 0 effectively disables a character without
     # forcing the user to clear the picker.
-    if _character_id:
-        # THE RESOLVED ENGINE, NOT THE RAW FORM FIELD. ~350 lines above, this
-        # function has already downgraded `_engine` from "h3" to "ltx" for
-        # three legitimate reasons: H3 isn't installed, the Mac hasn't got the
-        # RAM, or the mode is one H3 doesn't serve (extend / keyframe / a2v /
-        # restore / ingredients / control). Re-reading `f("engine")` here threw
-        # away that resolution and 400'd requests make_job was about to render
-        # correctly on LTX with the full character stack.
-        #
-        # This is the same lockstep-drift class the character gates were
-        # written to catch — a value corrected in one place while its partner
-        # three screens away still read the original.
-        if _engine == "h3":
-            raise CharacterRequestError(
-                "Hailuo H3 can't load a trained character's face or voice "
-                "LoRAs. Choose LTX or clear character_id.")
+    if _character_id and (_engine == "h3" or not _selected_character.get("face_lora_path")):
+        # Identity is engine-specific; voice resolution below is shared.
+        pictures = _selected_character.get("pictures") or []
+        for picture in pictures:
+            if not Path(picture).is_file():
+                raise CharacterRequestError("Character picture is missing; add it again.")
+        job["params"]["character_id"] = _character_id
+        job["params"]["character_face_lora"] = False
+        if _engine == "h3" and pictures and not bool(pro_status().get("active")):
+            # Pictures on H3 go through References (Pro). Free keeps the character's voice and says so in one
+            # line, instead of a job the worker refuses with a switch Free cannot use (release review, 21 Nov).
+            job["params"]["refs_note"] = ("On Hailuo H3, a character's pictures go into References, which is part "
+                                          "of Phosphene Pro, so this clip uses the character's voice but not "
+                                          "their pictures.")
+        elif _engine == "h3" and pictures:
+            job["params"]["h3_refs"] = True
+            for key, picture in zip(("h3_reference", "h3_reference2", "h3_reference3"),
+                                    (pictures + ["", "", ""])[:3]):
+                job["params"][key] = picture
+        elif _engine == "ltx" and pictures and mode_in == "t2v":
+            job["params"].update(mode="i2v", image=pictures[0])
+    elif _character_id:
+        job["params"]["character_face_lora"] = True
         try:
             char_strength = float(f("character_strength", "1.0") or "1.0")
         except (TypeError, ValueError):
@@ -40989,7 +41150,12 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # one-click sample character among them. See the twin check in
         # _validate_character_quality.
         _audio_declared = str(audio_p or "").strip()
-        if _audio_declared and not no_voice and not Path(_audio_declared).is_file():
+        from voices import VoiceLibrary, resolve_render_voice
+        try:
+            _replacement_voice = resolve_render_voice(VoiceLibrary(STATE_DIR), form, list(chars_by_id.values()), _character_id)
+        except ValueError as exc:
+            raise CharacterRequestError(str(exc)) from exc
+        if _audio_declared and not no_voice and not _replacement_voice and not Path(_audio_declared).is_file():
             raise CharacterRequestError(
                 f"character {_character_id!r} is missing its trained voice "
                 "LoRA. Restore/train the voice file, or submit no_voice=on "
@@ -41004,7 +41170,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         if face_p not in existing_paths:
             additions.append({"path": face_p, "strength": char_strength})
             existing_paths.add(face_p)
-        if audio_p and audio_p not in existing_paths and not no_voice:
+        if audio_p and audio_p not in existing_paths and not no_voice and not _replacement_voice:
             additions.append({"path": audio_p,
                               "strength": char_voice_strength})
             existing_paths.add(audio_p)
@@ -41087,6 +41253,82 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             _compat = _ltx_lora_compatibility(_path_raw)
             if _compat["ltx_compatible"] is False:
                 raise CharacterRequestError(_compat["ltx_compat_reason"])
+
+    # Snapshot adapters at submission. Character audio adapters never go through
+    # the weaker sample-reference or conversion route unless explicitly chosen.
+    from voices import VoiceLibrary, resolve_render_voice
+    from voice_pass import dialogue_phrases
+    _voice_library = VoiceLibrary(STATE_DIR)
+    try:
+        _saved_voice = resolve_render_voice(_voice_library, form, list_library_characters(), _character_id)
+        _route = f("voice_method", "voice_pass")
+        if _route not in ("voice_pass", "h3_reference", "conversion"):
+            raise ValueError("Unknown voice method")
+        if _route == "conversion" and os.environ.get("PHOSPHENE_EXPERIMENTAL_VOICE_CONVERSION") != "1":
+            raise ValueError("Voice conversion is experimental and disabled")
+        job["params"]["voice_id"] = _saved_voice["id"] if _saved_voice else ""
+        job["params"]["voice_method"] = _route
+        if _saved_voice:
+            job["params"].update(voice_name=_saved_voice["name"], voice_trigger=_saved_voice["trigger"])
+            if _engine == "ltx" or _route == "voice_pass":
+                _adapter = _saved_voice.get("adapter_path")
+                if not _adapter or not Path(_adapter).is_file():
+                    raise ValueError("Train this voice in Voices before rendering.")
+                job["params"]["voice_adapter"] = _adapter
+            if _engine == "ltx":
+                _old_audio = {c.get("audio_lora_path") for c in list_characters()}
+                job["params"]["loras"] = [x for x in job["params"].get("loras", [])
+                                          if x.get("path") not in _old_audio]
+                job["params"]["loras"].append({"path": _adapter, "strength": (
+                    job["params"].get("character_voice_strength", 1.0)
+                    if _saved_voice["id"] == "character:" + _character_id else 1.0)})
+                job["params"]["voice_route"] = "ltx_lora"
+                job["params"]["prompt"] += f" Audio: {_saved_voice['trigger']} speaking."
+            elif _route == "h3_reference":
+                if _engine != "h3" or not job["params"].get("h3_refs"):
+                    raise ValueError("Voice reference needs H3 References.")
+                if sum(bool(job["params"].get(k)) for k in
+                       ("h3_reference", "h3_reference2", "h3_reference3")) > 2:
+                    raise ValueError("A voice and pictures can use three references in total. Remove one picture.")
+                if not Path(_saved_voice.get("sample_path") or "").is_file():
+                    raise ValueError("This character has a trained voice but no reference sample. Use Voice pass.")
+                job["params"]["voice_sample"] = _saved_voice["sample_path"]
+                job["params"]["voice_route"] = "h3_reference"
+            elif _route == "conversion":
+                job["params"]["voice_sample"] = _saved_voice["sample_path"]
+                job["params"]["voice_route"] = "conversion"
+        if _engine == "h3" and _route == "voice_pass" and f("no_voice", "off").lower() not in ("on", "true", "1", "yes"):
+            # Plain words in, engine format out (owner, 21 Nov 2026): "Bizarro: Hello" or a quoted line with one
+            # character picked becomes H3 dialogue here, so the user never types <d> tags.
+            from voice_pass import plain_dialogue
+            _names = []
+            for _c in list_library_characters():
+                _names += [_c.get("name") or "", re.sub(r"\s*\([^)]*\)\s*$", "", str(_c.get("name") or "")),
+                           _c.get("trigger") or ""]
+            if _saved_voice:
+                _names += [_saved_voice.get("name") or "", _saved_voice.get("trigger") or ""]
+            _default = re.sub(r"\s*\([^)]*\)\s*$", "", str((_saved_voice or {}).get("name") or ""))
+            job["params"]["prompt"] = plain_dialogue(job["params"]["prompt"], _names, _default)
+            _phrases = dialogue_phrases(job["params"]["prompt"])
+            for _phrase in _phrases:
+                _speaker = _phrase["speaker"]
+                _picked = (resolve_render_voice(_voice_library, {"voice_id": "inherit"},
+                           list_library_characters(), _speaker) if _speaker else _saved_voice)
+                if _picked:
+                    if not _picked.get("adapter_path") or not Path(_picked["adapter_path"]).is_file():
+                        raise ValueError("Train this voice in Voices before rendering.")
+                    _phrase["voice"] = {k: _picked[k] for k in
+                                        ("id", "name", "trigger", "adapter_path")}
+            if any(x.get("voice") for x in _phrases):
+                job["params"].update(voice_route="voice_pass", voice_phrases=_phrases)
+            elif _saved_voice:
+                # No spoken line: render anyway, without the voice, and say so in one plain line (it used to
+                # refuse with tag syntax, owner 21 Nov 2026).
+                _who = _default or _saved_voice.get("name") or "This character"
+                job["params"]["voice_note"] = (f"{_who} doesn't say anything in this prompt, so the voice wasn't used. "
+                                               f"To hear it, add a line like: {_who}: Hello there.")
+    except ValueError as exc:
+        raise CharacterRequestError(str(exc)) from exc
 
     _apply_generation_profile_to_job(job)
 
@@ -43237,32 +43479,11 @@ def queue_face_fix(source_path: str, *, board_id: str = "",
     if not face_fix_adapter_ready():
         return {"ok": False, "code": "pack_missing", "error": _face_fix_missing_sentence(),
                 "pinokio": face_fix_pinokio_offer()}
-    sw, sh = _probe_video_dims(str(src))
-    src_frames = _probe_video_frames(str(src)) or 0
-    # VA-22: the target canvas, so the client's queued-toast can say what
-    # this render actually becomes instead of nothing. Real numbers, not an
-    # invented time estimate — the source dims + frame count are cheap and
-    # exact (already probed above for the refusal checks); a wall-clock
-    # guess is not (one measurement at 1024×576 exists, not a table).
-    target_w = target_h = None
-    if sw and sh:
-        qhd = upscale_output_refusal(sw, sh)
-        if qhd:
-            return {"ok": False, "code": "hardware_tier", "error": qhd}
-        cap = int(tier_max_dim("i2v") or 0) or max(sw, sh) * 2
-        scale = min(2.0, cap / float(max(sw, sh)))
-        if scale < 1.25:
-            return {"ok": False, "code": "hardware_tier",
-                    "error": f"{src.name} is already {sw}×{sh} — {FACE_FIX_NAME} "
-                             f"can't go above {cap}px on this Mac."}
-        if src_frames:
-            up_w, up_h = ltx_floor_canvas(int(sw * scale), int(sh * scale))
-            _, grid = upscale_frame_plan(src_frames, src_frames)
-            if not upscale_canvas_decodable(up_w, up_h, grid):
-                return {"ok": False, "code": "hardware_tier",
-                        "error": f"{src.name} is too long to fix at {up_w}×{up_h} "
-                                 "(the video decoder's limit). Cut it shorter first."}
-            target_w, target_h = up_w, up_h
+    plan = face_fix_preflight(str(src))
+    if not plan["ok"]:
+        return plan
+    target_w, target_h = plan["width"], plan["height"]
+    src_frames = plan["frames"]
     meta = _face_fix_source_meta(src)
     form = face_fix_form(src, prompt=meta.get("prompt", ""),
                          seed=meta.get("seed", "-1"), label=meta.get("label", ""),
@@ -44474,6 +44695,14 @@ def run_h3_job_inner(job: dict) -> None:
         # References: a small Studio wrapper sizes each picture the way the reference adapter
         # was distilled, then runs the same pinned runner (the engine checkout is untouched).
         cmd[-1:] = [str(ROOT / "scripts" / "h3_refs_run.py"), str(H3_ROOT), str(width), str(height)]
+        if p.get("voice_route") == "h3_reference":
+            from voices import VoiceLibrary
+            _voice_sample = Path(p.get("voice_sample") or VoiceLibrary(STATE_DIR).sample(p["voice_id"]))
+            if len(refs_pictures) > 2:
+                raise RuntimeError("A voice and pictures can use three references in total.")
+            cmd[-4:] = [str(ROOT / "scripts" / "h3_voice_run.py"), str(H3_ROOT),
+                        str(width), str(height), "--voice", str(_voice_sample)]
+
     # The positional prompt and `--chain-prompts` are MUTUALLY EXCLUSIVE on the
     # runner ("with both, which one a window should use is a guess"), so the
     # positional argument is dropped entirely on the shot-list path. Everything
@@ -44688,7 +44917,13 @@ def run_h3_job_inner(job: dict) -> None:
         # References: the reference model's own prompt layout names each picture.
         cmd += h3_refs.argv(refs_paths, refs_spec, refs_pictures)
         if prompt in cmd:
-            cmd[cmd.index(prompt)] = h3_refs.prompt(prompt, len(refs_pictures))
+            _refs_prompt = h3_refs.prompt(prompt, len(refs_pictures))
+            if p.get("voice_route") == "h3_reference":
+                _refs_prompt = _refs_prompt.replace("retention_analysis:\n",
+                    "retention_analysis:\n<Audio 1>: reference - use the voice timbre from <Audio 1> for the spoken lines.\n", 1)
+                _refs_prompt = _refs_prompt.replace("\n\nsummary:",
+                    "\n<Audio 1> is the voice timbre reference for <Subject 1>'s voice.\n\nsummary:", 1)
+            cmd[cmd.index(prompt)] = _refs_prompt
         push(f"[h3] {h3_refs.NAME}: {len(refs_pictures)} picture(s) on MiniMax H3's reference "
              "model, running natively on Apple Silicon (MLX). Powered by MiniMax H3.")
         _ref_src = ""
@@ -46103,6 +46338,10 @@ def run_take_job_inner(job: dict) -> None:
             # render — never the windows chain, never a Long Clip Boost the
             # profile did not ask for on its own.
             cp["prompt"] = " ".join(c for c in chain if c)
+            # One Shot rebuilds every part's prompt from beats. Keep the saved
+            # audio adapter's trigger when that replaces the parent prompt.
+            if cp.get("voice_route") == "ltx_lora":
+                cp["prompt"] += f" Audio: {cp['voice_trigger']} speaking."
             cp["frames"] = take_ltx_part_frames(len(idxs))
             cp["h3_chain_prompts"] = []
             cp["temporal_mode"] = "native"
@@ -46638,6 +46877,29 @@ def run_sharp_export_job_inner(job: dict) -> None:
 # runs through the ordinary queue like Sharp export so it shows in Now/Queue and
 # never races a render's own ffmpeg mux. The AI fill (outpaint IC-LoRA) is the
 # second layer: the same job mode with fill=ai.
+REVOICE_PRO_ONLY = "Re-voice is part of Phosphene Pro."
+
+
+def revoice_addon():
+    """Re-voice of a finished clip or sound file, from the Pro add-on: the sealed module the pack installs
+    beside the Studio, named by the add-on's answer while Pro is active on this Mac. None on Free, or
+    while the add-on is not here or does not answer for it (the route then shows Free the Pro window,
+    and tells a member "getting Pro ready"). The Studio keeps only this hook; the job is in the pack."""
+    if not bool(pro_status().get("active")):
+        return None
+    spec = _h3_pro_addon("revoice") or {}
+    name = spec.get("module")
+    if not isinstance(name, str) or not re.fullmatch(r"pro_[a-z_]{1,40}", name):
+        return None
+    try:
+        module = importlib.import_module(name)
+    except ImportError:  # the module's own seal refused the pass, or the pack predates it
+        return None
+    if not all(callable(getattr(module, k, None)) for k in ("make_job", "run", "find_session")):
+        return None
+    return module
+
+
 def vertical_ai_fill_spec() -> dict | None:
     """The AI fill's recipe (adapter, strength, steps, band colour), from the Pro add-on.
     None on Free, or when the add-on does not answer for it: the option stays a Pro row."""
@@ -46897,9 +47159,158 @@ def run_vertical_export_job_inner(job: dict) -> None:
         subprocess.run(["open", str(final_out)], check=False)
 
 
+def run_job_voice_pass(job: dict) -> None:
+    """The voice pass of a render with character voices (Free). A Re-voice job ran its own pass inside
+    run_job_inner (the Pro pack hands voice_pass.run its finished file); never a second one here."""
+    if ((job.get("params") or {}).get("mode") or "") in ("revoice_detect", "revoice"):
+        return
+    from voice_pass import run
+    try:
+        run(sys.modules[__name__], job)
+    except (JobStopped, JobCancelled):
+        raise
+    except Exception as exc:
+        # The render is finished and the pass only replaces it at its very end: a pass that cannot finish
+        # (a line it cannot align, a script it cannot read yet) keeps the clip with H3's own voices and says
+        # so, instead of failing a 17-45 minute render (release review, 21 Nov 2026).
+        if ((job.get("params") or {}).get("voice_route") != "voice_pass"
+                or not Path(job.get("output_path") or "").is_file()):
+            raise
+        push("[voice pass] failed, render kept: " + f"{type(exc).__name__}: {exc}"[:400])
+        why = str(exc).strip().rstrip(".")[:200]
+        note = ("The saved voices could not be put in, so this clip keeps the voices Hailuo H3 made"
+                + (f" ({why})." if why else "."))
+        job["warning"] = " ".join(x for x in (job.get("warning"), note) if x)
+        push("[voice pass] " + note)
+
+
+def convert_job_voice(job: dict) -> None:
+    """Finish a fallback render in the same queue slot, before marking it done."""
+    p = job["params"]
+    if p.get("voice_route") != "conversion":
+        return
+    source = Path(job.get("output_path") or "")
+    if not source.is_file():
+        raise RuntimeError("The render produced no clip to convert")
+    from voices import VoiceLibrary
+    voice = Path(p.get("voice_sample") or VoiceLibrary(STATE_DIR).sample(p["voice_id"]))
+    HELPER.kill()  # Never keep LTX resident beside the conversion model.
+    python = _speech_python()
+    if python is None or not _speech_packages_ok():
+        for step in ("preflight", "venv", "packages"):
+            result = run_tracked_subprocess(["bash", str(ROOT / "scripts/speech/speech_setup.sh"), step],
+                pgid_key="speech_pgid", label="voice conversion setup", job=job,
+                cwd=str(ROOT), env=trainer_child_env(), timeout=1800)
+            if result.returncode:
+                raise RuntimeError((result.stdout + result.stderr)[-600:])
+        python = _speech_python()
+    if python is None:
+        raise RuntimeError("Voice conversion setup did not finish. Try again.")
+    models = MODELS_DIR / "voice_conversion"
+    runner = ROOT / "scripts/voices_vc.py"
+    from scripts.voices_vc import ready as voice_conversion_ready
+    if not voice_conversion_ready(models):
+        result = run_tracked_subprocess([str(python), str(runner), "--setup", "--models", str(models)],
+            pgid_key="speech_pgid", label="voice conversion download", job=job,
+            env=trainer_child_env(), timeout=3600)
+        if result.returncode:
+            raise RuntimeError((result.stdout + result.stderr)[-600:])
+    stem, _ = a2v_conditioning_audio({"audio_stem_auto": True}, str(source))
+    converted = source.with_name(source.stem + ".voice.partial.mp4")
+    try:
+        result = run_tracked_subprocess([str(python), str(runner), "--models", str(models),
+            "--source", str(source), "--stem", stem, "--voice", str(voice), "--output", str(converted)],
+            pgid_key="speech_pgid", label="voice conversion", job=job,
+            env=trainer_child_env(), timeout=3600)
+        if result.returncode or not converted.is_file():
+            raise RuntimeError((result.stdout + result.stderr)[-600:] or "Voice conversion produced no clip")
+        _raise_if_cancelled(job, "voice conversion")
+        converted.replace(source)
+        p["voice_conversion"] = {"model": "chatterbox-fp16", "video": "copied", "audio_clock": "preserved"}
+        sidecar = source.with_suffix(source.suffix + ".json")
+        if sidecar.is_file():
+            receipt = json.loads(sidecar.read_text())
+            receipt.setdefault("params", {}).update({k: p[k] for k in
+                ("voice_id", "voice_name", "voice_route", "voice_conversion")})
+            pending = sidecar.with_suffix(".voice.tmp")
+            pending.write_text(json.dumps(receipt, ensure_ascii=False, indent=2))
+            pending.replace(sidecar)
+    finally:
+        converted.unlink(missing_ok=True)
+
+
+def run_voice_job_inner(job: dict) -> None:
+    from voices import VoiceLibrary
+    library = VoiceLibrary(STATE_DIR)
+    voice = library.get(job["params"]["voice_id"])
+    folder = library.folder(voice["id"])
+    try:
+        if voice.get("cleaning") != "separated":
+            source, _ = a2v_conditioning_audio({"audio_stem_auto": True}, str(library.sample(voice["id"])))
+            cleaned = folder / "cleaned.wav"
+            shutil.copyfile(source, cleaned)
+            cleaned.replace(folder / "sample.wav")
+            voice["cleaning"] = "separated"
+            library.save(voice)
+        # Who is speaking, from the cleaned sample: Re-voice names this person in every take.
+        try:
+            voice = library.identity(voice["id"])
+        except (OSError, subprocess.SubprocessError):
+            pass  # described again the next time the voice is listed
+        if (job["params"]["mode"] == "voice_train" or voice.get("training") != "ready"
+                or not (folder / "voice.audio.safetensors").is_file()):
+            voice["training"] = "training"
+            voice.pop("error", None)
+            (folder / "progress.json").unlink(missing_ok=True)
+            library.save(voice)
+            HELPER.kill()
+            spec = {"schema": "phosphene/train_audio@1", "job_id": job["id"],
+                    "trigger": voice["id"], "audio_path": str(library.sample(voice["id"])),
+                    "dataset_dir": str(folder / "training"), "image_count": 0,
+                    "seconds": voice["seconds"], "audio_steps": TRAIN_AUDIO_DEFAULT_STEPS,
+                    "audio_rank": TRAIN_AUDIO_DEFAULT_RANK, "audio_lr": TRAIN_AUDIO_DEFAULT_LR,
+                    "audio_slice_seconds": TRAIN_AUDIO_SLICE_SECONDS,
+                    "output_path": str(folder / "voice.audio.pending.safetensors")}
+            spec_path = folder / "train.json"
+            spec_path.write_text(json.dumps(spec, indent=2))
+            result = run_tracked_subprocess(
+                [str(LORA_LAB_RUN_SH), "python", "-m", "lora_lab.train_voice", str(spec_path)],
+                pgid_key="train_pgid", label="voice training", job=job,
+                env=trainer_child_env(), timeout=7200)
+            (folder / "training.log").write_text(result.stdout + "\n" + result.stderr)
+            if result.returncode or not Path(spec["output_path"]).is_file():
+                raise RuntimeError((result.stderr or result.stdout)[-600:] or "Voice training produced no adapter")
+            # Stop or a failed copy must never expose a partial adapter to renders.
+            _raise_if_cancelled(job, "voice training publication")
+            Path(spec["output_path"]).replace(folder / "voice.audio.safetensors")
+            voice["training"] = "ready"
+            voice["trigger"] = spec["trigger"]
+            voice.pop("error", None)
+            library.save(voice)
+    except Exception as exc:
+        from voices import plain_error
+        voice["error"] = plain_error(exc, isinstance(exc, JobCancelled))
+        voice["error_detail"] = str(exc)[-600:]
+        if voice.get("training") == "training":
+            voice["training"] = "failed"
+        else:
+            voice["cleaning"] = "failed"
+        library.save(voice)
+        raise
+    finally:
+        (folder / "voice.audio.pending.safetensors").unlink(missing_ok=True)
+
+
 def run_job_inner(job: dict) -> None:
     p = job["params"]
     mode = p["mode"]
+    if mode in ("revoice_detect", "revoice"):
+        addon = revoice_addon()
+        if addon is None:
+            raise RuntimeError(REVOICE_PRO_ONLY)
+        return addon.run(sys.modules[__name__], job)
+    if mode in ("voice_prepare", "voice_train"):
+        return run_voice_job_inner(job)
     # 4.19.8: a model whose licence asks for an explicit "I accept" never
     # runs before it is given - whichever way the job arrived. Image jobs are
     # checked again in _preflight_image_job with the config they really run.
@@ -47653,15 +48064,10 @@ def run_job_inner(job: dict) -> None:
                 src_fps = round(float(_n) / float(_d), 3)
         except Exception:                                      # noqa: BLE001
             pass
-        cap = int(tier_max_dim("i2v") or 0) or max(sw, sh) * 2
-        scale = min(2.0, cap / float(max(sw, sh)))
-        if scale < 1.25:
-            raise RenderRefused(
-                "hardware_tier",
-                f"{FACE_FIX_NAME} can't go above {cap}px on the {SYSTEM_CAPS['label']} "
-                f"tier, and {source.name} is already {sw}×{sh}. Use a smaller "
-                "source clip.")
-        up_w, up_h = ltx_floor_canvas(int(sw * scale), int(sh * scale))
+        plan = face_fix_preflight(src, check_models=False)
+        if not plan["ok"]:
+            raise RenderRefused(plan["code"], plan["error"])
+        up_w, up_h = plan["width"], plan["height"]
         # Above QHD the ×2 exhausted 96 GB + swap. Queue time refuses it; this
         # catches every door that did not ask (a restored queue, a replay).
         _qhd = upscale_output_refusal(sw, sh)
@@ -47674,9 +48080,9 @@ def run_job_inner(job: dict) -> None:
         # whose last frame is held for the extra frames, and the held tail
         # is cut off again afterwards (124 out). It used to round DOWN
         # instead, silently dropping up to 7 frames (124 → 121, 72 → 65).
-        # The form's generation length is not an upscale control; it only
-        # widens the ceiling past the length this lane is measured at.
-        out_frames, frames = upscale_frame_plan(src_frames, p.get("frames"))
+        # The form's generation length is not an upscale control. The
+        # preflight checks the whole source, including its padded grid.
+        out_frames, frames = upscale_frame_plan(src_frames)
         if not upscale_canvas_decodable(up_w, up_h, frames):
             # The helper refuses this too, but only after the whole render.
             raise RenderRefused(
@@ -47684,9 +48090,6 @@ def run_job_inner(job: dict) -> None:
                 f"{FACE_FIX_NAME} to {up_w}×{up_h} is past what the video decoder can "
                 f"write safely, even in tiles (the GPU kernels' 2^31-element "
                 f"limit). Use a smaller source clip.")
-        if src_frames and out_frames < src_frames:
-            push(f"{FACE_FIX_NAME}: {source.name} is {src_frames} frames; the ×2 covers "
-                 f"its first {out_frames}")
         try:
             keep = float(p.get("keep_shot") or 1.0)
         except (TypeError, ValueError):
@@ -47809,6 +48212,7 @@ def run_job_inner(job: dict) -> None:
                          "refine_steps": refine_steps if start_from == "source" else None,
                          "keep_shot": keep},
             "params": {**p, "command": "upscale", "keep_shot": keep,
+                       "width": up_w, "height": up_h,
                        "frames": out_frames, "render_frames": frames,
                        "source_frames": src_frames,
                        "source_size": [sw, sh], "audio_from_source": muxed},
@@ -49131,7 +49535,7 @@ def run_job_inner(job: dict) -> None:
         # 2.3 (whose characters go to `high` and never reach this branch) is
         # untouched.
         _char_pack = "q4"
-        if p.get("character_id") and not ltx_quality_uses_hq(quality):
+        if (p.get("character_face_lora", bool(p.get("character_id"))) or p.get("voice_route") == "ltx_lora") and not ltx_quality_uses_hq(quality):
             _char_pack = "q8"
             push(f"[character] {model_version()['label']} characters render on "
                  f"the Q8 weights with the distilled pipeline — the recipe they "
@@ -50001,6 +50405,8 @@ def worker_loop() -> None:
                         import ph3_image_service
                         ph3_image_service.evict()
                     run_job_inner(job)
+                    run_job_voice_pass(job)
+                    convert_job_voice(job)
                 finally:
                     _JOB_CTX.job = None
             job["status"] = "done"
@@ -51270,6 +51676,7 @@ def _unique_output_path(base: Path, stem: str, ext: str = ".mp4") -> Path:
 from panel import routes_agents as _routes_agents
 from panel import routes_bench as _routes_bench
 from panel import routes_capabilities as _routes_capabilities
+from panel import routes_voices as _routes_voices
 from panel import routes_characters as _routes_characters
 from panel import routes_files as _routes_files
 from panel import routes_image as _routes_image
@@ -51290,7 +51697,7 @@ from panel import routes_train as _routes_train
 for _routes_mod in (_routes_agents, _routes_bench, _routes_capabilities, _routes_characters, _routes_files, _routes_image,
                     _routes_licences, _routes_loras, _routes_meta, _routes_models, _routes_music,
                     _routes_oneshot, _routes_pro, _routes_queue, _routes_remote, _routes_speech, _routes_stats,
-                    _routes_storyboard, _routes_train, _civitai_client):
+                    _routes_storyboard, _routes_train, _routes_voices, _civitai_client):
     _routes_mod.P = sys.modules[__name__]
 
 
@@ -54380,6 +54787,50 @@ def _phase_weights(params: dict) -> dict[str, int]:
     return {"setup": setup, "denoise": denoise, "decode": decode, "post": post}
 
 
+def _voice_job_progress(current: dict, elapsed: float) -> dict | None:
+    """The Now card's line for Voices and Re-voice jobs, in creator words.
+    These jobs run no tqdm denoise of their own, so the render parser below
+    would say "Loading pipeline" for the whole job."""
+    p = current.get("params") or {}
+    mode = p.get("mode")
+    base = {"elapsed_sec": round(elapsed, 1), "eta_sec": None, "remaining_sec": None,
+            "denoise_step": None, "denoise_total": None}
+    if mode in ("revoice_detect", "revoice"):
+        rp = current.get("revoice_progress") or {}
+        stage = rp.get("stage")
+        if stage == "rendering":
+            n, total = int(rp.get("phrase") or 1), max(1, int(rp.get("total") or 1))
+            take, takes = int(rp.get("take") or 1), max(1, int(rp.get("takes") or 1))
+            label = f"Making line {n} of {total} in the new voice: \u201c{rp.get('text', '')}\u201d"
+            if takes > 1:
+                label += f" (take {take} of {takes})"
+            pct = 10 + 70 * ((n - 1) * takes + take - 1) / (total * takes)
+        elif stage == "listening":
+            label, pct = "Picking the take that best fits each mouth", 84
+        elif stage == "mixing":
+            label, pct = "Saving the new sound", 94
+        elif mode == "revoice_detect":
+            label, pct = "Finding who says what", min(90, elapsed / 60 * 90)
+        else:
+            label, pct = "Getting the clip ready", min(9, elapsed / 30 * 9)
+        return {**base, "phase": "post", "phase_label": label, "pct": int(pct)}
+    if mode in ("voice_prepare", "voice_train"):
+        try:
+            from voices import VoiceLibrary
+            folder = VoiceLibrary(STATE_DIR).folder(str(p.get("voice_id") or ""))
+            step = json.loads((folder / "progress.json").read_text())
+        except (ValueError, OSError):
+            step = {}
+        total, done = int(step.get("total") or 0), int(step.get("step") or 0)
+        if total:
+            eta = step.get("eta_s")
+            return {**base, "phase": "denoise", "phase_label": f"Training the voice \u00b7 step {done} / {total}",
+                    "pct": int(min(99, 10 + 89 * done / total)), "denoise_step": done, "denoise_total": total,
+                    "remaining_sec": round(float(eta), 1) if isinstance(eta, (int, float)) else None}
+        return {**base, "phase": "setup", "phase_label": "Cleaning the voice clip", "pct": int(min(9, elapsed / 60 * 9))}
+    return None
+
+
 def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None:
     if not current:
         return None
@@ -54388,6 +54839,9 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
     if not started:
         return None
     elapsed = max(0.0, time.time() - started)
+    voice_progress = _voice_job_progress(current, elapsed)
+    if voice_progress:
+        return voice_progress
     eta = _bucket_eta(p)
     signals = _parse_progress_signals(log_lines[-200:] if log_lines else [])
     # Distilled lane, still in stage 1: the bar only knows its own 8 steps, so

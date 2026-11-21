@@ -823,6 +823,119 @@
           "gain": "最多 3 张图片"
         }
       }
+    },
+    {
+      "id": "h3-reference-voices",
+      "kind": "feature",
+      "name": "Voices in Hailuo H3 References",
+      "now": "Use a saved voice in Hailuo H3 References.",
+      "gain": "saved voices",
+      "where": "Hailuo H3 References, Voice",
+      "min_ram_gb": 32,
+      "since": "5.0.78",
+      "i18n": {
+        "de": {
+          "name": "Stimmen in Hailuo H3 References",
+          "now": "Nutze eine gespeicherte Stimme in Hailuo H3 References.",
+          "gain": "gespeicherte Stimmen"
+        },
+        "es": {
+          "name": "Voces en Hailuo H3 References",
+          "now": "Usa una voz guardada en Hailuo H3 References.",
+          "gain": "voces guardadas"
+        },
+        "fr": {
+          "name": "Voix dans Hailuo H3 References",
+          "now": "Utilisez une voix sauvegardée dans Hailuo H3 References.",
+          "gain": "voix sauvegardées"
+        },
+        "it": {
+          "name": "Voci in Hailuo H3 References",
+          "now": "Usa una voce salvata in Hailuo H3 References.",
+          "gain": "voci salvate"
+        },
+        "pt": {
+          "name": "Vozes no Hailuo H3 References",
+          "now": "Use uma voz salva no Hailuo H3 References.",
+          "gain": "vozes salvas"
+        },
+        "ru": {
+          "name": "Голоса в Hailuo H3 References",
+          "now": "Используйте сохранённый голос в Hailuo H3 References.",
+          "gain": "сохранённые голоса"
+        },
+        "ja": {
+          "name": "Hailuo H3 Referencesの声",
+          "now": "Hailuo H3 Referencesで保存した声を使えます。",
+          "gain": "保存した声"
+        },
+        "ko": {
+          "name": "Hailuo H3 References 목소리",
+          "now": "Hailuo H3 References에서 저장한 목소리를 사용하세요.",
+          "gain": "저장한 목소리"
+        },
+        "zh-Hans": {
+          "name": "Hailuo H3 References 声音",
+          "now": "在 Hailuo H3 References 中使用已保存的声音。",
+          "gain": "已保存的声音"
+        }
+      }
+    },
+    {
+      "id": "revoice",
+      "kind": "feature",
+      "name": "Re-voice",
+      "now": "Re-voice: give any line in a finished video or audio file a saved voice. The picture and the rest of the sound stay as they are.",
+      "gain": "new voices on finished clips",
+      "where": "More, on any finished clip",
+      "since": "5.0.78",
+      "i18n": {
+        "de": {
+          "name": "Neu vertonen",
+          "now": "Neu vertonen: Gib jeder Zeile in einem fertigen Video oder einer Audiodatei eine gespeicherte Stimme. Bild und restlicher Ton bleiben, wie sie sind.",
+          "gain": "neue Stimmen für fertige Clips"
+        },
+        "es": {
+          "name": "Cambiar voz",
+          "now": "Cambiar voz: pon una voz guardada en cualquier frase de un vídeo o audio terminado. La imagen y el resto del sonido no cambian.",
+          "gain": "voces nuevas en clips terminados"
+        },
+        "fr": {
+          "name": "Changer la voix",
+          "now": "Changer la voix : donnez une voix enregistrée à n'importe quelle réplique d'une vidéo ou d'un audio terminé. L'image et le reste du son ne changent pas.",
+          "gain": "de nouvelles voix sur vos clips finis"
+        },
+        "it": {
+          "name": "Cambia voce",
+          "now": "Cambia voce: dai una voce salvata a qualsiasi battuta di un video o di un audio finito. L'immagine e il resto del suono restano come sono.",
+          "gain": "voci nuove sui clip finiti"
+        },
+        "pt": {
+          "name": "Trocar voz",
+          "now": "Trocar voz: dê uma voz salva a qualquer fala de um vídeo ou áudio pronto. A imagem e o resto do som continuam iguais.",
+          "gain": "vozes novas em clipes prontos"
+        },
+        "ru": {
+          "name": "Заменить голос",
+          "now": "Заменить голос: дайте сохранённый голос любой реплике в готовом видео или аудио. Картинка и остальной звук не меняются.",
+          "gain": "новые голоса в готовых клипах"
+        },
+        "ja": {
+          "name": "声を差し替え",
+          "now": "声を差し替え：完成した動画や音声のどのセリフにも、保存した声を使えます。映像とほかの音はそのままです。",
+          "gain": "完成したクリップに新しい声"
+        },
+        "ko": {
+          "name": "목소리 바꾸기",
+          "now": "목소리 바꾸기: 완성된 영상이나 오디오의 어떤 대사에도 저장한 목소리를 입힐 수 있어요. 화면과 나머지 소리는 그대로예요.",
+          "gain": "완성된 클립에 새 목소리"
+        },
+        "zh-Hans": {
+          "name": "替换声音",
+          "now": "替换声音：为已完成的视频或音频中的任意台词换上保存的声音。画面和其他声音保持不变。",
+          "gain": "为成片换上新声音"
+        }
+      }
     }
   ]
 }

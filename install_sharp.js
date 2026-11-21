@@ -9,7 +9,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install -c scripts/pinokio/engine_constraints.txt 'pipersr==1.0.0'"
+        message: "./ltx-2-mlx/env/bin/python scripts/python_packages/install.py sharp -- ./ltx-2-mlx/env/bin/pip install -c scripts/pinokio/engine_constraints.txt 'pipersr==1.0.0'"
       }
     },
     {

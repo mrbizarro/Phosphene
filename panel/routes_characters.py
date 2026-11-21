@@ -344,7 +344,8 @@ def post_character_generate(h, path, qs, ctype) -> None:
     # appended via the `extra_loras` form field — JSON array of
     # `{path, strength}` objects. Strengths clamped to [0, 2.0]
     # to prevent footguns.
-    lora_stack = [{"path": char["face_lora_path"], "strength": char_strength}]
+    lora_stack = ([{"path": char["face_lora_path"], "strength": char_strength}]
+                  if char.get("face_lora_path") else [])
     if char.get("audio_lora_path"):
         lora_stack.append({"path": char["audio_lora_path"],
                            "strength": char_voice_strength})
@@ -476,6 +477,9 @@ def post_character_generate(h, path, qs, ctype) -> None:
         _v = form.get(_k, [""])[0]
         if _v:
             job_form[_k] = [_v]
+    for key in ("engine", "h3_tier", "h3_quality", "h3_length", "voice_id", "voice_method", "no_voice"):
+        if key in form:
+            job_form[key] = form[key]
     job_form["character_id"] = [cid]
     job_form["source"] = ["characters"]
     job_form["duration"] = [duration]
@@ -642,3 +646,41 @@ def post_character_rename(h, path, qs, ctype) -> None:
         h._json({"ok": True, "id": cid, "name": new_name})
     except Exception as exc:
         h._json({"ok": False, "error": str(exc)}, 500)
+
+
+@post("/characters/create")
+def post_character_create(h, path, qs, ctype) -> None:
+    from character_library import create_character
+    from voices import VoiceLibrary
+    try:
+        length = int(h.headers.get("Content-Length") or 0)
+        if not ctype.startswith("multipart/form-data") or not 0 < length <= 64 * 1024 * 1024:
+            raise ValueError("Choose up to three pictures, under 64 MB in total")
+        form = P._parse_multipart_form(h.rfile, ctype, length)
+        voice_id = form.getvalue("voice_id") or ""
+        library = VoiceLibrary(P.STATE_DIR)
+        if voice_id:
+            library.sample(voice_id)
+        count = int(form.getvalue("picture_count") or "0")
+        if not 0 <= count <= 3:
+            raise ValueError("Choose up to three pictures")
+        # The shared multipart reader keeps one value per field name.
+        # Number the slots so selecting three files cannot keep only the last.
+        keys = [f"picture{i}" for i in range(count)]
+        if any(key not in form for key in keys):
+            raise ValueError("A picture is missing; choose the pictures again")
+        items = [form[key] for key in keys]
+        pictures = []
+        for item in items:
+            if not getattr(item, "file", None):
+                continue
+            raw, _, error = P.normalize_ingested_image_bytes(item.file.read(), item.filename)
+            if error:
+                raise ValueError(error)
+            pictures.append(raw)
+        character = create_character(P._CHARACTERS_CACHE_PATH, form.getvalue("name") or "", pictures, voice_id)
+        if voice_id:
+            library.assign(character["id"], voice_id)
+        h._json({"character": character}, 201)
+    except (ValueError, OSError) as exc:
+        h._json({"error": str(exc)}, 400)

@@ -8,6 +8,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+import urllib.error
 
 
 def install(target, cache, manifest, pin):
@@ -22,17 +23,30 @@ def install(target, cache, manifest, pin):
     def valid():
         return archive.is_file() and hashlib.sha256(archive.read_bytes()).hexdigest() == manifest["sha256"]
     if not valid():
-        with tempfile.NamedTemporaryFile(dir=cache, prefix="music-source-", delete=False) as out:
-            pending = Path(out.name)
-            try:
-                with urllib.request.urlopen(manifest["url"], timeout=60) as response:
-                    shutil.copyfileobj(response, out)
-                out.flush()
-                if hashlib.sha256(pending.read_bytes()).hexdigest() != manifest["sha256"]:
-                    raise ValueError("music source checksum did not match; retry the download")
-                os.replace(pending, archive)
-            finally:
-                pending.unlink(missing_ok=True)
+        last_error = None
+        urls = [manifest["url"]]
+        if manifest.get("fallback_url"):
+            urls.append(manifest["fallback_url"])
+        for index, url in enumerate(urls):
+            with tempfile.NamedTemporaryFile(dir=cache, prefix="music-source-", delete=False) as out:
+                pending = Path(out.name)
+                try:
+                    # Short first try so a blocked GitHub does not hold setup.
+                    with urllib.request.urlopen(url, timeout=10 if index == 0 else 60) as response:
+                        shutil.copyfileobj(response, out)
+                    out.flush()
+                    if hashlib.sha256(pending.read_bytes()).hexdigest() != manifest["sha256"]:
+                        raise ValueError("music source checksum did not match; retry the download")
+                    os.replace(pending, archive)
+                    break
+                except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+                    last_error = exc
+                finally:
+                    pending.unlink(missing_ok=True)
+            if index + 1 < len(urls):
+                print("Music source unavailable, trying the Phosphene server", flush=True)
+        else:
+            raise last_error
     target.mkdir(parents=True, exist_ok=True)
     # Extract into a private staging folder, accepting only plain files and
     # directories. Preserve existing environments and partial model downloads.
@@ -73,12 +87,12 @@ def install(target, cache, manifest, pin):
 
 
 def main():
-    scripts = Path(__file__).resolve().parents[1]
-    manifest = json.loads((scripts / "music/source_archive.json").read_text())
-    pin = (scripts / "music/engine_pin.txt").read_text().strip()
-    home = Path(os.environ["PHOSPHENE_HOME"])
-    target = Path(os.environ.get("LTX_MUSIC_ROOT") or Path.cwd() / "yue2-mlx")
     try:
+        scripts = Path(__file__).resolve().parents[1]
+        manifest = json.loads((scripts / "music/source_archive.json").read_text())
+        pin = (scripts / "music/engine_pin.txt").read_text().strip()
+        home = Path(os.environ.get("PHOSPHENE_HOME") or Path.cwd() / "cache/music-source")
+        target = Path(os.environ.get("LTX_MUSIC_ROOT") or Path.cwd() / "yue2-mlx")
         install(target, home / "downloads", manifest, pin)
     except Exception as exc:
         # Do not print remote response bodies or user environment values.

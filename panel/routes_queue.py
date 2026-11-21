@@ -767,6 +767,49 @@ def post_helper_restart(h, path, qs, ctype) -> None:
     h._json({"ok": True}); return
 
 
+@post("/h3/rewrite")
+def post_h3_rewrite(h, path, qs, ctype) -> None:
+    # H3 "Write it for me" (R&D L48, Free): a short idea in, the long
+    # three-field prompt H3 was trained on out, shown for review before
+    # anything renders. The model runs in a child that exits when done
+    # (h3_rewriter.py), under the same GPU gate as Enhance, with the LTX
+    # helper parked first so two MLX runtimes never share a small Mac.
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, form = _rb
+    idea = (form.get("prompt", [""])[0] or "").strip()
+    if not idea:
+        h._json({"error": "Type an idea first."}, 400); return
+    seconds = (form.get("seconds", ["5"])[0] or "5").strip()
+    one_shot = (form.get("one_shot", ["0"])[0] or "0").strip().lower() in ("1", "true", "on")
+    if not P.h3_rewriter.installed():
+        h._json({**P.h3_rewriter.status(), "error": "The prompt writer is not set up yet.",
+                 "needs_install": True}, 409); return
+    if not P._GPU_LOCK.acquire(timeout=3.0):
+        reason = P.current_render_busy_reason()
+        P.push(f"[h3-writer] skipped: {reason}")
+        h._json({"error": f"{reason} Write it for me works again when it finishes."}, 409); return
+    P.gpu_gate_mark("h3_rewrite")
+    try:
+        try:
+            P.HELPER.kill()     # park LTX's resident weights before another MLX runtime
+        except Exception:       # noqa: BLE001
+            pass
+        P.push(f"[h3-writer] writing ({seconds}s{', one shot' if one_shot else ''}): {idea[:80]}")
+        res = P.h3_rewriter.rewrite(idea, seconds=seconds, one_shot=one_shot)
+    finally:
+        P.gpu_gate_unmark()
+        P._GPU_LOCK.release()
+    if not res.get("ok"):
+        P.push(f"[h3-writer] failed: {res.get('error')}")
+        h._json(res, 409 if res.get("needs_install") else 500); return
+    P.push(f"[h3-writer] done in {res.get('seconds')}s (peak {res.get('peak_gb')} GB)"
+           + ("" if res.get("format_ok") else " - not in H3's three-field form"))
+    P._analytics_feature("h3_write", f"{res.get('duration')}s")
+    h._json(res); return
+
+
 @post("/prompt/enhance")
 def post_prompt_enhance(h, path, qs, ctype) -> None:
     _rb = h._read_form_body()
@@ -976,11 +1019,10 @@ def post_run(h, path, qs, ctype) -> None:
                  "pinokio": P.face_fix_pinokio_offer()}, 400); return
     # Upscale ×2 above QHD exhausted 96 GB + swap: refused before it queues.
     _up = job["params"]
-    if _up.get("mode") == "upscale" and _up.get("upscale_source_path"):
-        _sw, _sh = P._probe_video_dims(str(_up["upscale_source_path"]))
-        refusal = P.upscale_output_refusal(_sw, _sh)
-        if refusal:
-            h._json({"error": refusal, "code": "hardware_tier"}, 400); return
+    if _up.get("mode") == "upscale":
+        plan = P.face_fix_preflight(str(_up.get("upscale_source_path") or _up.get("restore_video_path") or ""))
+        if not plan["ok"]:
+            h._json(plan, 400); return
     # "Listen to the voice only" on an install that cannot separate a voice:
     # refused NOW with an install offer, never rendered on the full mix.
     refusal = P.a2v_stem_refusal(job["params"])
@@ -990,13 +1032,25 @@ def post_run(h, path, qs, ctype) -> None:
         P.STATE["queue"].append(job)
         P.QUEUE_COND.notify_all()
     P.persist_queue()
-    h._json({"ok": True, "id": job["id"]})
+    _note = " ".join(x for x in ((job.get("params") or {}).get("refs_note"),
+                                 (job.get("params") or {}).get("voice_note")) if x)
+    h._json({"ok": True, "id": job["id"], **({"note": _note} if _note else {})})
 
 
 # UPSCALE & FACE FIX as a clip action: one click on a finished clip (player,
 # Outputs card, history row, Editor clip bar) queues the face-safe recipe for
 # that clip. Server-side so the prompt/seed come from the clip's own sidecar
 # and every door queues exactly the same job.
+@post("/queue/facefix/plan")
+def post_facefix_plan(h, path, qs, ctype) -> None:
+    body = h._read_form_body()
+    if body is None:
+        return
+    _, form = body
+    source = (form.get("source_path") or [""])[0]
+    h._json(P.face_fix_preflight(source))
+
+
 @post("/queue/facefix")
 def post_queue_facefix(h, path, qs, ctype) -> None:
     _rb = h._read_form_body()

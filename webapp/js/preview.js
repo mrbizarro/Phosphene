@@ -760,6 +760,7 @@ async function _renderCharactersManageList() {
   if (!list) return;
   list.innerHTML = '<div class="hint">Loading…</div>';
   try {
+    await voicesRefresh();
     const data = await (await fetch('/characters')).json();
     const chars = (data && Array.isArray(data.characters)) ? data.characters : [];
     if (!chars.length) {
@@ -783,6 +784,7 @@ async function _renderCharactersManageList() {
                value="${escapeHtml(name)}" maxlength="120"
                data-original="${escapeHtml(name)}">
         <span class="cm-trigger" title="${TA('preview.trigger_word_baked_into_the', 'Trigger word — baked into the trained weights, can\'t be renamed')}">${escapeHtml(trigger)}</span>
+        ${voicesCharacterField(c.id)}
         <span class="cm-actions">
           <button type="button" class="cm-btn cm-btn-save"
                   onclick="_charactersManageSave(${idAttr}, this)">${T('preview.save', 'Save')}</button>
@@ -887,6 +889,7 @@ function applyCharacterSelection(id, opts) {
     }
   }
   _renderManualCharactersList();
+  characterSyncReferences();
   // Swap quality strips: when a character is active, the Q4 distilled
   // tiers (Quick / Balanced / Standard) don't match the dev-trained
   // LoRA and produce a soft, generic-Trump-ish render. Only the Q8 HQ
@@ -920,6 +923,14 @@ function _applyCharacterQualityStripVisibility() {
   const char = document.getElementById('qualityGroupCharacter');
   const skipWrap = document.getElementById('charSkipstepToggleWrap');
   if (!def || !char) return;
+  // Selecting a character must not replace H3's controls with LTX tiers.
+  const selected = _manualCharacters.find(c => c.id === _selectedCharacterId);
+  if (currentEngine() !== 'ltx' || (selected && !selected.face_lora_path)) {
+    def.hidden = currentEngine() !== 'ltx';
+    char.hidden = true;
+    if (skipWrap) skipWrap.hidden = true;
+    return;
+  }
   if (_selectedCharacterId) {
     def.hidden = true;
     char.hidden = false;

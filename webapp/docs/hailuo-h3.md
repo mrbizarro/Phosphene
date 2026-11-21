@@ -197,6 +197,18 @@ H3 uses your prompt as written. **Enhance** is available only on LTX and is hidd
 
 Phosphene adds short instructions when it sends your prompt to H3. These keep dialogue spoken rather than sung and discourage rings on bare hands. It also replaces "..." inside dialogue with a comma or full stop. Your original prompt stays as you typed it.
 
+### Write it for me {#write-it-for-me}
+
+Type a short idea, such as *A chef flips a pancake that lands on the cat*, and click **Write it for me**. A prompt writer that runs on your Mac turns it into the full prompt H3 was trained on: the shots, the camera, the light, the sounds and the music. A spoken line in your idea is kept word for word and put in H3's dialogue markers for you. It takes about 10 seconds. The result appears next to your idea; click **Accept** to use it, or **Keep mine**. Nothing renders until you press Generate.
+
+- It is free, and it is set up the first time you click it: a one-time download of about 19 GB that becomes a prompt writer of about 9 GB on your Mac (about 5 GB on Macs with less than 32 GB of memory). The setup needs about 30 GB free while it runs.
+- It usually plans two shots with a cut, even for a 5-second clip. Tick **One shot** next to the button for one continuous take.
+- It can add small details you did not ask for, such as the words of a whispered secret. Read it before you accept it.
+- It works on **Text** clips for now. It cannot look at a start picture.
+- It cannot run while a clip is rendering.
+
+The prompt writer is LightX2V's MiniMax H3 Prompt Rewriter (Qwen3.5 9B, Apache 2.0). Phosphene downloads it from LightX2V and converts it for Apple Silicon on your Mac.
+
 ## Use add-ons (LoRAs) with H3 {#loras}
 
 H3 has its own library of LoRA add-ons. You cannot use LTX LoRAs or trained characters with H3. See [Stacking LoRAs on Hailuo H3](#docs/loras/h3-stacking).

@@ -1027,7 +1027,17 @@ Every save archives its predecessor before the new document lands (~5 KB each). 
 
 | Field | Type | Note |
 |---|---|---|
-| `path` | string | Must be under `mlx_outputs/`. |
+| `path` | string | Must resolve under the outputs folder, a saved files folder (Settings > Saved files) or the uploads folder (videos in `mlx_outputs/`, pictures under `panel_uploads/library/`). A link that points anywhere else, or `..`, is refused with 400. |
+
+Moves the file, its sidecar and its companions (upscaled copies, H3 audio) to the Trash: `~/.Trash`, or the drive's own Trash when the file lives on an external drive. When the clicked path is a link into a saved files folder, the real file goes to the Trash and the link is removed. Nothing is hard-deleted. Answers `{"ok": true, "trashed": [...], "undo": "<token>"}`.
+
+### `POST /output/restore`
+
+| Field | Type | Note |
+|---|---|---|
+| `undo` | string | The token from `/output/delete`. Works once, for 15 minutes. |
+
+Puts back exactly what that delete moved (and the outputs-folder links to files in a saved files folder), and nothing else. A file is skipped (listed in `missing`) when it was already emptied from the Trash or its old name has been taken since. After the token expires, Finder's Trash still has the files.
 
 ### `POST /output/hide`, `POST /output/show`, `POST /output/show_all`
 
@@ -1337,3 +1347,99 @@ The initial retirement list covers unused pre-Y1.024 LTX 2.3 transformer and
 upscaler variants. LTX 2.3 training packs and all Turbo adapters stay protected
 from this action because they remain supported. Future model swaps must add
 reviewed exact filenames to the retirement list, with safety tests.
+
+### Trained voices and the H3 voice pass
+
+`POST /voices/upload` queues cleaning followed by audio-adapter training automatically.
+`GET /voices` includes `busy` and `progress` (`step`, `total`, `eta_s` during training).
+A failed voice can be retried with `POST /voices/train`. Each voice also carries
+`identity` (median, 10th and 90th percentile pitch of its cleaned sample) and
+`speaker_auto`, a plain description made from it ("a man with a low voice");
+`speaker`, when set, is the creator's own description. `POST /voices/speaker`
+with `voice_id` and `speaker` (up to 120 characters, no quotes or brackets)
+sets it; an empty `speaker` goes back to `speaker_auto`. Existing voices get
+`identity` and `speaker_auto` the first time they are listed. Existing trained character
+voices also appear in `character_voices`; select them with `voice_id=character:<id>`.
+They load the trained adapter directly, without requiring a sample WAV.
+
+Render forms accept `voice_method=voice_pass` (default) or `h3_reference` (requires
+H3 References and an available sample). LTX always loads the trained adapter.
+H3 voice pass renders each selected line with LTX, aligns it to the original
+speech, stretches by at most 0.9–1.1, retains the residual sound and copies video.
+Tag different speakers with their character ID before each dialogue tag:
+
+```
+bizarrotrn: <d>[English] Welcome back.</d>
+guest: <d>[English] Glad to be here.</d>
+```
+
+A tagged character without a saved voice retains the original speech. Untagged
+lines use the shot's selected voice. Missing words, overlapping turns or a take
+that runs into another speaker refuse the voice pass, preserving the original.
+Alignment currently requires dialogue with Latin-script words. The original
+clip and generated takes are retained under `state/voice_pass/<job-id>/` on success.
+Voice conversion is experimental, absent from the UI and refused unless the
+server explicitly enables `PHOSPHENE_EXPERIMENTAL_VOICE_CONVERSION=1`.
+
+### Re-voice a finished clip
+
+`POST /voices/revoice` with `path` queues Whisper phrase detection. The path must
+be a video with audio in Outputs or uploads. Finder files can use `POST /upload`
+(multipart `audio` field), then pass its returned path. The response is
+`{queued_id}`. Poll `GET /voices/revoice/status?id=<queued_id>` for queue status,
+`revoice_progress`, and errors. On detection success it includes `session` and
+`phrases` (`text`, `start`, `end`, in seconds). These are phrases, not inferred
+speaker identities; Whisper does not supply speaker diarization.
+
+Submit the returned `session` to `POST /voices/revoice` with `choices`, a JSON
+array parallel to the phrases. Each entry is a trained library voice ID,
+`character:<id>`, or `""` to preserve that phrase. At least one replacement is
+required. The server owns the text, timing and adapter resolution; clients
+cannot submit arbitrary adapter or stem paths. Changed sources are refused.
+
+The LTX voice pass renders four takes of every selected phrase (form field
+`revoice_takes`, 1-6) while the engine stays loaded, then listens to them. Every
+take shows the same person, the voice's `speaker` (else `speaker_auto`), because
+LTX makes the voice from the person it draws; the adapter's trigger appears only
+as the voice's label in the Audio clause. Each take is prompted with the line as it was said (Whisper's casing and punctuation,
+restored when missing) plus a pace and energy hint measured on the original
+("slowly, drawing out the word Bizarro", "quickly", "loud, almost shouting").
+Before rhythm is scored, each take passes an identity check against the voice's
+own sample: its median pitch must lie within 6 semitones of the sample's, and,
+when the Speech pack is installed, its speaker fingerprint (the Qwen3-TTS Base
+speaker encoder, nothing downloaded) must score at least 0.93. A take that is
+someone else is never used. A phrase with no take in the voice gets up to two
+more full rounds; if none passes it keeps its original voice ("none of its N
+takes sounded like ..."). Of the takes that pass, the one whose word lengths and pauses best match the original wins. It is
+warped word by word (pitch-preserving, stretch 0.75-1.35, up to 1.6 on a word
+the original draws out) so each word starts on the original word's onset; the
+original's pauses stay pauses and pauses only the take has are dropped.
+
+A phrase may change only its window: from just after the previous phrase's last
+sound to just before the next phrase's first sound (0.06 s guard, waveform edges,
+not Whisper's), and inside it the original voice is taken out with 30 ms
+crossfades. Outside every window the soundtrack is the source's own samples at
+its own rate, and an AAC source keeps its own sound packets there (the sound is
+not compressed a second time; a decoder may re-roll its noise filler). All takes
+of one voice are brought to the original speaker's loudness and one shared
+gentle EQ.
+
+A sync check scores each phrase (word onsets within one video frame median, no
+word more than three frames late, at least 80 % of the original speech voiced,
+every word said). A phrase that fails gets one more round of takes; if its best
+take still fails it is used and reported in `params.voice_pass.weak` (`line`,
+`text`, `reasons`). A phrase with no usable take keeps its original voice and is
+reported in `params.voice_pass.kept` (`line`, `text`, `reason`); both add to the
+English `warning`. `params.voice_pass.phrases` has a row per changed phrase:
+`window`, `onset_error_frames`, `coverage`, `loudness` / `target_loudness`,
+`gain_db`, `leftover_db`, `takes`, `chosen`, `text`, `hint`, `identity` (the chosen
+take's check: `f0`, `pitch_off_st`, `similarity`, `method`) and `take_checks`, one
+entry per take (`file`, `used`, `identity`, `rhythm` when scored, `reason`); kept
+phrases carry `take_checks` too. Only when no phrase
+changed does the job fail, naming the line.
+A successful job reports a new
+`output_path`: `<name> (re-voiced).mp4`, with a collision suffix when needed.
+Outputs get a sibling; uploaded clips get their new copy in Outputs. The source
+is never overwritten. In the Studio, Re-voice is a mode in the Video tab's left
+column (`setMode('revoice')`, form `#revoiceSection`); leaving the mode leaves
+its queued job running.

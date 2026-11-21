@@ -386,7 +386,7 @@ def cell_allowed(row: dict, cell: dict) -> bool:
 
 def serves_mode(row: dict, mode: str) -> bool:
     modes = row.get("modes")
-    if mode == "oneshot":
+    if mode in ("oneshot", "character"):
         mode = "t2v"
     return modes is None or mode in modes
 

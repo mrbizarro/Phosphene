@@ -79,6 +79,7 @@
 <symbol id="ph-folder-simple" viewBox="0 0 256 256"><path d="M224,208H32V72a8,8,0,0,1,8-8H92.69a8,8,0,0,1,5.65,2.34L128,96h88a8,8,0,0,1,8,8V208Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-device-mobile" viewBox="0 0 256 256"><rect x="64" y="24" width="128" height="208" rx="16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="104" y1="56" x2="152" y2="56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-user-plus" viewBox="0 0 256 256"><circle cx="108" cy="100" r="60" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="200" y1="116" x2="248" y2="116" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="224" y1="92" x2="224" y2="140" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M16,208c20.83-36.04,57.06-60,104-60s83.17,23.96,104,60" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
+<symbol id="ph-microphone" viewBox="0 0 256 256"><rect x="88" y="24" width="80" height="144" rx="40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="128" y1="200" x2="128" y2="232" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M200,128a72,72,0,0,1-144,0" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-music-notes" viewBox="0 0 256 256"><circle cx="180" cy="184" r="28" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><circle cx="52" cy="200" r="28" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="80 200 80 56 208 24 208 184" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="80" y1="88" x2="208" y2="56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-star" viewBox="0 0 256 256"><path d="M132.4,190.7l50.4,32.5a8,8,0,0,0,12.1-8.7l-15.1-57.7a8,8,0,0,1,2.7-8.3l45.6-37.5a8,8,0,0,0-4.6-14.2l-59.5-3.8a8,8,0,0,1-7-5.1L134.6,31.5a8,8,0,0,0-14.9,0L97.3,87.9a8,8,0,0,1-7,5.1L30.8,96.8a8,8,0,0,0-4.6,14.2l45.6,37.5a8,8,0,0,1,2.7,8.3L60.5,209a8,8,0,0,0,12.1,8.7l50.4-32.5A8,8,0,0,1,132.4,190.7Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-x-brand" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" fill="currentColor"/></symbol>
@@ -354,6 +355,7 @@
       <button data-workflow="editor" role="tab" aria-selected="false" data-i18n="workflowTabs.editor"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-scissors"/></svg>Editor</button>
       <button data-workflow="audio" role="tab" aria-selected="false" data-i18n="workflowTabs.audio_new"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-music-notes"/></svg>Audio<span class="new-badge">NEW</span></button>
       <button data-workflow="train" role="tab" aria-selected="false" data-i18n="workflowTabs.train_character"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-user-plus"/></svg>Train Character</button>
+      <button type="button" onclick="voicesOpen()" data-i18n="voices.nav"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-microphone"/></svg>Voices</button>
       <!-- Remote Control: drive this Mac from the iPhone app. The page is Studio UI; the
            working parts are Pro-only and come from the Pro pack (see panel/routes_remote.py). -->
       <button data-workflow="remote" role="tab" aria-selected="false" data-i18n="workflowTabs.remote_control_new_pro"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-remote"/></svg>Remote Control<span class="new-badge">NEW</span><span class="rail-pro pro-tag" data-pro-feature="remote" title="Remote Control is part of Pro" data-i18n-title="workflowTabs.title.remote_control_is_part">Pro</span></button>
@@ -585,7 +587,7 @@
            (character selected → quality flips to Q8, LoRAs auto-stack,
            audio LoRA fuses) is visible in the mode picker, not a hidden
            toggle inside another mode. Q8-only — hidden on cap_tier="q4". -->
-      <button type="button" class="mode-chip pill-btn" data-mode="character" data-i18n="modeGroup.character_trained_face_voice">Character<span class="mc-sub sub">trained face + voice</span></button>
+      <button type="button" class="mode-chip pill-btn" data-mode="character" data-i18n="characters.mode_pictures_voice">Character<span class="mc-sub sub">pictures + voice</span></button>
       <button type="button" class="mode-chip pill-btn" data-mode="i2v" data-i18n="modeGroup.image_image_prompt">Image<span class="mc-sub sub">image + prompt</span></button>
       <!-- VA-33: renamed from "FFLF" — creator words, and distinct from the
            in-form "FFLF / Multi-Keyframe" toggle these chips duplicate
@@ -606,6 +608,10 @@
            openLipSyncEntry(), which jumps to the Audio tab's one-shot form
            (its own submit path — audioStudioGenerate, mode=a2v). -->
       <button type="button" class="mode-chip pill-btn" data-lipsync="1" title="Audio → Video — a picture (optional) and a stretch of audio become one clip whose mouth follows the track." data-i18n-title="modeGroup.title.audio_video_a_picture" data-i18n="modeGroup.lip_sync_picture_your">Lip-sync<span class="mc-sub sub">picture + your audio → it talks / sings</span></button>
+      <!-- Re-voice (Pro) is a mode, not a pop-up (owner, 20 Nov 2026: "Is there a necessity for a
+           pop-up? ... it says Generate. It doesn't say Re-voice."). Its form is #revoiceSection, a
+           sibling of #genForm with its own footer button; setMode('revoice') swaps them. -->
+      <button type="button" class="mode-chip pill-btn" data-mode="revoice" data-any-engine title="Give any line of a finished video or audio file one of your saved voices. The picture and the rest of the sound stay as they are; a new copy is saved in Outputs." data-i18n-title="modeGroup.title.revoice" data-i18n="modeGroup.revoice_new_voice">Re-voice <span class="pro-tag" data-pro-feature="revoice">Pro</span><span class="mc-sub sub">new voice for a clip</span></button>
       <!-- Remix — the IC-LoRA reference tools (Ingredients / Control / Colorize)
            grouped under ONE pill so the mode bar stays uncluttered. All three
            run on Q4 distilled (unlike FFLF/Extend/Character, which are Q8-only
@@ -732,13 +738,7 @@
 
            IDs preserved: charsList / charsEmpty / charsStrengthRow /
            charsAppliedNote / charsSummaryMeta — JS layer untouched. -->
-      <!-- data-ltx-only, added with the rest of the engine scoping: a trained
-           character is a pair of LTX LoRAs fused into an LTX checkpoint. H3
-           runs its own subprocess against its own weights and stacks nothing —
-           `character` is in its excluded_modes for exactly that reason. The
-           avatar strip sits in t2v, which H3 DOES serve, so without this tag it
-           was the loudest LTX-only surface still showing on an H3 render. -->
-      <div class="mode-only" id="manualCharactersPickerSlot" data-ltx-only>
+      <div class="mode-only" id="manualCharactersPickerSlot">
         <div class="chars-strip">
           <div class="chars-avatar-row" id="charsList"><!-- avatars rendered by JS --></div>
           <button type="button" class="chars-strip-action"
@@ -748,7 +748,9 @@
                   title="Rescan mlx_models/characters/ for new bundles"
                   onclick="refreshManualCharacters()" data-i18n-title="manualCharactersPickerSlot.title.rescan_mlx_models_characters"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg></button>
         </div>
-        <div class="chars-q4-note">__Q8_CHARACTER_INSTALL_COPY__</div>
+        <button type="button" class="ghost-btn" onclick="newCharacterOpen()" data-i18n="characters.new">New character</button>
+        <button type="button" class="ghost-btn" onclick="voicesOpen()" data-i18n="voices.library">Voices</button>
+        <div class="chars-q4-note" data-ltx-only>__Q8_CHARACTER_INSTALL_COPY__</div>
         <!-- One-liner that surfaces under the strip when a character is
              active. Shows trigger word + a tiny strength control inline.
              charsSummaryMeta stays as a hidden carrier for legacy JS
@@ -756,20 +758,29 @@
         <div class="chars-strip-active" id="charsAppliedNote" hidden></div>
         <span class="chars-strip-meta-shadow" id="charsSummaryMeta" hidden></span>
         <!-- Empty state — visible only when no bundles exist on disk. -->
-        <div class="chars-strip-empty" id="charsEmpty" hidden data-i18n="charsEmpty.no_trained_characters_yet">
-          No trained characters yet —
-          <a href="#" onclick="workflowSwitch('train'); return false;">train one in the Train tab</a>,
-          or
-          <button type="button" class="ghost-btn js-get-sample-char" style="padding:2px 8px;font-size:12px"
-                  onclick="downloadSampleCharacter()" data-i18n="charsEmpty.get_a_sample_character">get a sample character (Bizarro)</button>
-          to try it right now.
-          <div class="js-get-sample-char-status" style="font-size:12px;opacity:.9;margin-top:6px" hidden></div>
-        </div>
+        <div class="chars-strip-empty" id="charsEmpty" hidden data-i18n="characters.new_empty">Add a character with pictures or a voice.</div>
         <!-- Strength row carrier (kept in DOM for JS toggles; hidden
              from view — the slider lives inside charsAppliedNote when a
              character is selected so it sits right next to the trigger
              reminder rather than as its own bulky row). -->
         <div class="chars-strength-row" id="charsStrengthRow" hidden></div>
+      </div>
+      <!-- Voice for a new render: shown once there is a voice to pick (a saved voice, or a trained
+           character's own). Voices… opens the library. -->
+      <div class="voice-render-field" id="renderVoiceField" hidden>
+        <div class="voice-render-row">
+          <label for="renderVoice" data-i18n="voices.voice">Voice</label>
+          <select id="renderVoice" name="voice_id"><option value="inherit" data-i18n="voices.from_character">From the character</option></select>
+          <button type="button" class="ghost-btn small" onclick="voicesOpen()" data-i18n="voices.manage">Voices…</button>
+        </div>
+        <div class="voice-render-row" data-h3-only>
+          <label for="renderVoiceMethod" data-i18n="voices.method">How</label>
+          <select id="renderVoiceMethod" name="voice_method">
+            <option value="voice_pass" data-i18n="voices.pass_plain">Swap in the trained voice after the render (closest match)</option>
+            <option value="h3_reference" data-i18n="voices.reference_plain">Guide the render with the voice sample (H3 References)</option>
+          </select>
+        </div>
+        <small class="hint" data-h3-only data-i18n="voices.speakers_lines">Write each line with the character's name, like Bizarro: Did you hear that? One character picked? A line in quotes is theirs. Anyone without a saved voice keeps the voice the model gave them.</small>
       </div>
       <input type="hidden" name="character_id" id="characterIdInput" value="">
       <input type="hidden" name="character_strength" id="characterStrength" value="1.0">
@@ -1114,8 +1125,9 @@
                currentMode === 'upscale'. -->
           <div class="mode-only" id="upscaleSection">
             <h2 data-i18n="upscaleSection.clip_to_fix">Clip to fix</h2>
-            <select id="upscaleSrcSelect" onchange="document.getElementById('upscale_source_path').value=this.value"></select>
-            <input name="upscale_source_path" id="upscale_source_path" placeholder="/path/to/draft.mp4" style="margin-top:6px" data-i18n-placeholder="upscale_source_path.placeholder.path_to_draft_mp4">
+            <select id="upscaleSrcSelect" onchange="document.getElementById('upscale_source_path').value=this.value; refreshFaceFixPlan(true)"></select>
+            <input name="upscale_source_path" id="upscale_source_path" oninput="refreshFaceFixPlan(true)" placeholder="/path/to/draft.mp4" style="margin-top:6px" data-i18n-placeholder="upscale_source_path.placeholder.path_to_draft_mp4">
+            <div id="faceFixPlan" class="hint" role="status" aria-live="polite"></div>
             <!-- Presets, not a slider: the number (keep_shot) maps server-side
                  to how the render starts — Faithful/Balanced refine the clip's
                  own latent for 1/2 steps, Re-imagine is the adapter's full
@@ -1311,6 +1323,16 @@
                generation-neutral here; main.js sets the precise "2.3" or
                "2.5" from BOOT.ltx.generation at boot. -->
           <button type="button" class="ghost-btn" id="enhanceBtn" data-ltx-only onclick="enhancePrompt()" title="Use Gemma to rewrite your prompt in the style LTX was trained on" data-i18n-title="enhanceBtn.title.use_gemma_to_rewrite" data-i18n="enhanceBtn.enhance"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Enhance</button>
+          <!-- 5.0.78, R&D L48: H3's own prompt writer. A local 9B model turns a
+               short idea into the long three-field prompt H3 was trained on
+               (shots, lens, light, sound, score; spoken lines kept word for
+               word inside <d>…</d>). Opt-in per click, result shown for review
+               in the same panel as Enhance. Free. Text-to-video only for now:
+               the build we ship cannot look at a start frame. -->
+          <button type="button" class="ghost-btn" id="h3WriteBtn" data-h3-only onclick="h3WritePrompt()" title="Turn a short idea into the full prompt Hailuo H3 was trained on: shots, camera, light, sound and music, with any spoken line kept word for word. About 10 seconds; you review it before anything renders." data-i18n-title="h3WriteBtn.title.turn_a_short_idea" data-i18n="h3WriteBtn.write_it_for_me"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Write it for me</button>
+          <label class="check h3-write-oneshot" id="h3WriteOneShotRow" data-h3-only title="Ask for one continuous take. Without it the writer usually plans two shots with a cut, even for a 5 second clip." data-i18n-title="h3WriteOneShotRow.title.ask_for_one_continuous" data-i18n="h3WriteOneShotRow.one_shot">
+            <input type="checkbox" id="h3WriteOneShot"> One shot
+          </label>
           <!-- Avoid is data-ltx-only because H3 HAS NO NEGATIVE PROMPT. It is
                guidance-distilled: no CFG, no unconditional branch, one forward
                per step, and every official ComfyUI template ships zero
@@ -1419,7 +1441,7 @@
               <div class="enhance-panel-text" id="enhanceOriginalText"></div>
             </div>
             <div class="enhance-panel-col">
-              <div class="enhance-panel-label" data-i18n="enhancePanelReview.enhanced">Enhanced</div>
+              <div class="enhance-panel-label" id="enhanceEnhancedLabel" data-i18n="enhancePanelReview.enhanced">Enhanced</div>
               <div class="enhance-panel-text" id="enhanceEnhancedText"></div>
             </div>
           </div>
@@ -2582,6 +2604,52 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         </div>
       </div>
     </form>
+
+    <!-- ============== RE-VOICE (inline, mode='revoice', Pro) ============== -->
+    <!-- The clip, its lines and a voice per line, in the left column. Its own footer button says
+         what it does ("Re-voice 3 lines"); Generate is not shown in this mode. The job runs in the
+         queue and the new copy lands in Outputs as "<name> (re-voiced)". -->
+    <div class="mode-only revoice-pane" id="revoiceSection">
+      <div class="revoice-intro" id="revoiceIntro">
+        <p class="hint" data-i18n="revoice.mode_intro">Give any line a different voice. The picture and the rest of the sound stay exactly as they are, and a new copy is saved in Outputs.</p>
+        <ol class="revoice-steps" id="revoiceSteps">
+          <li data-i18n="revoice.step_clip">Choose a clip, or use the one in the player.</li>
+          <li data-i18n="revoice.step_voice">Pick a voice for each line you want to change. Press play to hear who says it.</li>
+          <li data-i18n="revoice.step_run">Press Re-voice at the bottom. It runs in the queue.</li>
+        </ol>
+        <button type="button" class="revoice-steps-x" onclick="revoiceHideSteps()" title="Hide these steps" aria-label="Hide these steps" data-i18n-title="revoice.hide_steps" data-i18n-aria-label="revoice.hide_steps">×</button>
+      </div>
+      <h2 class="revoice-h" data-i18n="revoice.clip">Clip</h2>
+      <label class="voice-drop" id="revoiceDrop" for="revoiceFile">
+        <span class="voice-drop-main" data-i18n="revoice.drop_main">Drop a video or audio file here, or click to choose one</span>
+        <span class="voice-drop-sub" data-i18n="revoice.drop_sub">MP4, MOV, MP3, WAV, M4A and more</span>
+      </label>
+      <input id="revoiceFile" class="voice-file-input" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,.mp4,.mov,.m4v,.webm,.mkv" onchange="revoiceUpload(this.files[0])">
+      <div id="revoiceSource" class="revoice-source" hidden>
+        <video id="revoicePreview" controls playsinline preload="metadata" hidden></video>
+        <audio id="revoiceAudio" controls preload="metadata" hidden></audio>
+        <div class="revoice-source-row"><span id="revoiceSourceName" class="revoice-source-name"></span>
+          <button type="button" class="ghost-btn small" onclick="document.getElementById('revoiceFile').click()" data-i18n="revoice.other_file">Choose another file</button></div>
+        <button type="button" class="revoice-use-player" id="revoiceUsePlayer" hidden onclick="revoiceUsePlayer()"></button>
+      </div>
+      <div id="revoiceStatus" class="revoice-status" role="status" aria-live="polite" hidden><span class="voice-spinner" aria-hidden="true"></span><span id="revoiceMessage"></span></div>
+      <div id="revoiceLines" class="revoice-lines" hidden>
+        <div class="revoice-lines-head">
+          <h2 class="revoice-h" data-i18n="revoice.lines">Lines</h2>
+          <label class="revoice-all"><span data-i18n="revoice.all">Same voice for every line</span> <select id="revoiceAll" onchange="revoiceSetAll(this.value)"></select></label>
+        </div>
+        <div id="revoicePhrases"></div>
+      </div>
+      <div id="revoiceNoVoices" class="revoice-empty" hidden>
+        <p data-i18n="revoice.no_voices">You have no ready voices yet. Add one: 10 to 60 seconds of someone talking is enough.</p>
+        <button type="button" class="ghost-btn" onclick="voicesOpen()" data-i18n="revoice.add_voice">Add a voice</button>
+      </div>
+      <div class="form-action-footer" id="formActionFooterRevoice">
+        <div class="actions">
+          <button type="button" class="primary" id="revoiceRun" disabled onclick="revoiceSubmit()"></button>
+        </div>
+      </div>
+    </div>
 
     <!-- ============== IMAGE STUDIO (inline, mode='image') ============== -->
     <!-- Sibling of #genForm inside form-pane. Shown/hidden by setMode().
@@ -3860,6 +3928,9 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
              same as Video; owner 5 Nov 2026), which calls osSetEngine(). This
              line says what the picked one does with the shot. -->
         <div class="hint os-engine-meta" id="osEngineMeta"></div>
+        <div class="voice-render-field" id="osVoiceField" hidden><div class="voice-render-row"><label for="osVoice" data-i18n="voices.oneshot_voice">Voice</label>
+          <select id="osVoice"><option value="inherit" data-i18n="voices.from_character">From the character</option></select>
+          <button type="button" class="ghost-btn small" onclick="voicesOpen()" data-i18n="voices.oneshot_manage">Voices…</button></div></div>
 
         <div class="os-block">
           <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.the_shot">The shot</span><span class="qs-meta" data-i18n="oneshotSectionTab.who_where_the_time">who, where, the time of day and the weather, the sound — once, for the whole shot</span></div>
@@ -4978,6 +5049,11 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2 L9.6 6.4 L14 8 L9.6 9.6 L8 14 L6.4 9.6 L2 8 L6.4 6.4 Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/></svg>
               Sharp export
             </button>
+            <button type="button" role="menuitem" id="revoiceMenuBtn" onclick="kebabToggle('playerMorePop',false);revoiceOpen(activePath)"
+                    title="Give any line in this clip a different saved voice. A new copy lands next to it." data-i18n-title="playerMorePop.title.revoice" data-i18n="playerMorePop.revoice">
+              <svg width="14" height="14" viewBox="0 0 256 256" aria-hidden="true"><use href="#ph-microphone"/></svg>
+              Re-voice <span class="pro-tag" data-pro-feature="revoice">Pro</span>
+            </button>
             <button type="button" role="menuitem" onclick="kebabToggle('playerMorePop',false);verticalExportActive('9:16')"
                     title="Make a 9:16 copy of this clip: the whole picture in the middle, a blurred fill above and below. Free, takes seconds." data-i18n-title="playerMorePop.title.make_a_9_16" data-i18n="playerMorePop.make_it_vertical">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4.5" y="1.5" width="7" height="13" rx="1.3" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 6 H11.5 M4.5 10 H11.5" stroke="currentColor" stroke-width="1.2"/></svg>
@@ -5076,6 +5152,13 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
             <path d="M2 8 C 4 4, 12 4, 14 8 C 12 12, 4 12, 2 8 Z M5 5 L11 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span class="po-act-label" data-i18n="playerOverlayActions.hide">Hide</span>
+        </button>
+        <button id="deleteActiveBtn" class="po-act po-act-danger" type="button"
+                onclick="deleteActive()" title="Delete: moves the file to the Trash after you confirm, with an Undo right after" data-i18n-title="deleteActiveBtn.title.delete_moves_the_file">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 4.5 H13 M6.5 4.5 V3 H9.5 V4.5 M4.5 4.5 L5.2 13 H10.8 L11.5 4.5 M7 7 V11 M9 7 V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="po-act-label" data-i18n="deleteActiveBtn.delete">Delete</span>
         </button>
       </div>
       <!-- This chip appears only when a clip is being watched while another
@@ -6427,6 +6510,60 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
      delete removes the face + audio LoRAs + sidecars + voice clip +
      avatar cache, but leaves state/train_character/<id>/ alone so the
      user keeps their dataset for retraining. -->
+<!-- Voices: the saved-voice library. A voice added here is cleaned and trained on its own; then it
+     shows up in the Voice picker of new renders, on Characters, and in Re-voice. -->
+<div id="voicesModal" class="models-modal" hidden role="dialog" aria-modal="true" aria-labelledby="voicesTitle" onclick="if(event.target===this) voicesClose()">
+  <div class="models-card voices-panel">
+    <div class="models-head"><h2 id="voicesTitle" data-i18n="voices.library">Voices</h2>
+      <button type="button" class="ghost-btn" onclick="voicesClose()" data-i18n="voices.close">Close</button></div>
+    <p class="hint voices-intro" data-i18n="voices.intro">Save a voice once. Use it in new videos, give it to a character, or re-voice a clip you already made.</p>
+    <div id="voicesList" class="voices-list"></div>
+    <p id="voicesFromCharacters" class="hint voices-from-characters" hidden></p>
+    <form id="voiceAddForm" class="voice-add" onsubmit="event.preventDefault(); voicesUpload()">
+      <h3 data-i18n="voices.add">Add a voice</h3>
+      <label for="voiceName" data-i18n="voices.name">Name</label>
+      <input id="voiceName" maxlength="100" required autocomplete="off" placeholder="Who is talking?" data-i18n-placeholder="voices.name_placeholder">
+      <label class="voice-drop" id="voiceDrop" for="voiceFile">
+        <span class="voice-drop-main" id="voiceDropMain" data-i18n="voices.drop_main">Drop an audio or video file here, or click to choose one</span>
+        <span class="voice-drop-sub" data-i18n="voices.drop_sub">10 to 60 seconds of one person talking, no music</span>
+      </label>
+      <input id="voiceFile" class="voice-file-input" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,.mp4,.mov,.m4v,.webm,.mkv">
+      <audio id="voiceRecording" controls hidden></audio>
+      <div class="voice-actions">
+        <button type="button" id="voiceRecord" class="ghost-btn" onclick="voicesRecord()" data-i18n="voices.record_mic">Record with the microphone</button>
+        <button type="submit" class="primary-btn" data-i18n="voices.save">Save voice</button>
+      </div>
+      <p id="voiceMessage" class="voice-message" role="status" aria-live="polite"></p>
+    </form>
+    <div class="voices-revoice">
+      <div><strong data-i18n="voices.revoice_title">Re-voice a clip you already made</strong> <span class="pro-tag" data-pro-feature="revoice">Pro</span>
+        <p class="hint" data-i18n="voices.revoice_line">Swap the voice of any line in a finished video or audio file.</p></div>
+      <button type="button" class="ghost-btn" onclick="voicesClose();revoiceOpen()" data-i18n="voices.revoice_open">Choose a clip</button>
+    </div>
+  </div>
+</div>
+
+<div id="newCharacterModal" class="models-modal" hidden role="dialog" aria-modal="true" aria-labelledby="newCharacterTitle" onkeydown="if(event.key==='Escape') { event.stopPropagation(); newCharacterClose(); }">
+  <div class="models-card voices-panel">
+    <div class="models-head"><h2 id="newCharacterTitle" data-i18n="characters.new">New character</h2>
+      <button type="button" class="ghost-btn" onclick="newCharacterClose()" data-i18n="voices.close">Close</button></div>
+    <form id="newCharacterForm" onsubmit="event.preventDefault(); newCharacterSave()">
+      <label for="newCharacterName" data-i18n="voices.name">Name</label>
+      <input id="newCharacterName" required maxlength="100" autocomplete="off">
+      <label for="newCharacterPictures" data-i18n="characters.new_pictures">Pictures · up to 3, optional</label>
+      <input id="newCharacterPictures" type="file" accept="image/*" multiple>
+      <label for="newCharacterVoice" data-i18n="characters.new_voice">Voice</label>
+      <select id="newCharacterVoice"></select>
+      <label for="newCharacterClip" data-i18n="characters.new_clip">Or add a voice clip · 10–60 seconds</label>
+      <input id="newCharacterClip" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,.mp4,.mov,.m4v,.webm,.mkv">
+      <p class="hint" data-i18n="characters.new_hint">Pictures work right away. A new voice clip is cleaned and trained automatically.</p>
+      <label class="new-character-train"><input id="newCharacterTrain" type="checkbox"> <span data-i18n="characters.new_train">Train face (optional)</span></label>
+      <button type="submit" class="primary-btn" data-i18n="characters.new_save">Save character</button>
+      <p id="newCharacterMessage" role="status"></p>
+    </form>
+  </div>
+</div>
+
 <div id="charactersManageModal" class="models-modal" style="display:none"
      role="dialog" aria-modal="true" aria-labelledby="charactersManageTitle"
      onclick="if(event.target===this) closeCharactersManageModal()">
@@ -6441,6 +6578,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       LoRA files; your training dataset under <code>state/train_character/</code>
       stays intact so you can retrain.
     </div>
+    <button type="button" class="ghost-btn" onclick="newCharacterOpen()" data-i18n="characters.new">New character</button>
     <div class="chars-manage-list" id="charactersManageList">
       <div class="hint" data-i18n="charactersManageList.loading">Loading…</div>
     </div>
@@ -7420,6 +7558,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
         <span id="bugStatus" style="flex:1; font-size:12px; color:var(--muted)"></span>
         <a href="https://x.com/PhospheneAI" target="_blank" rel="noopener" id="bugNoGithubLink"
            style="font-size:11.5px; color:var(--muted)" data-i18n="bugSubmitRow.no_github_reach_out">No GitHub? Reach out on X →</a>
+        <button class="ghost-btn" onclick="emailBugDiagnostics()" data-i18n="bugSubmitRow.send_by_email">Send by email</button>
         <button class="ghost-btn" onclick="copyBugDiagnostics()" data-i18n="bugSubmitRow.copy_diagnostics">Copy diagnostics</button>
         <button class="ghost-btn" onclick="closeBugModal()" data-i18n="bugSubmitRow.cancel">Cancel</button>
         <button id="bugSubmitBtn" class="primary-btn" onclick="submitBugReport()" data-i18n="bugSubmitBtn.open_github_issue">Open GitHub issue</button>

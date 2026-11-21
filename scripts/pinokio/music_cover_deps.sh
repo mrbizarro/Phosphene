@@ -11,6 +11,7 @@
 # NAME rather than pinning here, so the engine pin stays the only version
 # authority.
 set -euo pipefail
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-60}"
 MUSIC_CHECKOUT="$(cd "${1:?music checkout required}" && pwd)"
 UV_PROJECT_ENVIRONMENT="$MUSIC_CHECKOUT/.venv" \
   uv sync --frozen --no-dev --extra transcription --project "$MUSIC_CHECKOUT"

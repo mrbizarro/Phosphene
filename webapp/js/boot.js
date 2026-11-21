@@ -884,6 +884,22 @@ function setMode(mode) {
   const studio = document.getElementById('studioSection');
   const train = document.getElementById('trainSection');
   const genForm = document.getElementById('genForm');
+  // Re-voice (Pro) is a mode with its own form (#revoiceSection) and its own
+  // footer button, so Generate is never on screen for it. Any other mode
+  // hides that form again; the video form comes back below as usual.
+  const revoiceSec = document.getElementById('revoiceSection');
+  if (revoiceSec) revoiceSec.classList.toggle('show', mode === 'revoice');
+  document.body.classList.toggle('mode-revoice', mode === 'revoice');
+  if (mode !== 'revoice' && typeof revoiceLeave === 'function') revoiceLeave();
+  if (mode === 'revoice') {
+    if (studio) studio.classList.remove('show');
+    if (train) train.classList.remove('show');
+    if (genForm) genForm.style.display = 'none';
+    document.querySelectorAll('#modeGroup .pill-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.mode === 'revoice'));
+    if (typeof revoiceEnter === 'function') revoiceEnter();
+    return;
+  }
   // Train mode mirrors Studio: hide #genForm, show #trainSection. Same
   // chrome conventions, separate form (so an Enter inside the trigger
   // input doesn't submit a video render).

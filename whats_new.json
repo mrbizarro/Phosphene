@@ -3651,5 +3651,200 @@
         "pro": []
       }
     }
+  },
+  "5.0.78": {
+    "free": [
+      "Voices: save a voice from 10 to 60 seconds of someone talking. Phosphene cleans it and learns it by itself.",
+      "Delete a video or picture from your Outputs, with Undo.",
+      "Hailuo H3: Write it for me turns a short idea into a full prompt, on your Mac.",
+      "Upscale & Face Fix takes more clips on smaller Macs. Before you press Generate, it tells you if a clip is too long for this Mac and how much to trim.",
+      "Hailuo H3 on smaller Macs: 5 s clips now work on 16 GB, and 10 s clips on 24 GB.",
+      "A download that stops now resumes where it left off.",
+      "Lip-sync lines the mouth up with the voice again in the Mac app.",
+      "Hailuo H3 setup that stops halfway can now be finished, without downloading again."
+    ],
+    "pro": [
+      "Characters in Hailuo H3: up to 3 pictures of a person and their saved voice. They keep their look and speak in their own voice, with no training.",
+      "Re-voice: change who says a line in a finished clip. The picture and the rest of the sound stay as they are. Find it under More on any clip."
+    ],
+    "date": "2026-11-21",
+    "headline": "Your characters in Hailuo H3: up to 3 pictures and a voice. No training.",
+    "how": [
+      {
+        "id": "characters-voice",
+        "title": "How characters with voices work",
+        "pro": {
+          "video": "/assets/whats_new/how_characters_voice.mp4",
+          "poster": "/assets/whats_new/how_characters_voice.jpg",
+          "label": "Pro",
+          "caption": "New character: add pictures and pick a voice. In Hailuo H3, start each line with the character's name."
+        }
+      },
+      {
+        "id": "revoice",
+        "title": "How Re-voice works",
+        "pro": {
+          "video": "/assets/whats_new/how_revoice.mp4",
+          "poster": "/assets/whats_new/how_revoice.jpg",
+          "label": "Pro",
+          "caption": "Phosphene finds every line. Pick a voice for the lines you want to change. Before, then after."
+        }
+      }
+    ],
+    "i18n": {
+      "de": {
+        "headline": "Deine Charaktere in Hailuo H3: bis zu 3 Bilder und eine Stimme. Ohne Training.",
+        "free": [
+          "Stimmen: Speichere eine Stimme aus 10 bis 60 Sekunden Sprache. Phosphene bereinigt sie und lernt sie von selbst.",
+          "Lösche ein Video oder Bild aus deiner Galerie, mit Rückgängig.",
+          "Hailuo H3: Für mich schreiben macht aus einer kurzen Idee einen vollständigen Prompt, direkt auf deinem Mac.",
+          "Hochskalieren & Gesichtskorrektur nimmt auf kleineren Macs mehr Clips an. Schon bevor du auf Generieren drückst, sagt es dir, wenn ein Clip für diesen Mac zu lang ist und wie weit du ihn kürzen musst.",
+          "Hailuo H3 auf kleineren Macs: 5-Sekunden-Clips laufen jetzt mit 16 GB, 10-Sekunden-Clips mit 24 GB.",
+          "Ein abgebrochener Download macht jetzt dort weiter, wo er aufgehört hat.",
+          "Lippensynchron legt den Mund in der Mac-App wieder genau auf die Stimme.",
+          "Eine abgebrochene Einrichtung von Hailuo H3 lässt sich jetzt fertigstellen, ohne alles neu herunterzuladen."
+        ],
+        "pro": [
+          "Charaktere in Hailuo H3: bis zu 3 Bilder einer Person und ihre gespeicherte Stimme. Sie behalten ihr Aussehen und sprechen mit ihrer eigenen Stimme, ganz ohne Training.",
+          "Neu vertonen: Ändere, wer eine Zeile in einem fertigen Clip spricht. Bild und restlicher Ton bleiben, wie sie sind. Zu finden unter Mehr bei jedem Clip."
+        ]
+      },
+      "es": {
+        "headline": "Tus personajes en Hailuo H3: hasta 3 imágenes y una voz. Sin entrenamiento.",
+        "free": [
+          "Voces: guarda una voz a partir de 10 a 60 segundos de alguien hablando. Phosphene la limpia y la aprende sola.",
+          "Borra un video o una imagen de tu galería, con Deshacer.",
+          "Hailuo H3: Escríbelo por mí convierte una idea corta en un prompt completo, en tu Mac.",
+          "Aumentar resolución y corregir rostro acepta más clips en Macs más pequeños. Antes de pulsar Generar, te avisa si un clip es demasiado largo para este Mac y cuánto recortarlo.",
+          "Hailuo H3 en Macs más pequeños: los clips de 5 s ya funcionan con 16 GB, y los de 10 s con 24 GB.",
+          "Una descarga que se detiene ahora sigue donde se quedó.",
+          "Sincronización labial vuelve a ajustar la boca a la voz en la app para Mac.",
+          "Si la instalación de Hailuo H3 se detiene a medias, ahora puedes terminarla sin volver a descargar."
+        ],
+        "pro": [
+          "Personajes en Hailuo H3: hasta 3 imágenes de una persona y su voz guardada. Mantienen su aspecto y hablan con su propia voz, sin entrenamiento.",
+          "Cambiar voz: cambia quién dice una frase en un clip terminado. La imagen y el resto del sonido no cambian. Está en Más, en cualquier clip."
+        ]
+      },
+      "fr": {
+        "headline": "Vos personnages dans Hailuo H3 : jusqu’à 3 images et une voix. Sans entraînement.",
+        "free": [
+          "Voix : sauvegardez une voix à partir de 10 à 60 secondes de parole. Phosphene la nettoie et l’apprend toute seule.",
+          "Supprimez une vidéo ou une image de votre galerie, avec Annuler.",
+          "Hailuo H3 : Rédiger pour moi transforme une courte idée en prompt complet, sur votre Mac.",
+          "Upscale & Face Fix accepte plus de clips sur les Mac plus modestes. Avant même de cliquer sur Générer, il vous dit si un clip est trop long pour ce Mac et de combien le raccourcir.",
+          "Hailuo H3 sur les petits Mac : les clips de 5 s marchent désormais avec 16 Go, et ceux de 10 s avec 24 Go.",
+          "Un téléchargement interrompu reprend désormais là où il s'était arrêté.",
+          "La synchro labiale recale de nouveau la bouche sur la voix dans l'app Mac.",
+          "Une installation de Hailuo H3 interrompue peut désormais être terminée, sans tout retélécharger."
+        ],
+        "pro": [
+          "Personnages dans Hailuo H3 : jusqu’à 3 images d’une personne et sa voix sauvegardée. Ils gardent leur apparence et parlent avec leur propre voix, sans entraînement.",
+          "Changer la voix : changez qui dit une réplique dans un clip terminé. L’image et le reste du son ne bougent pas. C’est dans Plus, sur n’importe quel clip."
+        ]
+      },
+      "it": {
+        "headline": "I tuoi personaggi in Hailuo H3: fino a 3 immagini e una voce. Senza addestramento.",
+        "free": [
+          "Voci: salva una voce da 10 a 60 secondi di qualcuno che parla. Phosphene la pulisce e la impara da sola.",
+          "Elimina un video o un’immagine dalla tua galleria, con Annulla.",
+          "Hailuo H3: Scrivilo per me trasforma una breve idea in un prompt completo, sul tuo Mac.",
+          "Aumenta risoluzione e Correzione volto accetta più clip sui Mac più piccoli. Prima che tu prema Genera, ti dice se una clip è troppo lunga per questo Mac e quanto accorciarla.",
+          "Hailuo H3 sui Mac più piccoli: le clip da 5 s ora funzionano con 16 GB, quelle da 10 s con 24 GB.",
+          "Un download che si interrompe ora riprende da dove si era fermato.",
+          "Il lip-sync riallinea di nuovo la bocca alla voce nell'app per Mac.",
+          "Se la configurazione di Hailuo H3 si ferma a metà, ora puoi completarla senza riscaricare tutto."
+        ],
+        "pro": [
+          "Personaggi in Hailuo H3: fino a 3 immagini di una persona e la sua voce salvata. Mantengono il loro aspetto e parlano con la propria voce, senza addestramento.",
+          "Cambia voce: cambia chi dice una battuta in una clip finita. L’immagine e il resto del suono restano come sono. Si trova in Altro, su qualsiasi clip."
+        ]
+      },
+      "ja": {
+        "headline": "Hailuo H3 にあなたのキャラクターを：画像は最大3枚、そして声。学習は不要です。",
+        "free": [
+          "声のライブラリ：10〜60秒の話し声から声を保存できます。Phosphene が自動でノイズを除いて声を覚えます。",
+          "ギャラリーから動画や画像を削除できます。元に戻すこともできます。",
+          "Hailuo H3：「おまかせで書く」で、短いアイデアを完全なプロンプトにします。Mac の中で動きます。",
+          "アップスケール＆フェイス修正が、メモリの少ない Mac でもより多くのクリップに使えるようになりました。生成を押す前に、クリップがこの Mac には長すぎないか、どこまで短くすればよいかを教えてくれます。",
+          "小さめのMacでもHailuo H3：16 GBで5秒、24 GBで10秒のクリップが作れるようになりました。",
+          "途中で止まったダウンロードは、止まったところから再開します。",
+          "Macアプリのリップシンクで、口の動きが再び声にぴったり合うようになりました。",
+          "Hailuo H3のセットアップが途中で止まっても、ダウンロードし直さずに最後まで終えられます。"
+        ],
+        "pro": [
+          "Hailuo H3 のキャラクター：人物の画像を最大3枚と、保存した声。見た目を保ったまま、自分の声で話します。学習は不要です。",
+          "声を差し替え：完成したクリップのセリフを、別の声で話させることができます。映像とほかの音はそのままです。どのクリップでも「その他」から使えます。"
+        ]
+      },
+      "ko": {
+        "headline": "Hailuo H3에 나만의 캐릭터를: 사진 최대 3장과 목소리. 학습은 필요 없어요.",
+        "free": [
+          "목소리: 10~60초 분량의 말소리로 목소리를 저장하세요. Phosphene이 알아서 정리하고 학습해요.",
+          "갤러리에서 영상이나 사진을 삭제할 수 있어요. 실행 취소도 돼요.",
+          "Hailuo H3: 대신 써 주기가 짧은 아이디어를 완성된 프롬프트로 바꿔 줘요. Mac 안에서 동작해요.",
+          "업스케일 & 얼굴 보정을 메모리가 적은 Mac에서도 더 많은 클립에 쓸 수 있어요. 생성을 누르기 전에 클립이 이 Mac에 너무 긴지, 얼마나 줄여야 하는지 알려 줘요.",
+          "작은 Mac에서도 Hailuo H3: 16 GB에서 5초, 24 GB에서 10초 클립이 이제 됩니다.",
+          "중간에 멈춘 다운로드는 이제 멈춘 지점부터 이어서 받습니다.",
+          "Mac 앱의 립싱크가 다시 입 모양을 목소리에 맞춥니다.",
+          "Hailuo H3 설정이 중간에 멈춰도 이제 다시 다운로드하지 않고 마칠 수 있습니다."
+        ],
+        "pro": [
+          "Hailuo H3의 캐릭터: 한 사람의 사진 최대 3장과 저장한 목소리. 모습은 그대로, 자기 목소리로 말해요. 학습은 필요 없어요.",
+          "목소리 바꾸기: 완성된 클립에서 대사를 누가 말할지 바꿀 수 있어요. 화면과 나머지 소리는 그대로예요. 어느 클립에서든 더 보기에서 찾을 수 있어요."
+        ]
+      },
+      "pt": {
+        "headline": "Seus personagens no Hailuo H3: até 3 imagens e uma voz. Sem treinamento.",
+        "free": [
+          "Vozes: salve uma voz a partir de 10 a 60 segundos de alguém falando. O Phosphene limpa e aprende sozinho.",
+          "Apague um vídeo ou imagem da sua galeria, com Desfazer.",
+          "Hailuo H3: Escreva por mim transforma uma ideia curta em um prompt completo, no seu Mac.",
+          "Aumentar resolução e Corrigir rosto aceita mais clipes em Macs menores. Antes de você clicar em Gerar, ele avisa se um clipe é longo demais para este Mac e quanto cortar.",
+          "Hailuo H3 em Macs menores: clipes de 5 s agora funcionam com 16 GB, e de 10 s com 24 GB.",
+          "Um download que para agora continua de onde parou.",
+          "A sincronia labial volta a alinhar a boca com a voz no app para Mac.",
+          "Se a configuração do Hailuo H3 parar no meio, agora dá para terminar sem baixar tudo de novo."
+        ],
+        "pro": [
+          "Personagens no Hailuo H3: até 3 imagens de uma pessoa e a voz salva dela. Eles mantêm a aparência e falam com a própria voz, sem treinamento.",
+          "Trocar voz: mude quem diz uma fala em um clipe pronto. A imagem e o resto do som ficam como estão. Fica em Mais, em qualquer clipe."
+        ]
+      },
+      "ru": {
+        "headline": "Ваши персонажи в Hailuo H3: до 3 изображений и голос. Без обучения.",
+        "free": [
+          "Голоса: сохраните голос из записи речи длиной от 10 до 60 секунд. Phosphene сам очистит его и выучит.",
+          "Удаляйте видео и картинки из галереи, с возможностью отмены.",
+          "Hailuo H3: «Написать за меня» превращает короткую идею в полный промпт, прямо на вашем Mac.",
+          "Апскейл и Исправление лица теперь принимает больше клипов на Mac с меньшим объёмом памяти. Ещё до нажатия «Создать» он скажет, если клип слишком длинный для этого Mac, и насколько его укоротить.",
+          "Hailuo H3 на Mac попроще: клипы на 5 с теперь работают на 16 ГБ, а на 10 с на 24 ГБ.",
+          "Прерванная загрузка теперь продолжается с того места, где остановилась.",
+          "Синхронизация губ в приложении для Mac снова совмещает рот с голосом.",
+          "Если настройка Hailuo H3 остановилась на полпути, её теперь можно завершить без повторной загрузки."
+        ],
+        "pro": [
+          "Персонажи в Hailuo H3: до 3 изображений человека и его сохранённый голос. Они сохраняют свой облик и говорят своим голосом, без обучения.",
+          "Заменить голос: поменяйте, кто произносит реплику в готовом клипе. Картинка и остальной звук не меняются. Ищите в меню «Ещё» у любого клипа."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "在 Hailuo H3 里用你自己的角色：最多 3 张图片加一个声音，无需训练。",
+        "free": [
+          "声音库：用 10 到 60 秒的说话声保存一个声音。Phosphene 会自动清理并学会它。",
+          "可以从作品库中删除视频或图片，还能撤销。",
+          "Hailuo H3：“帮我写”把一个简短的想法变成完整的提示词，在你的 Mac 上完成。",
+          "超清放大与人脸修复在内存较小的 Mac 上能处理更多片段。点“生成”之前，它就会告诉你这个片段对这台 Mac 来说是否太长，以及要剪短多少。",
+          "小内存 Mac 上的 Hailuo H3：16 GB 现在能做 5 秒片段，24 GB 能做 10 秒片段。",
+          "中途停止的下载，现在会从停下的地方继续。",
+          "Mac 应用里的口型同步又能让嘴型对上声音了。",
+          "Hailuo H3 安装中途停了，现在可以直接完成，不用重新下载。"
+        ],
+        "pro": [
+          "Hailuo H3 中的角色：一个人的最多 3 张图片和已保存的声音。角色保持原有样貌，用自己的声音说话，无需训练。",
+          "替换声音：更换已完成片段中某句台词的说话人。画面和其他声音保持不变。在任意片段的“更多”里可以找到。"
+        ]
+      }
+    }
   }
 }

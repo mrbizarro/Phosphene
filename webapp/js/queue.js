@@ -852,6 +852,7 @@ function setEngine(engine, opts) {
   // reads the engine this call actually settled on rather than the one that
   // was requested — a gate may have bounced it back to the built-in.
   try { _syncLoraPickerForEngine(); } catch (e) {}
+  if (typeof characterSyncReferences === 'function') characterSyncReferences();
   return target;
 }
 
@@ -1365,6 +1366,109 @@ async function enhancePrompt() {
   showEnhancePanel(res.original, res.enhanced, !!res.translated, enhanceLoraNote(res));
 }
 
+// 5.0.78, R&D L48: H3 "Write it for me". A local 9B prompt writer turns a
+// short idea into the long three-field prompt H3 was trained on; the result
+// lands in the Enhance review panel (Accept / Keep mine / Undo), so nothing
+// is ever rewritten behind the user's back. The model is set up on the first
+// click (download + convert on this Mac, progress on the button) and then
+// runs in ~10-15 s per prompt. Free for everyone.
+function h3WriteSeconds() {
+  // The main prompt is window 1's on a chained 10/15 s clip (later windows
+  // have their own boxes), so the writer plans one window's length.
+  const cell = (typeof h3CurrentCell === 'function') ? h3CurrentCell() : null;
+  const windows = Math.max(1, (cell && cell.chain_windows) || 1);
+  const secs = (cell && cell.seconds) ? (cell.seconds / windows) : 5;
+  return Math.max(3, Math.round(secs));
+}
+function _h3WriteBtnLabel(text) {
+  const btn = document.getElementById('h3WriteBtn');
+  if (!btn) return;
+  btn.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-sparkle-fill"/></svg>' + text;
+}
+let _h3WritePoll = null;
+function _h3WriteWatchSetup() {
+  if (_h3WritePoll) return;
+  const btn = document.getElementById('h3WriteBtn');
+  if (btn) btn.disabled = true;
+  _h3WritePoll = setInterval(async () => {
+    let st;
+    try { st = await (await fetch('/h3/rewriter')).json(); } catch (e) { return; }
+    const f = st.fetch || {};
+    if (st.ready || (!f.running && f.error)) {
+      clearInterval(_h3WritePoll); _h3WritePoll = null;
+      if (btn) btn.disabled = false;
+      _h3WriteBtnLabel(T('queue.write_it_for_me', 'Write it for me'));
+      if (st.ready) {
+        phosToast(T('queue.write_it_for_me_is', 'Write it for me is ready.'), { icon: 'ph-info', duration: 4000 });
+        if ((document.getElementById('prompt') || {}).value) h3WritePrompt();
+      } else {
+        phosToast(T('queue.write_it_for_me_could', 'Write it for me could not be set up: {v}', {v: f.error}), { kind: 'danger', duration: 10000 });
+      }
+      return;
+    }
+    _h3WriteBtnLabel(T('queue.setting_up_the_prompt_writer', 'Setting up the prompt writer… {v}', {v: f.pct != null ? f.pct + '%' : ''}));
+  }, 3000);
+}
+async function h3WriteSetup(st) {
+  let r, res;
+  try {
+    r = await fetch('/h3/rewriter/install', { method: 'POST', body: new URLSearchParams() });
+    res = await r.json();
+  } catch (e) {
+    phosToast(T('queue.could_not_start_the_setup', 'Could not start the setup: {v}', {v: e.message || e}), { kind: 'danger', duration: 8000 });
+    return;
+  }
+  if (res.error) { phosToast(res.error, { kind: 'danger', duration: 10000 }); return; }
+  _h3WriteWatchSetup();
+}
+async function h3WritePrompt() {
+  const ta = document.getElementById('prompt');
+  const idea = (ta && ta.value || '').trim();
+  if (currentMode !== 't2v') {
+    phosToast(T('queue.write_it_for_me_works', 'Write it for me works on text-to-video clips for now.'), { icon: 'ph-info', duration: 5000 });
+    return;
+  }
+  if (!idea) { phosToast(T('queue.type_a_short_idea_first', 'Type a short idea first, then press Write it for me.'), { icon: 'ph-info', duration: 5000 }); return; }
+  let st;
+  try { st = await (await fetch('/h3/rewriter')).json(); } catch (e) { st = null; }
+  if (st && !st.ready) {
+    if (st.fetch && st.fetch.running) { _h3WriteWatchSetup(); return; }
+    // One sentence with the numbers inside, so every language can order it naturally.
+    const el = phosToast(T('queue.write_it_for_me_needs', 'Write it for me needs a one-time setup: it downloads {dl} GB and keeps a {keep} GB prompt writer on this Mac. It needs about {need} GB free while it sets up.',
+      {dl: st.download_gb, keep: st.kept_gb, need: Math.round(st.needed_free_gb || 0)}),
+      { icon: 'ph-info', duration: 15000 });
+    // A second click while this toast is still up gets the same toast back
+    // (phosToast counts repeats); it already has its Set it up link.
+    if (!el || el.querySelector('.phos-toast-action')) return;
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = 'phos-toast-action';
+    a.textContent = T('queue.set_it_up', 'Set it up');
+    a.onclick = (ev) => { ev.preventDefault(); el.remove(); h3WriteSetup(st); };
+    el.appendChild(a);
+    return;
+  }
+  const btn = document.getElementById('h3WriteBtn');
+  if (btn) btn.disabled = true;
+  _h3WriteBtnLabel(T('queue.writing_your_prompt_15_s', 'Writing your prompt… (~15 s)'));
+  let res;
+  try {
+    const one = document.getElementById('h3WriteOneShot');
+    const fd = new URLSearchParams({ prompt: idea, seconds: String(h3WriteSeconds()),
+                                     one_shot: (one && one.checked) ? '1' : '0' });
+    res = await (await fetch('/h3/rewrite', { method: 'POST', body: fd })).json();
+  } catch (e) {
+    res = { error: T('queue.write_it_for_me_failed', 'Write it for me failed: {v}', {v: e.message || e}) };
+  }
+  if (btn) btn.disabled = false;
+  _h3WriteBtnLabel(T('queue.write_it_for_me', 'Write it for me'));
+  if (res.needs_install) { h3WritePrompt(); return; }
+  if (res.error) { phosToast(res.error, { kind: 'danger', duration: 8000 }); return; }
+  const note = res.format_ok ? ''
+    : T('queue.this_one_did_not_come', 'This one did not come back in H3\u2019s usual three-part form; read it before you render.');
+  showEnhancePanel(res.original, res.rewrite, false, note, T('queue.written_for_h3', 'Written for H3'));
+}
+
 // 4.18.0: one line under the Enhance result saying what the LoRAs changed —
 // whose notes the prompt helper read and which trigger words it put back.
 // Empty when no LoRA was involved. Pure, so it is tested by running it.
@@ -1399,9 +1503,17 @@ function updateLangHint() {
 // the old native confirm() (no edit, no diff, no undo, and it broke ⌘Z by
 // overwriting the textarea programmatically). Two states in one panel:
 // "review" shows the fresh result; "applied" (after Accept) offers Undo.
-function showEnhancePanel(original, enhanced, translated, loraNote) {
+function showEnhancePanel(original, enhanced, translated, loraNote, label) {
   const panel = document.getElementById('enhancePanel');
   if (!panel) return;
+  // The same review panel serves Enhance (LTX) and Write it for me (H3).
+  const labelEl = document.getElementById('enhanceEnhancedLabel');
+  if (labelEl) {
+    labelEl.textContent = label || T('queue.enhanced_review_label', 'Enhanced');
+    // A language refresh must not rename an H3 result to the LTX label.
+    if (label) labelEl.removeAttribute('data-i18n');
+    else labelEl.setAttribute('data-i18n', 'enhancePanelReview.enhanced');
+  }
   panel.dataset.original = original;
   panel.dataset.enhanced = enhanced;
   panel.dataset.loraNote = loraNote || '';
@@ -1740,6 +1852,9 @@ function updateDerivedForClampedMode(mode) {
   if (qualityMeta && card) qualityMeta.textContent = `${card.width}×${card.height}`;
 }
 function updateDerived() {
+  // S7HT9P7G: guarded like windowPromptsInput below; the fake-browser
+  // harnesses extract updateDerived without the Face Fix plan helper.
+  if (typeof refreshFaceFixPlan === 'function') refreshFaceFixPlan();
   // The per-window hint counts windows for the CURRENT length, so it has to
   // move when the length does, not only when the pill is clicked.
   if (typeof windowPromptsInput === 'function') { try { windowPromptsInput(); } catch (e) {} }
@@ -1925,9 +2040,10 @@ function updateDerived() {
   if (_h3Ref) {
     const _ref = (globalThis.H3 && globalThis.H3.reference) || {};
     _h3Ref.classList.toggle('show', document.body.dataset.engine === 'h3' && !!_ref.supported
-      && (currentMode === 't2v' || currentMode === 'i2v'));
+      && (currentMode === 't2v' || currentMode === 'i2v' || currentMode === 'character'));
   }
   if (typeof _h3RefsUpdate === 'function') _h3RefsUpdate();
+  if (typeof voicesSyncRenderField === 'function') voicesSyncRenderField();
   const _restoreSection = document.getElementById('restoreSection');
   if (_restoreSection) _restoreSection.classList.toggle('show', currentMode === 'restore');
   // Upscale ×2 — its own source picker + "keep the shot" slider. The source
@@ -2183,7 +2299,7 @@ function _h3RefsUpdate() {
   if (!block) return;
   const info = _h3RefsInfo();
   const locked = !!info.locked;
-  const show = document.body.dataset.engine === 'h3' && currentMode === 't2v' && (!!info.offered || locked);
+  const show = document.body.dataset.engine === 'h3' && ['t2v', 'character'].includes(currentMode) && (!!info.offered || locked);
   block.style.display = show ? '' : 'none';
   block.classList.toggle('is-locked', locked);
   const sw = document.getElementById('h3_refs');
@@ -2300,7 +2416,7 @@ function _h3RefsOn() {
   const info = _h3RefsInfo();
   const sw = document.getElementById('h3_refs');
   return !!(sw && sw.checked && info.offered && !info.locked && info.available
-    && document.body.dataset.engine === 'h3' && currentMode === 't2v');
+    && document.body.dataset.engine === 'h3' && ['t2v', 'character'].includes(currentMode));
 }
 function _h3RefsEtaMin(cell) {
   if (!cell || !_h3RefsOn() || !cell.per_forward_sec) return 0;
@@ -2963,6 +3079,11 @@ function _thumbUrl(url, w) {
   // Preserve existing query string (path, mtime cache-bust v=N, etc).
   const sep = url.includes('w=') ? '' : (url.includes('?') ? '&' : '?');
   return sep ? `${url}&w=${w | 0}` : url;
+}
+
+// A plain-words note from /queue/add (e.g. a character who says nothing: rendered without the voice).
+function _queueAddNote(res) {
+  if (res && res.note && typeof phosToast === 'function') phosToast(res.note, { icon: 'ph-info', duration: 9000 });
 }
 
 async function api(path, method = 'GET', body = null) {
@@ -4374,7 +4495,7 @@ async function poll() {
       ? `image · ${cur.aspect || '?'} · n=${cur.n || '?'} · ${cur.engine_override || 'auto'} · ${timing}`
       : isH3
         ? [h3Shape, h3Speed, timing].filter(Boolean).join(' · ')
-        : [cur.mode, shape, timing].filter(Boolean).join(' · ');
+        : [voicesJobLabel(cur.mode) || cur.mode, shape, timing].filter(Boolean).join(' · ');
     // The pace warning (server-computed: measured per-step vs. this
     // shape's own model, H3-04) rides under phaseLabel the same way a
     // phase note already does, so it never competes with the timing line
@@ -4440,7 +4561,7 @@ async function poll() {
       // ourselves (never user/engine-supplied), so it's safe unescaped.
       nowCard.querySelector('.meta').innerHTML =
         `<span style="color: var(--muted)">${escapeHtml(rowTitle(last, last.params.prompt, last.params.label))}</span>` +
-        ` <span style="color: var(--muted)">· ${escapeHtml(last.params.mode)} · ${last.params.width}×${last.params.height}</span>` +
+        ` <span style="color: var(--muted)">· ${escapeHtml(voicesJobLabel(last.params.mode) || last.params.mode)}${last.params.width && last.params.height ? ` · ${last.params.width}×${last.params.height}` : ''}</span>` +
         `<br><span style="color: var(--text)">${escapeHtml(hint)}</span>` +
         // SYS-33: errors rarely linked to Docs even where a section already
         // existed. docsAnchor names one of troubleshooting.md's own anchors.
@@ -4569,7 +4690,7 @@ async function poll() {
       // this row will actually take.
       const h3Tag = (j.params.engine === 'h3' && typeof h3JobSpeedLabel === 'function')
         ? h3JobSpeedLabel(j.params) : '';
-      const params = j.params.engine === 'music'
+      const params = voicesJobLabel(j.params.mode) || (j.params.engine === 'music'
         ? `YuE2 · ${j.params.music_quality} · max ${j.params.music_max_seconds}s`
         : (j.params.mode === 'image')
         ? `image · ${j.params.aspect || '?'} · n=${j.params.n || '?'}`
@@ -4579,7 +4700,7 @@ async function poll() {
         ? `One Shot · ${_take} s · ${j.params.width}×${j.params.height}`
         : h3Tag
         ? `${(typeof h3JobShapeLabel === 'function' && h3JobShapeLabel(j.params)) || 'Hailuo H3'} · ${h3Tag}`
-        : `${j.params.mode} · ${j.params.width}×${j.params.height} · ${j.params.frames}f`;
+        : `${j.params.mode} · ${j.params.width}×${j.params.height} · ${j.params.frames}f`);
       // VC-02(c): "1024×512" in the row above with no explanation is exactly
       // the report — the number that governs memory safety was never shown
       // anywhere a user would see it before the render finished. A clamped
@@ -4677,8 +4798,9 @@ async function poll() {
       // A training run that finished WEAK is "done" to the queue and a
       // failure to the person. The row said "done" and nothing else, so the
       // one number that explained it lived only in a log line (#62).
+      const warning = revoiceKeptText(j) || j.warning;
       titleHtml = `${titleText} ` +
-        `<span class="warn-inline" title="${escapeHtml(j.warning)}">— ${escapeHtml(snippet(j.warning, 70))}</span>`;
+        `<span class="warn-inline" title="${escapeHtml(warning)}">— ${escapeHtml(snippet(warning, 70))}</span>`;
     } else {
       titleHtml = titleText;
     }
@@ -5558,7 +5680,8 @@ function _proSpeedChip(o) {
 }
 function _cardModeSizeChip(o) {
   const bits = [];
-  if (o && o.mode) bits.push(o.mode);
+  // Voice jobs carry an internal mode word; show the feature's name instead.
+  if (o && o.mode) bits.push((typeof voicesJobLabel === 'function' && voicesJobLabel(o.mode)) || o.mode);
   const w = o ? Number(o.width) : 0, h = o ? Number(o.height) : 0;
   if (w > 0 && h > 0) bits.push(`${w}×${h}`);
   return bits.join(' · ');
@@ -6079,6 +6202,8 @@ function initStagePlayerFit() {
 function selectOutput(path, options) {
   options = options || {};
   activePath = path;
+  // Re-voice keeps its clip; a different clip in the player is offered one click away.
+  if (currentMode === 'revoice') revoiceUsePlayerOffer();
   const _uev = (typeof window !== 'undefined') ? window.event : null;
   const userSelected = !!(_uev && _uev.isTrusted);
   // AUTOPLAY IS FOR A CLICK, NOT FOR BOOT. The stage selects outputs on its
@@ -6492,7 +6617,11 @@ function openAudioUseMenu(ev, path) {
     `<button type="button" role="menuitem" class="song-menu-item" data-target="${t.id}"`
     + (t.disabled ? ` disabled title="${escapeHtml(t.why || '')}"` : ` onclick="audioUseApply(${attr}, '${t.id}')"`)
     + `>${escapeHtml(t.label)}<span class="sub">${escapeHtml(t.disabled ? (t.why || t.sub) : t.sub)}</span></button>`
-  ).join('');
+  ).join('')
+    // Re-voice makes a new copy of this audio rather than using it elsewhere; it sits last.
+    + `<button type="button" role="menuitem" class="song-menu-item" onclick="closeAudioUseMenu();revoiceOpen(${attr})">`
+    + `${T('queue.revoice_action', 'Re-voice')} <span class="pro-tag${!!document.documentElement.dataset.pro ? ' pro-on' : ''}">${!!document.documentElement.dataset.pro ? 'Pro ✓' : 'Pro'}</span>`
+    + `<span class="sub">${T('queue.revoice_audio_sub', 'Give any line a different saved voice, in a new copy')}</span></button>`;
   menu.hidden = false;
   const anchor = (ev && ev.currentTarget && ev.currentTarget.getBoundingClientRect)
     ? ev.currentTarget.getBoundingClientRect() : { left: 8, right: 268, top: 8, bottom: 8 };
@@ -6788,6 +6917,7 @@ function openExpandLightbox() {
   const actions = document.getElementById('expandActions');
   if (actions) {
     actions.innerHTML = (!isPhoto && !isAudio) ? `
+      <button type="button" class="ghost-btn" onclick="revoiceOpen(${escapeHtml(JSON.stringify(o.path))})">${T('queue.revoice_action', 'Re-voice')} <span class="pro-tag${!!document.documentElement.dataset.pro ? ' pro-on' : ''}">${!!document.documentElement.dataset.pro ? 'Pro ✓' : 'Pro'}</span></button>
       <button type="button" class="ghost-btn" onclick="sharpExportActive()">${T('queue.sharp_export', 'Sharp export')}</button>
       <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16')" title="${TA('queue.a_9_16_copy_with', 'A 9:16 copy with a blurred fill above and below')}">${T('queue.make_it_vertical', 'Make it vertical')}</button>
       <button type="button" class="ghost-btn" onclick="verticalExportActive('4:5')" title="${TA('queue.a_4_5_copy_with', 'A 4:5 copy with a blurred fill above and below')}">4:5</button>
@@ -7015,7 +7145,9 @@ async function deleteOutput(path) {
   // viewing this clip in the expand lightbox, that closes too.
   if (!path) return;
   const base = path.split('/').pop();
-  if (!confirm(T('queue.move_to_trash', 'Move to Trash?\n\n') + base + T('queue.restore_from_finder_if_needed', '\n\nRestore from Finder if needed.'))) return;
+  const _isPic = /\.(png|jpe?g|webp)$/i.test(base);
+  if (!confirm((_isPic ? T('queue.delete_this_picture', 'Delete this picture?') : T('queue.delete_this_video', 'Delete this video?')) + '\n\n' + base +
+               T('queue.it_goes_to_the_trash', '\n\nIt goes to the Trash, so you can still get it back.'))) return;
   try {
     const fd = new URLSearchParams();
     fd.set('path', path);
@@ -7039,7 +7171,15 @@ async function deleteOutput(path) {
     outputsCacheMutated([path]);
     currentOutputs = [];
     poll();
-    phosToast(T('queue.moved_to_trash', 'Moved to Trash · ') + base, { kind: 'success' });
+    // Undo puts back exactly what this delete moved (/output/restore takes
+    // the server's one-time token, never a path from here).
+    const el = phosToast(T('queue.moved_to_trash', 'Moved to Trash · ') + base, { kind: 'success', duration: 8000 });
+    if (el && data.undo) {
+      const a = document.createElement('a');
+      a.href = '#'; a.className = 'phos-toast-action'; a.textContent = T('queue.undo', 'Undo');
+      a.onclick = (ev) => { ev.preventDefault(); el.remove(); restoreDeleted(data.undo, path); };
+      el.appendChild(a);
+    }
   } catch (e) {
     phosToast(T('queue.delete_error', 'Delete error: ') + (e.message || 'unknown'),
               { kind: 'danger', duration: 5000 });
@@ -7147,6 +7287,28 @@ function syncPlayerSoundOffer(o) {
     : '<span class="po-silent">No sound · Add sound needs '
       + (offer === 'update' ? T('queue.a_hailuo_h3_update', 'a Hailuo H3 update') : 'Hailuo H3') + '</span>');
 }
+async function restoreDeleted(token, path) {
+  try {
+    const fd = new URLSearchParams();
+    fd.set('undo', token);
+    const r = await fetch('/output/restore', { method: 'POST', body: fd });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      phosToast(data.error || T('queue.could_not_put_it_back', 'Could not put it back. It is still in the Trash.'),
+                { kind: 'danger', duration: 6000 });
+      return;
+    }
+    outputsCacheMutated([]);
+    currentOutputs = [];
+    await poll();
+    if (path && typeof selectOutput === 'function') { try { selectOutput(path); } catch (e) {} }
+    phosToast(T('queue.put_back', 'Put back · ') + String(path || '').split('/').pop(), { kind: 'success' });
+  } catch (e) {
+    phosToast(T('queue.could_not_put_it_back_err', 'Could not put it back: ') + (e.message || 'unknown'), { kind: 'danger', duration: 5000 });
+  }
+}
+function deleteActive() { if (activePath) deleteOutput(activePath); }
+
 // The card's "Add sound": show the clip in the player AND land in Add sound
 // with it picked — the same door the player's own Add sound button opens.
 function addSoundFromCard(path) {
@@ -7901,6 +8063,37 @@ async function takeJoinPartialFromPath(path) {
 // The full lane (Remix → Upscale & Face Fix): presets, source picker, prompt.
 // Same hand-off shape as Extend: switch to the Remix tool, point the picker
 // at this clip, scroll the form to the top.
+// Server-owned size, length and download checks, visible before Generate.
+let faceFixPlanRequest = 0;
+let faceFixPlanPath = null;
+let faceFixPlanTimer = null;
+async function refreshFaceFixPlan(force = false) {
+  const hint = document.getElementById('faceFixPlan');
+  const path = (document.getElementById('upscale_source_path') || {}).value || '';
+  const active = (document.getElementById('mode') || {}).value === 'upscale';
+  if (!hint) return;
+  if (!active) { faceFixPlanPath = null; ++faceFixPlanRequest; hint.textContent = ''; return; }
+  if (!force && faceFixPlanPath === path) return;
+  faceFixPlanPath = path;
+  const request = ++faceFixPlanRequest;
+  clearTimeout(faceFixPlanTimer);
+  hint.textContent = path ? T('queue.face_fix_checking', 'Checking this clip…') : T('queue.face_fix_pick', 'Pick the clip to fix first.');
+  if (!path) return;
+  faceFixPlanTimer = setTimeout(async () => {
+    try {
+      const response = await fetch('/queue/facefix/plan', {
+        method: 'POST', body: new URLSearchParams({source_path: path})
+      });
+      if (!response.ok) throw new Error();
+      const plan = await response.json();
+      if (request !== faceFixPlanRequest) return;
+      hint.textContent = plan.ok ? plan.message : plan.error;
+    } catch (_) {
+      if (request === faceFixPlanRequest) hint.textContent = T('queue.face_fix_check_failed', 'Could not check this clip. Choose it again to retry.');
+    }
+  }, 200);
+}
+
 function useAsUpscaleSourcePath(path) {
   // VA-09: same fix as Extend above — switch tabs before the mode change,
   // not after (or never).
@@ -7990,6 +8183,11 @@ async function loadParams(recipe) {
     data = await r.json();
   }
   const p = data.params;
+  await voicesRefresh();
+  const methodPicker = document.getElementById('renderVoiceMethod');
+  if (methodPicker) methodPicker.value = p?.voice_method || 'voice_pass';
+  const voicePicker = document.getElementById('renderVoice');
+  if (voicePicker) voicePicker.value = p && Object.prototype.hasOwnProperty.call(p, 'voice_id') ? (p.voice_id || 'default') : 'inherit';
   // Image-Studio sidecars (Ideogram 4 etc.) carry a TOP-LEVEL prompt that is a
   // structured caption JSON, not the video params shape below — the p.mode
   // dispatch would dump JSON into the i2v prompt box (or throw when p is
@@ -9377,23 +9575,10 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   }
 
   // ---- engine payload scrub ------------------------------------------------
-  // The fold rules hide an LTX-only control on H3; they do not empty the hidden
-  // input behind it, and FormData reads the input. So a user who picks a
-  // character, types an Avoid line, then switches to H3 was still POSTing
-  // character_id + a LoRA stack + negative_prompt on a job that reads none of
-  // them. Nothing broke — run_h3_job ignores all three — but the queue card,
-  // the ⓘ modal and the sidecar all then describe a render that didn't happen,
-  // and Load Params replays the fiction. Clear them here so what we send
-  // matches what the surface says. `engine` itself is re-validated in make_job;
-  // this is about honesty of the record, not safety.
-  //
-  // NOT scrubbed: `seed` (H3 resolves -1 itself), `image` (first-frame
-  // conditioning is real on H3), `frames`/`width`/`height` (make_job stamps the
-  // selected cell's own geometry over them).
+  // Hidden LTX controls retain values in FormData. Drop only fields H3
+  // cannot use; character identity now routes pictures and a voice pass.
   if ((fd.get('engine') || 'ltx') === 'h3') {
     fd.set('negative_prompt', '');   // guidance-distilled: no unconditional branch
-    fd.set('character_id', '');      // character LoRAs are an LTX construct
-    fd.set('no_voice', '');          // only ever meant "skip the character's voice LoRA"
     fd.set('schedule_preset', '');   // an LTX-2.5 distilled schedule; H3 has its own axes
     fd.set('i2v_reference_mode', 'anchor');  // an LTX-2.5 sampler behaviour
     // `loras` IS NOT SCRUBBED, and the line that used to scrub it said "the H3
@@ -9727,7 +9912,8 @@ document.getElementById('genForm').addEventListener('submit', async e => {
         fd.set('extend_direction', 'after');
       }
     }
-    await api('/queue/add','POST',fd);
+    const _added = await api('/queue/add','POST',fd);
+    _queueAddNote(_added);
     window._liveStageReviewPath = null;
     window._stagePlaybackIntentAt = 0;
   } catch (e) {
@@ -9924,6 +10110,7 @@ function draftAutosaveInstall() {
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
   openFailedJobInForm, engineRepairStart, h3RepairStart,
+  refreshFaceFixPlan,
   speedupQuietRetry,
   notifyJobsDone, notifyOneJob, playDoneChime,
   h3FinishSetTier, h3FinishActive, setEngine, _syncEnginePromptTools,
@@ -9944,13 +10131,14 @@ Object.assign(globalThis, {
   lbStep, lbStepIndex, lbCountLabel, lbSwipeDir, lbTogglePlayAll, lbSetPlaying, lbSetImageSec, lbPlayAll,
   lbToggleFullscreen,
   audioUseTargets, audioUseApply, useAudioAsSoundtrack, openAudioUseMenu, closeAudioUseMenu,
-  animateActive, editPhotoActive, hide, unhide, openOutputsFolder, hideActive,
+  animateActive, editPhotoActive, hide, unhide, openOutputsFolder, hideActive, deleteActive, restoreDeleted,
   useAsExtendSource, useAsAddSoundSource, addSoundOffer, addSoundFromCard, syncPlayerSoundOffer, useAsUpscaleSource, useAsUpscaleSourcePath, setUpscalePreset,
   faceFixClip, faceFixActive, isUpscaledPath, loadParams, _flashActionDone, closeOutputInfoModal,
   queueSharpExport, sharpExportActive, queueVerticalExport, verticalExportActive, verticalHintDismiss, useLastFramePath, useLastFrameActive,
   revealClipInFinder, revealActive, shareClip, shareActive, openClipInEditor, openActiveInEditor, kebabToggle,
   reorderQueuedJob, editQueuedJob, cancelEditingQueuedJob, updateQueuedJob, fmtEtaCompact,
   showEnhancePanel, acceptEnhance, undoEnhance, keepMineEnhance,
+  h3WritePrompt, h3WriteSetup, h3WriteSeconds,
   updateLangHint, promptLooksNonLatin,
   newTakeFromPath, newTakeActive, requestStop, requestClearQueue, toggleHiddenFilter,
   _syncSeedLockChip, clearSeedLock,
@@ -9970,6 +10158,8 @@ Object.assign(globalThis, {
   openRetakeModal, closeRetakeModal, submitRetake,
   // "Continue from here" (VA-38) — the player button's inline onclick target.
   windowsContinueFromPartial,
+  revoiceOpen, revoiceClose, revoiceUpload, revoiceSubmit, revoiceSetAll, revoicePlay,
+  revoiceEnter, revoiceLeave, revoiceHideSteps, revoiceUsePlayer, revoiceKeptText,
 });
 
 // ===== Studio presentation motion =====
@@ -10117,3 +10307,358 @@ function proHintDismiss(job) {
 Object.assign(globalThis, {proHintSee, proHintDismiss});
 Object.assign(globalThis, {h3AppInstallStart, h3AppInstallStop, h3AppInstallRender});
 Object.assign(globalThis, {_h3RefsUpdate, _h3RefsRestore, h3RefsGet, h3RefsChanged, _h3RefsEtaMin});
+
+
+// ===== Re-voice (Pro) =====
+// A mode in the left column (owner, 20 Nov 2026: no pop-up, and the button says Re-voice, not
+// Generate). setMode('revoice') shows #revoiceSection in place of #genForm and calls revoiceEnter().
+// The clip in the player comes in by itself; its lines are found in the queue; every line starts
+// unchanged; the footer button reads "Re-voice N lines". The job runs in the queue and the copy lands
+// in Outputs as "<name> (re-voiced)".
+const REVOICE = { session: '', path: '', name: '', epoch: 0, phrases: [], pending: '', stopAt: null, finding: false };
+const REVOICE_AUDIO = /\.(wav|mp3|m4a|aac|flac|ogg|opus|aif|aiff)$/i;
+const REVOICE_MEDIA = /\.(wav|mp3|m4a|aac|flac|ogg|opus|aif|aiff|mp4|mov|m4v|webm|mkv)$/i;
+const REVOICE_MAX_UPLOAD = 64 * 1024 * 1024;   // /upload's own limit
+const REVOICE_MIXED = '__mixed';
+const revoiceEl = id => document.getElementById(id);
+function revoiceDisplayName(path) {
+  return String(path || '').split('/').pop().replace(/^\d{13}_/, '').replace(/\.[^.]+$/, '');
+}
+function revoiceStatus(text, busy = false) {
+  const box = revoiceEl('revoiceStatus');
+  box.hidden = !text;
+  box.classList.toggle('is-busy', !!busy);
+  revoiceEl('revoiceMessage').textContent = text || '';
+}
+function revoiceMedia() {
+  return revoiceEl('revoicePreview').hidden ? revoiceEl('revoiceAudio') : revoiceEl('revoicePreview');
+}
+// The clip in the player, when it is something with sound (a video or an audio file).
+function revoicePlayerClip() {
+  const path = (typeof activePath === 'string') ? activePath : '';
+  return path && REVOICE_MEDIA.test(path) ? path : '';
+}
+function revoiceIsOn() { return !!document.documentElement.dataset.pro; }
+// Every entry point (the player's More menu, a card's Re-voice, an audio card's Use…, Voices) lands
+// here: switch to the Re-voice mode with that clip loaded. Free sees what Pro adds instead.
+function revoiceOpen(path = '') {
+  if (!revoiceIsOn()) { openProModal(); return; }
+  if (lbIsOpen()) closeExpandLightbox();
+  if (typeof voicesClose === 'function' && !revoiceEl('voicesModal')?.hidden) voicesClose();
+  REVOICE.pending = path || '';
+  if (document.body.dataset.workflow && document.body.dataset.workflow !== 'manual'
+      && typeof workflowSwitch === 'function') workflowSwitch('manual');
+  setMode('revoice');
+}
+// Kept for old callers: there is no dialog to close any more.
+function revoiceClose() { revoiceLeave(); }
+function revoiceLeave() {
+  ['revoicePreview', 'revoiceAudio'].forEach(id => { try { revoiceEl(id)?.pause(); } catch (_) {} });
+}
+function revoiceHideSteps() {
+  try { localStorage.setItem('phos_revoice_steps_hidden', '1'); } catch (_) {}
+  revoiceEl('revoiceSteps').hidden = true;
+  revoiceEl('revoiceIntro').classList.add('is-short');
+}
+function revoiceEnter() {
+  let hidden = false;
+  try { hidden = localStorage.getItem('phos_revoice_steps_hidden') === '1'; } catch (_) {}
+  revoiceEl('revoiceSteps').hidden = hidden;
+  revoiceEl('revoiceIntro').classList.toggle('is-short', hidden);
+  const path = REVOICE.pending || (REVOICE.path ? '' : revoicePlayerClip());
+  REVOICE.pending = '';
+  if (path && path !== REVOICE.path) {
+    document.querySelectorAll('video, audio').forEach(media => { try { media.pause(); } catch (_) {} });
+    revoiceUseSource(path);
+  } else if (!REVOICE.path) {
+    revoiceEl('revoiceDrop').hidden = false;
+    revoiceEl('revoiceSource').hidden = true;
+  }
+  revoiceUsePlayerOffer();
+  revoiceSelectionChanged();
+}
+// After choosing another file, the clip in the player stays one click away.
+function revoiceUsePlayerOffer() {
+  const button = revoiceEl('revoiceUsePlayer');
+  const clip = revoicePlayerClip();
+  button.hidden = !clip || clip === REVOICE.path;
+  if (!button.hidden) button.textContent = T('revoice.use_player', 'Use the clip in the player: {name}', {name: revoiceDisplayName(clip)});
+}
+function revoiceUsePlayer() {
+  const clip = revoicePlayerClip();
+  if (clip) revoiceUseSource(clip);
+}
+function revoiceReset() {
+  REVOICE.session = ''; REVOICE.phrases = [];
+  revoiceEl('revoicePhrases').replaceChildren();
+  revoiceEl('revoiceLines').hidden = true;
+  revoiceEl('revoiceNoVoices').hidden = true;
+  revoiceSelectionChanged();
+}
+function revoiceShowSource(path) {
+  const audio = REVOICE_AUDIO.test(path);
+  const url = '/file?path=' + encodeURIComponent(path);
+  const video = revoiceEl('revoicePreview'), sound = revoiceEl('revoiceAudio');
+  video.hidden = audio; sound.hidden = !audio;
+  (audio ? video : sound).removeAttribute('src');
+  (audio ? sound : video).src = url;
+  revoiceEl('revoiceSourceName').textContent = REVOICE.name;
+  revoiceEl('revoiceSource').hidden = false;
+  revoiceEl('revoiceDrop').hidden = true;
+}
+async function revoiceUpload(file) {
+  if (!file) return;
+  if (!/^(audio|video)\//.test(file.type || '') && !REVOICE_AUDIO.test(file.name) && !/\.(mp4|mov|m4v|webm|mkv)$/i.test(file.name)) {
+    revoiceStatus(T('revoice.not_media', 'Choose a video or audio file.')); return;
+  }
+  if (file.size > REVOICE_MAX_UPLOAD) {
+    revoiceStatus(T('revoice.too_big', 'This file is bigger than 64 MB. Export a shorter or smaller copy and try again.')); return;
+  }
+  const epoch = ++REVOICE.epoch;
+  revoiceReset();
+  revoiceStatus(T('revoice.uploading', 'Adding the file…'), true);
+  try {
+    const body = new FormData(); body.set('audio', file);
+    const response = await fetch('/upload', {method: 'POST', body});
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || T('revoice.upload_failed', 'Could not add this file.'));
+    if (epoch === REVOICE.epoch) await revoiceUseSource(data.path, file.name);
+  } catch (e) { if (epoch === REVOICE.epoch) revoiceStatus(e.message); }
+}
+async function revoiceUseSource(path, name) {
+  REVOICE.path = path;
+  REVOICE.name = revoiceDisplayName(name || path);
+  revoiceShowSource(path);
+  revoiceUsePlayerOffer();
+  await revoiceFind();
+}
+// Find who says what. Runs in the queue (it uses the GPU); a clip whose lines were already found
+// comes straight back.
+async function revoiceFind() {
+  const epoch = ++REVOICE.epoch;
+  revoiceReset();
+  REVOICE.finding = true; revoiceSelectionChanged();
+  revoiceStatus(T('revoice.finding', 'Finding who says what…'), true);
+  try {
+    const response = await fetch('/voices/revoice', {method: 'POST', body: new URLSearchParams({path: REVOICE.path})});
+    const data = await response.json();
+    if (data.pro_required) { openProModal(); return; }
+    if (!response.ok || data.error) throw new Error(data.error);
+    while (epoch === REVOICE.epoch) {
+      const statusResponse = await fetch('/voices/revoice/status?id=' + encodeURIComponent(data.queued_id));
+      const status = await statusResponse.json();
+      if (epoch !== REVOICE.epoch) return;
+      if (!statusResponse.ok || status.error || ['failed', 'error', 'cancelled', 'stopped'].includes(status.status)) {
+        throw new Error(status.error || T('revoice.find_stopped_mode', 'Finding the lines stopped. Choose the clip again to try once more.'));
+      }
+      if (status.phrases) {
+        REVOICE.session = status.session;
+        await revoiceDraw(status.phrases, epoch);
+        return;
+      }
+      if (status.status === 'queued' && status.ahead > 0) {
+        revoiceStatus(TP('revoice.waiting_ahead_mode', status.ahead, {
+          one: 'Waiting for {count} job in the queue to finish first. Your clip keeps its place.',
+          other: 'Waiting for {count} jobs in the queue to finish first. Your clip keeps its place.'}), true);
+      } else {
+        revoiceStatus(T('revoice.finding', 'Finding who says what…'), true);
+      }
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+  } catch (e) {
+    if (epoch === REVOICE.epoch) revoiceStatus(e.message);
+  } finally {
+    if (epoch === REVOICE.epoch) { REVOICE.finding = false; revoiceSelectionChanged(); }
+  }
+}
+function revoiceClock(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+}
+function revoiceVoiceOptions(select, choices, keepLabel) {
+  select.add(new window.Option(keepLabel, ''));
+  for (const v of choices) {
+    const option = new window.Option(v.label, v.id);
+    option.disabled = !v.ready;
+    select.add(option);
+  }
+}
+// Lines in the order people hear them, grouped by speaker when the line-finder names speakers.
+function revoiceGroups(phrases) {
+  const speakers = [...new Set(phrases.map(p => String(p.speaker || '').trim()).filter(Boolean))];
+  if (speakers.length < 2) return [{speaker: '', rows: phrases.map((p, i) => i)}];
+  const groups = speakers.map(speaker => ({speaker, rows: []}));
+  const loose = {speaker: '', rows: []};
+  phrases.forEach((p, i) => {
+    const g = groups.find(x => x.speaker === String(p.speaker || '').trim());
+    (g || loose).rows.push(i);
+  });
+  return loose.rows.length ? [...groups, loose] : groups;
+}
+async function revoiceDraw(phrases, epoch) {
+  await voicesRefresh().catch(() => {});
+  if (epoch !== REVOICE.epoch) return;
+  const choices = voicesPickList();
+  const ready = choices.filter(v => v.ready);
+  REVOICE.phrases = phrases;
+  const root = revoiceEl('revoicePhrases'); root.replaceChildren();
+  const all = revoiceEl('revoiceAll'); all.replaceChildren();
+  revoiceVoiceOptions(all, choices, T('revoice.keep_all', 'Keep the original voices'));
+  const mixed = new window.Option(T('revoice.mixed', 'Mixed'), REVOICE_MIXED);
+  mixed.disabled = true; mixed.hidden = true;
+  all.add(mixed);
+  for (const group of revoiceGroups(phrases)) {
+    if (group.speaker) {
+      const head = document.createElement('div'); head.className = 'revoice-speaker';
+      head.textContent = group.speaker;
+      root.append(head);
+    }
+    for (const index of group.rows) {
+      const phrase = phrases[index];
+      const row = document.createElement('div'); row.className = 'revoice-phrase';
+      row.dataset.index = String(index);
+      const play = document.createElement('button');
+      play.type = 'button'; play.className = 'ghost-btn small revoice-play';
+      play.title = T('revoice.play_line', 'Play this line');
+      play.setAttribute('aria-label', play.title);
+      play.innerHTML = '<svg class="ph" aria-hidden="true"><use href="#ph-play-fill"/></svg>';
+      play.onclick = () => revoicePlay(index);
+      const time = document.createElement('span'); time.className = 'revoice-time';
+      time.textContent = revoiceClock(phrase.start);
+      const text = document.createElement('span'); text.className = 'revoice-text';
+      text.textContent = `“${String(phrase.text || '').trim()}”`;
+      const select = document.createElement('select');
+      select.dataset.index = String(index);
+      select.setAttribute('aria-label', T('revoice.voice_for_line', 'Voice for line {n}', {n: index + 1}));
+      revoiceVoiceOptions(select, choices, T('revoice.keep', 'Keep the original voice'));
+      select.disabled = !ready.length;
+      select.onchange = () => revoiceSelectionChanged();
+      row.append(play, time, text, select); root.append(row);
+    }
+  }
+  all.disabled = !ready.length;
+  revoiceEl('revoiceLines').hidden = false;
+  revoiceEl('revoiceNoVoices').hidden = ready.length > 0;
+  const training = choices.some(v => !v.ready);
+  revoiceStatus(!ready.length ? '' : training
+    ? T('revoice.choose_training', 'Pick a voice for the lines you want to change. Voices still training can be picked once they are ready.')
+    : T('revoice.choose', 'Pick a voice for the lines you want to change. Press play to hear who says each line.'));
+  revoiceSelectionChanged();
+}
+function revoicePlay(index) {
+  const phrase = REVOICE.phrases[index]; const media = revoiceMedia();
+  if (!phrase || !media) return;
+  media.currentTime = Math.max(0, phrase.start - 0.1);
+  REVOICE.stopAt = phrase.end + 0.15;
+  media.ontimeupdate = () => { if (REVOICE.stopAt != null && media.currentTime >= REVOICE.stopAt) { media.pause(); REVOICE.stopAt = null; } };
+  media.play().catch(() => {});
+}
+function revoiceSelects() {
+  // In line order, whatever order the rows are drawn in.
+  return Array.from(document.querySelectorAll('#revoicePhrases select'))
+    .sort((a, b) => Number(a.dataset?.index || 0) - Number(b.dataset?.index || 0));
+}
+function revoiceSetAll(value) {
+  if (value === REVOICE_MIXED) return;
+  revoiceSelects().forEach(el => { el.value = value; });
+  revoiceSelectionChanged();
+}
+// A voice already given to a line is offered first on the other lines of the same speaker (of the
+// whole clip, when no speakers are named): the usual next pick is one click.
+function revoiceOfferUsedFirst(selects) {
+  const speakerOf = el => String((REVOICE.phrases[Number(el.dataset?.index || 0)] || {}).speaker || '').trim();
+  for (const el of selects) {
+    if (typeof el.insertBefore !== 'function' || !el.options || el.options.length < 3) continue;
+    const used = selects.filter(o => o !== el && o.value && speakerOf(o) === speakerOf(el)).map(o => o.value);
+    const ids = [...new Set(used)];
+    // Original order first, then lift the used voices to just below "Keep the original voice".
+    const options = Array.from(el.options).slice(1);
+    const rank = o => (ids.includes(o.value) ? -1000 + ids.indexOf(o.value) : Number(o.dataset?.order ?? 0));
+    options.forEach((o, i) => { if (o.dataset && o.dataset.order == null) o.dataset.order = String(i); });
+    const sorted = [...options].sort((a, b) => rank(a) - rank(b));
+    if (sorted.every((o, i) => o === options[i])) continue;
+    const value = el.value;
+    sorted.forEach(o => el.appendChild(o));
+    el.value = value;
+  }
+}
+function revoiceSelectionChanged() {
+  const selects = revoiceSelects();
+  const values = selects.map(el => el.value);
+  const picked = values.filter(Boolean).length;
+  const all = revoiceEl('revoiceAll');
+  if (all && selects.length) {
+    const same = values.every(v => v === values[0]);
+    const mixed = Array.from(all.options || []).find(o => o.value === REVOICE_MIXED);
+    if (mixed) mixed.hidden = same;
+    all.value = same ? values[0] : REVOICE_MIXED;
+  }
+  revoiceOfferUsedFirst(selects);
+  const run = revoiceEl('revoiceRun');
+  run.disabled = !REVOICE.session || !picked;
+  run.textContent = !REVOICE.path
+    ? T('revoice.choose_clip_first', 'Choose a clip first')
+    : (REVOICE.finding || !REVOICE.session) && !selects.length
+      ? T('revoice.finding_short', 'Finding the lines…')
+      : picked
+        ? TP('revoice.run_lines', picked, {one: 'Re-voice {count} line', other: 'Re-voice {count} lines'})
+        : T('revoice.pick_one', 'Pick a voice for at least one line');
+}
+async function revoiceSubmit() {
+  const choices = revoiceSelects().map(el => el.value);
+  const run = revoiceEl('revoiceRun'); run.disabled = true;
+  try {
+    const response = await fetch('/voices/revoice', {method: 'POST',
+      body: new URLSearchParams({session: REVOICE.session, choices: JSON.stringify(choices)})});
+    const data = await response.json();
+    if (data.pro_required) { openProModal(); revoiceSelectionChanged(); return; }
+    if (!response.ok || data.error) throw new Error(data.error);
+    const name = REVOICE.name;
+    // Sent: every line goes back to unchanged, so a second press never queues the same job twice.
+    revoiceSelects().forEach(el => { el.value = ''; });
+    revoiceSelectionChanged();
+    const sent = T('revoice.queued', 'Re-voicing “{name}”. Follow it in the queue; the new copy appears in Outputs as “{name} (re-voiced)”.', {name});
+    revoiceStatus(sent);
+    phosToast(sent, {kind: 'success', duration: 8000});
+    poll();
+  } catch (e) {
+    revoiceStatus(e.message);
+    revoiceSelectionChanged();
+  }
+}
+// A finished Re-voice whose lines did not all change: say which kept their voice and why, in the
+// Studio's language (the server's job.warning is the English fallback).
+function revoiceKeptText(j) {
+  const record = ((j || {}).params || {}).voice_pass || {};
+  const kept = record.kept;
+  const weak = revoiceWeakText(record.weak);
+  if (!Array.isArray(kept) || !kept.length) return weak;
+  const why = r => /sounded like/i.test(r.reason || '')
+    ? T('revoice.kept_why_voice', 'none of its takes sounded like the chosen voice, even after more tries')
+    : /longer|next speaker/i.test(r.reason || '')
+    ? T('revoice.kept_why_long', 'the new voice takes longer to say it than the gap before the next speaker')
+    : /match|words|skipped/i.test(r.reason || '')
+      ? T('revoice.kept_why_words', 'the new voice did not say the words clearly, even on a second try')
+      : T('revoice.kept_why_failed', 'making it in the new voice did not work, even on a second try');
+  const lines = kept.map(r => r.line).join(', ');
+  const text = TP('revoice.kept_lines', kept.length, {
+    one: 'Line {lines} kept its original voice: {why}.',
+    other: 'Lines {lines} kept their original voices: {why}.'}, {lines, why: why(kept[0])});
+  return weak ? text + ' ' + weak : text;
+}
+// Lines that changed but whose new words may not fall on the mouth (the sync check).
+function revoiceWeakText(weak) {
+  if (!Array.isArray(weak) || !weak.length) return '';
+  const reason = (weak[0].reasons || [])[0] || '';
+  const why = /every word/.test(reason)
+    ? T('revoice.weak_why_words', 'the new voice did not say every word')
+    : /no voice/.test(reason)
+      ? T('revoice.weak_why_silent', 'the mouth moves for a moment with no voice')
+      : /one word/.test(reason)
+        ? T('revoice.weak_why_one_late', 'one word starts late against the mouth')
+        : T('revoice.weak_why_late', 'its words start late against the mouth');
+  const lines = weak.map(r => r.line).join(', ');
+  return TP('revoice.weak_lines', weak.length, {
+    one: 'Line {lines} may look out of sync: {why}.',
+    other: 'Lines {lines} may look out of sync: {why}.'}, {lines, why});
+}

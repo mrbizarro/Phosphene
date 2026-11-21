@@ -167,7 +167,7 @@ function wnProSec(r, proUser, opts) {
 // ---- 0. Now in Pro, at the top ------------------------------------------------------------------------------------
 // THE OFFER (owner, 18 Nov 2026, on the 5.0.54 window: "add in there a visible link to go and check up on the offers
 // ... Let's give them a chance to get into the lander"). Free users only, at the foot of the Now in Pro block: the
-// support line, the Get Pro button now carrying the monthly price, and one small Founding line under it, both to the
+// support line, then a Founding pill and the bright monthly button side by side (20 Nov, Option A), both to the
 // Pro page in the user's language (the site has every Studio language; the Chinese page carries the yuan Founding
 // price, so its line says yuan). Founding always reads "first 100 buyers", never a count, and no other price is
 // shown. Both keep the 5.0.65 tags (utm_medium=whats-new, utm_campaign=get-pro, utm_content=<version>, the closed
@@ -185,12 +185,13 @@ function wnPricingUrl(url) {
 
 function wnOffer(url, tag) {
   const href = wnPricingUrl(url) || '';
-  const link = (cls, h, plan, text) => `<a class="${cls}" href="${wnEsc(h)}" data-plan="${plan}" data-utm-campaign="get-pro"${tag}>`
-    + `${wnEsc(text)} <span aria-hidden="true">↗</span></a>`;
+  const foundingHref = href.replace(/#.*$/, '') + '#plans';
   return `<div class="wn-np-foot wn-np-offer"><p>${wnEsc(WN_ASK)}</p><div class="wn-np-offer-act">`
-    + link('wn-np-cta', href, 'monthly', T('whatsnew.offer_pro_from_15', 'Pro from $15/month'))
-    + link('wn-np-founding', href.replace(/#.*$/, '') + '#plans', 'founding',
-      T('whatsnew.offer_founding_199', 'Founding: $199 once for 3 years, first 100 buyers'))
+    + `<a class="wn-np-founding" href="${wnEsc(foundingHref)}" data-plan="founding" data-utm-campaign="get-pro"${tag}>`
+    + `<b>${wnEsc(T('whatsnew.offer_founding_short', 'Founding · $199 / 3 yrs'))}</b>`
+    + `<span>${wnEsc(T('whatsnew.offer_founding_sub', 'One-time · first 100 buyers'))} <span aria-hidden="true">↗</span></span></a>`
+    + `<a class="wn-np-cta" href="${wnEsc(href)}" data-plan="monthly" data-utm-campaign="get-pro"${tag}>`
+    + `${wnEsc(T('whatsnew.offer_try_pro_15', 'Try Pro · $15/mo'))} <span aria-hidden="true">→</span></a>`
     + '</div></div>';
 }
 
@@ -228,7 +229,27 @@ function wnNowPro(d) {
       + `${T('whatsnew.what_s_in_pro', "What's in Pro")} <span aria-hidden="true">↗</span></a></p>` : '';
   return `<section class="wn-np${proUser ? ' is-member' : ''}${teasing ? ' is-teasing' : ''}" aria-label="${wnEsc(title)}">`
     + `<div class="wn-np-h"><span class="pro-tag is-lead${proUser ? ' pro-on' : ''}">${proUser ? 'Pro ✓' : 'Pro'}</span><h3>${wnEsc(title)}</h3></div>`
-    + (lines ? `<ul class="wn-np-lines">${lines}</ul>` : '') + `${comingBlock}${also}${cta}${memberLink}</section>`;
+    + (lines ? `<div class="wn-np-row"><ul class="wn-np-lines">${lines}</ul>${wnNpClip(d)}</div>` : '') + `${comingBlock}${also}${cta}${memberLink}</section>`;
+}
+
+// The release's first how-to clip, small, playing silently in the empty right corner of Now in Pro; a click opens it.
+function wnNpClip(d) {
+  const h = (d.how || [])[0]; const c = h && (h.pro || h.free);
+  if (!c || !c.video) return '';
+  // Silent loop until clicked: browsers refuse sound before a click. A click restarts it IN PLACE with sound and
+  // controls, so the characters' voices are heard and the window stays open (owner, 21 Nov 2026: "people need
+  // to hear that the characters have voices").
+  return `<div class="wn-np-clip" role="button" tabindex="0" onclick="wnNpSound(this)" aria-label="${wnEsc(h.title || '')}">`
+    + `<video src="${wnEsc(c.video)}" poster="${wnEsc(c.poster || '')}" muted autoplay loop playsinline></video>`
+    + `<span class="wn-np-clip-k">🔊 ${T('whatsnew.how_it_works', 'How it works')}</span></div>`;
+}
+
+function wnNpSound(el) {
+  const v = el.querySelector('video');
+  if (!v || el.classList.contains('is-on')) return;
+  el.classList.add('is-on');
+  v.muted = false; v.loop = false; v.currentTime = 0; v.controls = true;
+  v.play().catch(() => {});
 }
 
 // ---- 5. how it works --------------------------------------------------------------------------------------------
@@ -276,7 +297,7 @@ function wnNow(d) {
   // THE PRO BLOCK FIRST, right under the title (owner, 19 Nov 2026), the free changes straight after, then the hero and
   // the rest. scripts/check_whats_new.py renders this and refuses a release where anything comes before the Pro block.
   const pro = top || wnProSec(d, proUser, {full: true});
-  return pro + wnFreeSec(d, true) + wnHero(d.hero) + wnHowSec(d.how, proUser);
+  return pro + wnFreeSec(d, true) + wnHero(d.hero);
 }
 
 function wnEarlier(d) {
@@ -461,4 +482,4 @@ function wnAuto() {
   openWhatsNew(false);
 }
 setTimeout(wnAuto, 3500);
-Object.assign(globalThis, { openWhatsNew, wnClose, openHowClip });
+Object.assign(globalThis, {wnNpSound,  openWhatsNew, wnClose, openHowClip });

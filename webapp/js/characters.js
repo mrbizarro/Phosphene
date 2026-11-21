@@ -4680,6 +4680,8 @@ document.querySelectorAll('#modeGroup .pill-btn').forEach(b => b.onclick = () =>
   // audio-driven form, which submits through its own path
   // (audioStudioGenerate). Keep it out of setMode()'s dispatch entirely.
   if (b.dataset.lipsync) { openLipSyncEntry(); return; }
+  // Re-voice is Pro: Free sees what Pro adds, the same as every Pro spot.
+  if (b.dataset.mode === 'revoice') { revoiceOpen(); return; }
   setMode(b.dataset.mode);
   if (b.dataset.mode === 'keyframe') {
     const def = b.dataset.kfDefault || '2';
@@ -4828,3 +4830,414 @@ Object.assign(globalThis, {
   // Try again buttons resolve through the global scope.
   audioStudioRenderSeparator, audioStudioInstallSeparator, audioStudioRefreshSeparator,
 });
+
+// Voices belongs with Characters: one saved sample can follow several actors.
+let voicesData = { voices: [], assignments: {} };
+let voicesRecorder = null;
+let voicesRecorded = null;
+let voicesRecordTimer = null;
+let voicesRecordingURL = '';
+let voicesInvoker = null;
+let voicesPoll = null;
+let voicesListSignature = '';
+
+// The label a voice wears in every picker: its name once, plus the characters that use it when their
+// names differ ("rogan · Joe"). One voice = one entry (the server folds a character's voice into the
+// library voice it uses).
+function voicesLabel(v) {
+  const others = (v.characters || []).filter(n => String(n).trim().toLowerCase() !== String(v.name).trim().toLowerCase());
+  return others.length ? `${v.name} · ${others.join(', ')}` : v.name;
+}
+// Every voice a picker can offer, deduplicated: library voices first, then characters' own trained
+// voices. ready=false for a library voice still being cleaned or trained.
+function voicesPickList() {
+  const library = (voicesData.voices || []).map(v => ({id: v.id, ready: v.training === 'ready',
+    label: v.training === 'ready' ? voicesLabel(v) : `${voicesLabel(v)} · ${T('voices.still_training', 'still training')}`}));
+  const characters = (voicesData.character_voices || []).map(v => ({id: v.id, ready: true, label: voicesLabel(v)}));
+  return [...library, ...characters];
+}
+function voicesOptions(selected = 'inherit', inherit = true) {
+  const options = inherit ? `<option value="inherit">${T('voices.dynamic_from_character', 'From the character')}</option>` : '';
+  const list = inherit ? voicesPickList() : (voicesData.voices || []).map(v => ({id: v.id, label: voicesLabel(v), ready: true}));
+  return options + `<option value="${inherit ? 'default' : ''}"${selected === '' || selected === 'default' ? ' selected' : ''}>${inherit ? T('voices.model_voice', 'The model’s own voice') : T('voices.none', 'No saved voice')}</option>` + list.map(v =>
+    `<option value="${charactersEscapeAttr(v.id)}"${v.id === selected ? ' selected' : ''}>${charactersEscapeHtml(v.label)}</option>`).join('');
+}
+
+// Where a saved voice is right now, in creator words, plus its progress and its way out of a failure.
+function voicesState(v) {
+  const p = v.progress || {};
+  if (v.busy && v.waiting) return {cls: 'wait', text: T('voices.state_waiting', 'Waiting its turn in the queue')};
+  if (v.busy === 'voice_train' || (v.busy && v.training === 'training')) {
+    const total = Number(p.total) || 0, step = Number(p.step) || 0;
+    const left = Number(p.eta_s) > 0 ? ' · ' + T('voices.min_left', 'about {n} min left', {n: Math.max(1, Math.round(p.eta_s / 60))}) : '';
+    return {cls: 'busy', text: total ? T('voices.state_training_steps', 'Training · step {step} of {total}', {step, total}) + left
+      : T('voices.state_training', 'Training…'), step, total};
+  }
+  if (v.busy) return {cls: 'busy', text: T('voices.state_cleaning', 'Cleaning the clip…')};
+  if (v.training === 'ready') return {cls: 'ready', text: T('voices.trained', 'Ready')};
+  if (v.error || v.training === 'failed' || v.cleaning === 'failed') return {cls: 'failed', text: T('voices.state_failed', 'Did not finish'), retry: true};
+  return {cls: 'idle', text: T('voices.state_untrained', 'Not trained yet'), retry: true};
+}
+
+async function voicesRefresh() {
+  const response = await fetch('/voices');
+  if (!response.ok) throw new Error(T('voices.load_failed', 'Could not load voices'));
+  voicesData = await response.json();
+  for (const id of ['renderVoice', 'osVoice']) {
+    const picker = document.getElementById(id);
+    if (picker) { const selected = picker.value; picker.innerHTML = voicesOptions(selected); picker.value = selected || 'inherit'; }
+  }
+  if (typeof voicesSyncRenderField === 'function') voicesSyncRenderField();
+  const list = document.getElementById('voicesList');
+  const signature = JSON.stringify([voicesData.voices, voicesData.character_voices]);
+  if (!list || signature === voicesListSignature) return;
+  voicesListSignature = signature;
+  list.innerHTML = voicesData.voices.length ? voicesData.voices.map(v => {
+    const st = voicesState(v);
+    const id = charactersEscapeAttr(v.id);
+    const used = (v.characters || []).length
+      ? ' · ' + T('voices.used_by', 'Used by {names}', {names: v.characters.map(charactersEscapeHtml).join(', ')}) : '';
+    return `<div class="voice-card voice-${st.cls}">
+    <div class="voice-card-head"><strong>${charactersEscapeHtml(v.name)}</strong>
+      <span class="voice-state voice-state-${st.cls}">${charactersEscapeHtml(st.text)}</span></div>
+    <div class="voice-card-meta">${T('voices.sample_seconds', '{n} s sample', {n: Math.round(v.seconds)})}${used}</div>
+    ${voicesSpeakerRow(v)}
+    ${st.total ? `<progress value="${st.step}" max="${st.total}"></progress>` : st.cls === 'busy' ? '<progress></progress>' : ''}
+    ${st.cls === 'failed' && v.error ? `<p class="voice-error">${charactersEscapeHtml(v.error)}</p>` : ''}
+    <div class="voice-card-actions">
+      <audio controls preload="none" src="/voices/${encodeURIComponent(v.id)}/sample"></audio>
+      ${st.retry ? `<button type="button" class="ghost-btn small" onclick="voicesTrain('${id}')">${st.cls === 'failed' ? T('voices.try_again', 'Try again') : T('voices.train', 'Train this voice')}</button>` : ''}
+      ${v.busy ? '' : `<button type="button" class="ghost-btn small voice-remove" onclick="voicesRemove('${id}', this)">${T('voices.remove', 'Remove')}</button>`}
+    </div>
+  </div>`;
+  }).join('') : `<p class="voices-empty">${T('voices.empty_library_dl', 'No saved voices yet. Add one below: 10 to 60 seconds of someone talking is enough. Phosphene cleans it and learns the voice on its own. The first voice also downloads about 29 GB of model files.')}</p>`;
+  const fromChars = document.getElementById('voicesFromCharacters');
+  if (fromChars) {
+    const names = (voicesData.character_voices || []).map(v => v.name);
+    fromChars.hidden = !names.length;
+    fromChars.textContent = names.length ? T('voices.from_characters', 'Also ready, from your trained characters: {names}.', {names: names.join(', ')}) : '';
+  }
+}
+
+function voicesInit() {
+  voicesRefresh().catch(() => {});
+  const modal = document.getElementById('voicesModal');
+  modal?.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.stopPropagation(); voicesClose(); }
+    if (e.key !== 'Tab') return;
+    const items = Array.from(modal.querySelectorAll('button:not(:disabled), input, audio[controls]')).filter(el => el.getClientRects().length);
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+  });
+  modal?.addEventListener('play', e => {
+    for (const audio of modal.querySelectorAll('audio')) if (audio !== e.target) audio.pause();
+  }, true);
+  // Both drop areas light up while a file is dragged over them.
+  for (const id of ['voiceDrop', 'revoiceDrop']) {
+    const zone = document.getElementById(id);
+    zone?.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('is-over'); });
+    zone?.addEventListener('dragleave', () => zone.classList.remove('is-over'));
+    zone?.addEventListener('drop', () => zone.classList.remove('is-over'));
+  }
+  document.getElementById('revoiceDrop')?.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (file) revoiceUpload(file);
+  });
+  const drop = document.getElementById('voiceDrop');
+  drop?.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    voicesRecorded = file;
+    voicesShowFile(file.name);
+  });
+  document.getElementById('voiceFile')?.addEventListener('change', e => {
+    voicesRecorded = null;
+    voicesShowFile(e.target.files[0]?.name || '');
+  });
+}
+// The drop area names the file it holds, so it is clear something was picked.
+function voicesShowFile(name) {
+  const main = document.getElementById('voiceDropMain');
+  const drop = document.getElementById('voiceDrop');
+  if (!main || !drop) return;
+  drop.classList.toggle('has-file', !!name);
+  main.textContent = name ? T('voices.file_chosen', 'Chosen: {name}', {name}) : T('voices.dynamic_drop_main', 'Drop an audio or video file here, or click to choose one');
+  const nameInput = document.getElementById('voiceName');
+  if (name && nameInput && !nameInput.value.trim()) nameInput.value = name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 100);
+}
+
+async function voicesOpen() {
+  voicesInvoker = document.activeElement;
+  document.getElementById('voicesModal').hidden = false;
+  clearInterval(voicesPoll);
+  voicesPoll = setInterval(() => voicesRefresh().catch(() => {}), 5000);
+  voicesListSignature = '';
+  try { await voicesRefresh(); } catch (e) { document.getElementById('voiceMessage').textContent = e.message; }
+  document.getElementById('voiceName').focus();
+}
+
+function voicesClose() {
+  clearInterval(voicesPoll);
+  if (voicesRecorder?.state === 'recording') voicesRecorder.stop();
+  document.querySelectorAll('#voicesModal audio').forEach(audio => audio.pause());
+  document.getElementById('voicesModal').hidden = true;
+  voicesInvoker?.focus();
+}
+
+async function voicesRecord() {
+  if (voicesRecorder?.state === 'recording') { voicesRecorder.stop(); return; }
+  const message = document.getElementById('voiceMessage');
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    if (document.getElementById('voicesModal').hidden) { stream.getTracks().forEach(track => track.stop()); return; }
+    const recorder = new window.MediaRecorder(stream);
+    voicesRecorder = recorder;
+    const chunks = [];
+    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      clearTimeout(voicesRecordTimer);
+      stream.getTracks().forEach(track => track.stop());
+      voicesRecorded = new File(chunks, 'recording.webm', {type: recorder.mimeType});
+      if (voicesRecordingURL) URL.revokeObjectURL(voicesRecordingURL);
+      voicesRecordingURL = URL.createObjectURL(voicesRecorded);
+      const preview = document.getElementById('voiceRecording');
+      preview.src = voicesRecordingURL; preview.hidden = false;
+      document.getElementById('voiceRecord').textContent = T('voices.dynamic_record_mic', 'Record with the microphone');
+      voicesShowFile('');
+      message.textContent = T('voices.recorded', 'Recording ready. Play it, then save your voice.');
+    };
+    recorder.start();
+    voicesRecordTimer = setTimeout(() => recorder.state === 'recording' && recorder.stop(), 60000);
+    document.getElementById('voiceRecord').textContent = T('voices.stop', 'Stop recording');
+    message.textContent = T('voices.recording', 'Recording… Speak for 10–60 seconds.');
+  } catch (e) { stream?.getTracks().forEach(track => track.stop()); message.textContent = e.message; }
+}
+
+async function voicesUpload() {
+  const message = document.getElementById('voiceMessage');
+  const form = document.getElementById('voiceAddForm');
+  const file = voicesRecorded || document.getElementById('voiceFile').files[0];
+  if (!file) { message.textContent = T('voices.choose', 'Choose or record a clip first.'); return; }
+  if (!document.getElementById('voiceName').value.trim()) { message.textContent = T('voices.name_first', 'Give the voice a name first.'); document.getElementById('voiceName').focus(); return; }
+  const data = new FormData(); data.append('name', document.getElementById('voiceName').value); data.append('file', file);
+  const button = form.querySelector('[type=submit]'); button.disabled = true;
+  message.textContent = T('voices.saving', 'Saving voice…');
+  try {
+    const response = await fetch('/voices/upload', {method: 'POST', body: data});
+    const result = await response.json(); if (!response.ok) throw new Error(result.error);
+    voicesRecorded = null; form.reset(); voicesShowFile(''); document.getElementById('voiceRecording').hidden = true;
+    await voicesRefresh(); message.textContent = T('voices.saved_learning_any', 'Saved. Phosphene is learning this voice now, in the queue. It takes several minutes; you can close this window.');
+  } catch (e) { message.textContent = e.message; }
+  finally { button.disabled = false; }
+}
+
+function voicesCharacterField(characterId) {
+  const selected = voicesData.assignments[characterId] || '';
+  return `<label class="cm-voice-field">${T('voices.dynamic_voice', 'Voice')}<select data-voice-character="${charactersEscapeAttr(characterId)}" onchange="voicesAssign(this)">${voicesOptions(selected, false)}</select></label>`;
+}
+
+async function voicesAssign(select) {
+  select.disabled = true;
+  try {
+    const response = await fetch('/voices/assign', {method: 'POST', body: new URLSearchParams({character_id: select.dataset.voiceCharacter, voice_id: select.value})});
+    const data = await response.json(); if (!response.ok) throw new Error(data.error);
+    voicesData.assignments[select.dataset.voiceCharacter] = select.value;
+  } catch (e) { select.value = voicesData.assignments[select.dataset.voiceCharacter] || ''; alert(e.message); }
+  finally { select.disabled = false; }
+}
+
+async function voicesRemove(id, button) {
+  const v = (voicesData.voices || []).find(x => x.id === id);
+  if (!v || !confirm(T('voices.remove_confirm', 'Remove the voice “{name}”? Characters using it go back to no saved voice.', {name: v.name}))) return;
+  button.disabled = true;
+  const message = document.getElementById('voiceMessage');
+  try {
+    const response = await fetch('/voices/delete', {method: 'POST', body: new URLSearchParams({voice_id: id})});
+    const data = await response.json(); if (!response.ok) throw new Error(data.error);
+    message.textContent = T('voices.removed', 'Removed “{name}”.', {name: v.name});
+    await voicesRefresh();
+  } catch (e) { message.textContent = e.message; button.disabled = false; }
+}
+
+Object.assign(globalThis, {voicesInit, voicesOpen, voicesClose, voicesRecord, voicesUpload, voicesRefresh, voicesCharacterField, voicesAssign, voicesPickList, voicesRemove});
+
+async function voicesTrain(id) {
+  const message = document.getElementById('voiceMessage');
+  try {
+    const response = await fetch('/voices/train', {method: 'POST', body: new URLSearchParams({voice_id: id})});
+    const data = await response.json();
+    message.textContent = response.ok ? T('voices.queued', 'Training added to the queue.') : data.error;
+    if (response.ok) await voicesRefresh();
+  } catch (e) { message.textContent = e.message; }
+}
+Object.assign(globalThis, {voicesTrain});
+
+// Who is speaking. Re-voice shows this person in every take of the voice: LTX makes the
+// voice from the person it draws, so a voice described as a man stays a man's voice.
+function voicesSpeakerRow(v) {
+  if (!v.speaker && !v.speaker_auto) return '';
+  const id = charactersEscapeAttr(v.id);
+  return `<div class="voice-speaker" data-voice-speaker="${id}">
+      <span class="voice-speaker-label">${T('voices.speaker_label', 'Who is speaking')}</span>
+      <span class="voice-speaker-text">${charactersEscapeHtml(v.speaker || v.speaker_auto)}</span>
+      <button type="button" class="ghost-btn small" onclick="voicesEditSpeaker('${id}')">${T('voices.speaker_edit', 'Change')}</button>
+    </div>`;
+}
+
+function voicesEditSpeaker(id) {
+  const v = (voicesData.voices || []).find(item => item.id === id);
+  const row = document.querySelector(`[data-voice-speaker="${CSS.escape(id)}"]`);
+  if (!v || !row) return;
+  row.classList.add('is-editing');
+  row.innerHTML = `<label class="voice-speaker-label" for="voiceSpeakerInput">${T('voices.speaker_label', 'Who is speaking')}</label>
+    <input id="voiceSpeakerInput" type="text" maxlength="120" value="${charactersEscapeAttr(v.speaker || v.speaker_auto || '')}"
+      placeholder="${charactersEscapeAttr(T('voices.speaker_example', 'a man in his fifties with a deep, slightly raspy voice'))}">
+    <p class="voice-speaker-hint">${T('voices.speaker_hint', 'Re-voice shows this person in every take, so the voice stays the one you describe.')}</p>
+    <div class="voice-card-actions">
+      <button type="button" class="ghost-btn small" onclick="voicesSaveSpeaker('${charactersEscapeAttr(id)}', false)">${T('voices.speaker_save', 'Save')}</button>
+      ${v.speaker ? `<button type="button" class="ghost-btn small" onclick="voicesSaveSpeaker('${charactersEscapeAttr(id)}', true)">${T('voices.speaker_auto', 'Use the description made from the sample')}</button>` : ''}
+    </div>`;
+  const input = row.querySelector('input');
+  input.focus(); input.select();
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); voicesSaveSpeaker(id, false); } });
+}
+
+async function voicesSaveSpeaker(id, automatic) {
+  const message = document.getElementById('voiceMessage');
+  const input = document.getElementById('voiceSpeakerInput');
+  try {
+    const response = await fetch('/voices/speaker', {method: 'POST',
+      body: new URLSearchParams({voice_id: id, speaker: automatic ? '' : (input?.value || '')})});
+    const data = await response.json();
+    if (!response.ok) { message.textContent = data.error; return; }
+    message.textContent = T('voices.speaker_saved', 'Saved. New Re-voice takes show this person.');
+    voicesListSignature = '';
+    await voicesRefresh();
+  } catch (e) { message.textContent = e.message; }
+}
+Object.assign(globalThis, {voicesEditSpeaker, voicesSaveSpeaker});
+
+function voicesJobLabel(mode) {
+  if (mode === 'voice_prepare') return T('voices.cleaning_job', 'Cleaning voice');
+  if (mode === 'voice_train') return T('voices.training_job', 'Training voice');
+  if (mode === 'revoice_detect') return T('voices.revoice_find_job', 'Re-voice · finding the lines');
+  if (mode === 'revoice') return T('voices.revoice_job', 'Re-voice');
+  return '';
+}
+Object.assign(globalThis, {voicesJobLabel});
+
+// The Voice picker of a new render (and One Shot) shows once there is something to pick, or when a
+// replayed render carries a voice choice.
+function voicesSyncRenderField() {
+  const any = voicesPickList().length > 0;
+  // Without a character, "from the character" and "the model's own voice" are the same choice:
+  // show it once, named for what it does.
+  const character = !!document.getElementById('characterIdInput')?.value
+    || (typeof currentMode !== 'undefined' && currentMode === 'character');
+  for (const [field, picker] of [['renderVoiceField', 'renderVoice'], ['osVoiceField', 'osVoice']]) {
+    const el = document.getElementById(field);
+    const select = document.getElementById(picker);
+    const value = select?.value || 'inherit';
+    if (el) el.hidden = !any && value === 'inherit';
+    if (!select) continue;
+    const withCharacter = picker === 'osVoice' || character;
+    const inherit = select.querySelector('option[value="inherit"]');
+    const model = select.querySelector('option[value="default"]');
+    if (inherit) inherit.textContent = withCharacter ? T('voices.dynamic_from_character', 'From the character') : T('voices.no_saved_voice', 'No saved voice');
+    if (model) model.hidden = !withCharacter && value !== 'default';
+  }
+}
+Object.assign(globalThis, {voicesSyncRenderField});
+
+let newCharacterInvoker = null;
+async function newCharacterOpen() {
+  newCharacterInvoker = document.activeElement;
+  closeCharactersManageModal();
+  const modal = document.getElementById('newCharacterModal');
+  modal.hidden = false;
+  document.getElementById('newCharacterMessage').textContent = '';
+  try {
+    await voicesRefresh();
+    document.getElementById('newCharacterVoice').innerHTML = voicesOptions('', false);
+  } catch (e) { document.getElementById('newCharacterMessage').textContent = e.message; }
+  document.getElementById('newCharacterName').focus();
+}
+function newCharacterClose() {
+  document.getElementById('newCharacterModal').hidden = true;
+  newCharacterInvoker?.focus();
+}
+async function newCharacterSave() {
+  const form = document.getElementById('newCharacterForm');
+  const message = document.getElementById('newCharacterMessage');
+  const files = Array.from(document.getElementById('newCharacterPictures').files);
+  if (files.length > 3) { message.textContent = T('characters.new_max', 'Choose up to three pictures.'); return; }
+  const name = document.getElementById('newCharacterName').value.trim();
+  const clip = document.getElementById('newCharacterClip').files[0];
+  let voice = document.getElementById('newCharacterVoice').value;
+  const buttons = form.querySelectorAll('button');
+  buttons.forEach(b => { b.disabled = true; });
+  message.textContent = T('characters.new_saving', 'Saving character…');
+  try {
+    if (clip) {
+      const upload = new FormData(); upload.append('name', name); upload.append('file', clip);
+      const response = await fetch('/voices/upload', {method: 'POST', body: upload});
+      const data = await response.json(); if (!response.ok) throw new Error(data.error);
+      voice = data.voice.id;
+      // If saving pictures fails, retry uses this saved voice without
+      // importing the same clip and scheduling training a second time.
+      await voicesRefresh();
+      document.getElementById('newCharacterVoice').innerHTML = voicesOptions(voice, false);
+      document.getElementById('newCharacterClip').value = '';
+    }
+    const body = new FormData(); body.append('name', name); body.append('voice_id', voice);
+    body.append('picture_count', String(files.length));
+    files.forEach((file, i) => body.append('picture' + i, file));
+    const response = await fetch('/characters/create', {method: 'POST', body});
+    const data = await response.json(); if (!response.ok) throw new Error(data.error);
+    await refreshManualCharacters();
+    setMode('character'); applyCharacterSelection(data.character.id);
+    const train = document.getElementById('newCharacterTrain').checked;
+    form.reset(); newCharacterClose();
+    if (train) {
+      workflowSwitch('train');
+      document.getElementById('trainTrigger').value = data.character.id;
+      document.getElementById('trainTriggerExample').textContent = data.character.id;
+      if (files.length) await trainUploadFiles(files);
+    }
+  } catch (e) { message.textContent = e.message; }
+  finally { buttons.forEach(b => { b.disabled = false; }); }
+}
+Object.assign(globalThis, {newCharacterOpen, newCharacterClose, newCharacterSave});
+
+let characterReferenceSnapshot = null;
+function characterSyncReferences() {
+  _renderCharsAppliedNote();
+  const keys = ['h3_reference', 'h3_reference2', 'h3_reference3'];
+  const sw = document.getElementById('h3_refs');
+  if (!sw) return;
+  const c = _manualCharacters.find(x => x.id === _selectedCharacterId);
+  const pictures = (c && c.pictures) || [];
+  const active = currentEngine() === 'h3' && currentMode === 'character' && pictures.length > 0;
+  if (active) {
+    if (!characterReferenceSnapshot) characterReferenceSnapshot = {
+      checked: sw.checked, pictures: keys.map(k => document.getElementById(k)?.value || '')
+    };
+    sw.checked = true;
+    keys.forEach((k, i) => {
+      if (document.getElementById(k)?.value !== (pictures[i] || ''))
+        pickerSetImage(k, pictures[i] || '', {snapAspect: false});
+    });
+  } else if (characterReferenceSnapshot) {
+    const saved = characterReferenceSnapshot; characterReferenceSnapshot = null;
+    sw.checked = saved.checked;
+    keys.forEach((k, i) => pickerSetImage(k, saved.pictures[i], {snapAspect: false}));
+  }
+  sw.disabled = !!active;
+  _h3RefsUpdate();
+  if (typeof voicesSyncRenderField === "function") voicesSyncRenderField();
+}
+Object.assign(globalThis, {characterSyncReferences});

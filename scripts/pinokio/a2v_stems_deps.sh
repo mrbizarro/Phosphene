@@ -16,7 +16,8 @@
 # (80 MB, into mlx_models/demucs). It NEVER changes a package that is already
 # installed: torch and numpy are pinned to the versions on disk, because a
 # torchaudio resolve would otherwise drag torch to its own release and move the
-# image engine with it.
+# image engine with it. Voice timing also installs mlx-whisper; its pinned
+# model downloads to mlx_models/voice_alignment on the first voice pass.
 #
 # WHY NOT THE `demucs` CLI. It saves through torchaudio, which since 2.9 needs
 # torchcodec — it dies after the whole separation. The panel runs
@@ -110,7 +111,7 @@ if [ -f "$EC" ]; then
   cp "$EC" "$EC_COPY" || { record failed pip_failed disk; exit 1; }
   EC_ARGS=(-c "$EC_COPY")
 fi
-PROBE='import demucs.pretrained, demucs.apply, torch'
+PROBE='import demucs.pretrained, demucs.apply, torch, mlx_whisper'
 
 if "$PY" -c "$PROBE" >/dev/null 2>&1; then
   echo 'vocal separation: package already installed'
@@ -137,10 +138,10 @@ PYPINS
   n=1
   while :; do
     if command -v uv >/dev/null 2>&1; then
-      uv pip install --python "$PY" -c "$PINS" ${EC_ARGS[@]+"${EC_ARGS[@]}"} 'demucs==4.0.1' 2>&1 | defuse
+      uv pip install --python "$PY" -c "$PINS" ${EC_ARGS[@]+"${EC_ARGS[@]}"} 'demucs==4.0.1' 'mlx-whisper==0.4.3' 2>&1 | defuse
       rc=$?
     else
-      "$PY" -m pip install --retries 5 --timeout 60 -c "$PINS" ${EC_ARGS[@]+"${EC_ARGS[@]}"} 'demucs==4.0.1' 2>&1 | defuse
+      "$PY" -m pip install --retries 5 --timeout 60 -c "$PINS" ${EC_ARGS[@]+"${EC_ARGS[@]}"} 'demucs==4.0.1' 'mlx-whisper==0.4.3' 2>&1 | defuse
       rc=$?
     fi
     [ "$rc" -eq 0 ] && break
@@ -162,6 +163,23 @@ PYPINS
     exit 1
   fi
 fi
+
+# A moved venv can import Demucs while its pip-generated executable still
+# names a deleted checkout. Rebuild it every time, including the ready path.
+# FFmpeg output also avoids torchaudio 2.9's optional torchcodec dependency.
+if ! cp "$APP_ROOT/scripts/demucs_cli.py" "$VENV/bin/phosphene_demucs.py"; then
+  record failed other
+  exit 1
+fi
+if ! cat > "$VENV/bin/demucs.pending" <<'LAUNCHER'
+#!/bin/sh
+exec "$(dirname "$0")/python" "$(dirname "$0")/phosphene_demucs.py" "$@"
+LAUNCHER
+then
+  record failed other
+  exit 1
+fi
+chmod +x "$VENV/bin/demucs.pending" && mv "$VENV/bin/demucs.pending" "$VENV/bin/demucs" || { record failed other; exit 1; }
 
 # Fetch the weights now, so the first lip-sync render does not stop to
 # download them. Prove the runner loads the model, not just that pip ran.

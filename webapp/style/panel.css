@@ -6712,6 +6712,8 @@
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
     .h3-prompt-helper .ct-spacer { flex: 1 1 auto; }
+    /* 5.0.78: Write it for me's One shot toggle sits beside its button. */
+    .composer-tools .h3-write-oneshot { font-size: 13px; opacity: .85; white-space: nowrap; }
     .h3-prompt-helper select#h3DialogueLang {
       font-size: 13px; padding: 4px 6px;
       background: var(--panel-2, var(--panel)); color: var(--text);
@@ -14380,6 +14382,7 @@ html[data-theme="light"] .tool-rail .workflow-tabs .new-badge:not(.sb-live) { ba
 .mode-chip[data-kf-default="multi"] { --mi: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M5 8.6l3 3.4-3 3.4-3-3.4zM12 8.6l3 3.4-3 3.4-3-3.4zM19 8.6l3 3.4-3 3.4-3-3.4zM3 19.5h18'/></svg>"); }
 .mode-chip[data-mode="extend"] { --mi: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='2.5' y='6' width='11' height='12' rx='1.5'/><path d='M16.5 12h5M19 9.5l2.5 2.5-2.5 2.5'/></svg>"); }
 .mode-chip[data-mode="v2a"] { --mi: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M4 9.5v5h3.5L12 18V6L7.5 9.5z'/><path d='M15.5 9.5c1.2 1.4 1.2 3.6 0 5M18 7c2.6 2.8 2.6 7.2 0 10'/></svg>"); }
+.mode-chip[data-mode="revoice"] { --mi: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='6' y='3' width='6' height='10' rx='3'/><path d='M3.5 11a5.5 5.5 0 0 0 11 0M9 16.5V20M15.5 7.5h5M18.5 5l2 2.5-2 2.5M20.5 15.5h-5M17.5 13l-2 2.5 2 2.5'/></svg>"); }
 .mode-chip[data-lipsync] { --mi: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M3 12c2.5-3.2 5.5-4.2 9-2 3.5-2.2 6.5-1.2 9 2-2.5 3.6-5.5 5-9 5s-6.5-1.4-9-5zM3 12h18'/></svg>"); }
 .mode-chip[data-mode="remix"] { --mi: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M4 7h8M16 7h4M4 17h3M11 17h9'/><circle cx='14' cy='7' r='2'/><circle cx='9' cy='17' r='2'/></svg>"); }
 .mode-chip[data-remix="ingredients"] { --mi: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='4' width='7' height='7' rx='1.5'/><rect x='13' y='4' width='7' height='7' rx='1.5'/><rect x='4' y='13' width='7' height='7' rx='1.5'/><path d='M16.5 13.5v6M13.5 16.5h6'/></svg>"); }
@@ -15525,6 +15528,16 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 .wn-np-t { flex: 1 1 auto; min-width: 0; max-width: 70ch; color: #f4f4f6; font-size: 16px; line-height: 1.5; text-wrap: pretty; }
 .wn-np-gain { flex: none; margin-left: auto; padding: 4px 9px; border: 1px solid var(--pro-edge); border-radius: var(--r-pill); background: var(--pro-bg);
   color: var(--pro-ink); font: 600 12px/1.2 var(--mono); white-space: nowrap; }
+/* Now in Pro: the release's first how-to clip, small and silent, in the right corner beside the lines */
+.wn-np-row { display: flex; gap: 20px; align-items: flex-start; }
+.wn-np-row .wn-np-lines { flex: 1; min-width: 0; }
+.wn-np-clip { flex: none; width: 210px; padding: 0; border: 1px solid color-mix(in srgb, var(--site-violet) 40%, transparent); border-radius: 10px; overflow: hidden; background: #000; cursor: pointer; position: relative; }
+.wn-np-clip video { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+.wn-np-clip-k { position: absolute; left: 6px; bottom: 6px; font-size: 13px; padding: 2px 7px; border-radius: 999px; background: #000b; color: #fff; }
+.wn-np-row { flex-wrap: wrap; }
+.wn-np-clip.is-on { width: 100%; flex-basis: 100%; order: 2; cursor: default; }
+.wn-np-clip.is-on .wn-np-clip-k { display: none; }
+@media (max-width: 640px) { .wn-np-row { flex-direction: column; } .wn-np-clip { width: 100%; } }
 /* Coming next in Pro (owner, 14 Nov 2026): the unreleased Pro perks, teased under the items, or the whole block when a
    release adds nothing to Pro. Softer type, a dashed hairline, a small "Soon" chip beside the measured gain. */
 .wn-np-coming { margin-top: 16px; padding-top: 12px; border-top: 1px dashed color-mix(in srgb, var(--site-violet) 34%, transparent); }
@@ -15552,22 +15565,32 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 /* a member's quiet link to the Pro page, under "Included in your Pro" (no buy button) */
 .wn-np-member { margin: 14px 0 0; font-size: var(--fs-sm); }
 .wn-np-member .wn-np-what { color: var(--pro-ink); }
-.wn-np-cta { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 20px; border-radius: 8px;
-  color: #fff; font-weight: 650; font-size: 15px; text-decoration: none; background-color: #4f3191; background-image: var(--v2-action);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16), var(--v2-action-glow); transition: box-shadow var(--t-fast); }
-.wn-np-cta:hover { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .26), 0 14px 30px -14px rgba(177, 74, 255, .85); }
-.wn-np-cta:focus-visible { outline: none; box-shadow: var(--ring), var(--v2-action-glow); }
-/* the offer (owner, 18 Nov 2026): the monthly price on the button, the Founding line small under it, right-aligned
-   beside the support line; a hairline above so it reads as the block's foot, not an ad stuck on. */
-.wn-np-offer { margin-top: 16px; padding-top: 16px; border-top: 1px solid color-mix(in srgb, var(--site-violet) 22%, transparent); }
-.wn-np-offer-act { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.wn-np-founding { color: var(--pro-ink); font-size: 13px; line-height: 1.35; text-decoration: none; text-align: right; }
-.wn-np-founding:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
-.wn-np-founding:focus-visible { outline: none; border-radius: 4px; box-shadow: var(--ring); }
+/* the offer (owner, 20 Nov 2026, Option A "Luminous Pro Action Bar"): a Founding pill and the bright monthly button side
+   by side, flush right beside the support line; a hairline above so it reads as the block's foot. Always on black. */
+.wn-np-offer { justify-content: space-between; gap: 14px 18px; margin-top: 16px; padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--site-violet) 26%, transparent); }
+.wn-np-offer p { flex: 1 1 280px; max-width: 44ch; }
+.wn-np-offer-act { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 100%; }
+/* violet, not pink (owner, 21 Nov 2026, #1055: "make it like the 2x faster color"): the gain chip's family, a deep
+   violet fill, a violet edge and lavender-white type, so the button reads violet on black instead of a pale pink fill */
+.wn-np-cta { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 18px; border-radius: 9px;
+  background: color-mix(in srgb, var(--site-violet) 42%, #0b0710); border: 1px solid color-mix(in srgb, var(--site-violet) 80%, transparent);
+  color: #f6efff; font-weight: 700; font-size: 14.5px; letter-spacing: -.005em; text-decoration: none;
+  white-space: nowrap; box-shadow: 0 0 24px -6px rgba(177, 74, 255, .55), inset 0 1px 0 rgba(255, 255, 255, .14);
+  transition: background var(--t-fast), box-shadow var(--t-fast); }
+.wn-np-cta:hover { background: color-mix(in srgb, var(--site-violet) 56%, #0b0710); color: #fff; text-decoration: none;
+  box-shadow: 0 0 30px -4px rgba(177, 74, 255, .75), inset 0 1px 0 rgba(255, 255, 255, .2); }
+.wn-np-cta:focus-visible { outline: none; box-shadow: var(--ring), 0 0 24px -4px rgba(177, 74, 255, .6); }
+.wn-np-founding { display: inline-flex; flex-direction: column; justify-content: center; gap: 1px; height: 40px; padding: 0 14px;
+  border-radius: 9px; color: #c7a7ef; text-decoration: none; white-space: nowrap; text-align: left; background: rgba(203, 138, 255, .10);
+  border: 1px solid rgba(203, 138, 255, .42); transition: background var(--t-fast), border-color var(--t-fast); }
+.wn-np-founding b { font: 650 13px/1.15 var(--sans); color: #f6efff; }
+.wn-np-founding > span { font: 500 11px/1.15 var(--sans); color: #c7a7ef; }
+.wn-np-founding:hover { background: rgba(203, 138, 255, .18); border-color: rgba(203, 138, 255, .72); text-decoration: none; }
+.wn-np-founding:focus-visible { outline: none; box-shadow: var(--ring); }
 @media (max-width: 720px) {
   .wn-np { padding: 18px 16px; }
-  .wn-np-offer-act { align-items: flex-start; }
-  .wn-np-founding { text-align: left; }
+  .wn-np-offer p { max-width: none; }
   .wn-np-lines li { flex-direction: column; gap: 8px; }
   .wn-np-gain { margin-left: 0; }
   .wn-np-tags { margin-left: 0; }
@@ -15822,3 +15845,120 @@ body.h3-refs-on #h3SpeedRow { display: none !important; }
   border-radius: var(--r-lg, 10px); background: var(--bg-2); font-size: var(--fs-sm); line-height: 1.5; }
 .sb-draft-hint p { flex: 1 1 auto; margin: 0; }
 .sb-draft-hint[hidden], .sb-play-pass[hidden] { display: none; }
+
+/* Voices library: the models-modal shell, the panel's own buttons, pills and colours. */
+#voicesModal[hidden] { display: none; }
+#voicesModal { display: flex; }
+.voices-panel { width: min(680px, 94vw); padding: 24px; max-height: 88vh; overflow: auto; }
+.voices-intro { margin: 4px 0 16px; color: var(--muted); line-height: 1.5; }
+.voices-list { display: grid; gap: 10px; margin: 0 0 12px; }
+.voices-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: 12px; color: var(--muted); line-height: 1.5; }
+.voices-from-characters { margin: 0 0 16px; color: var(--muted); }
+.voices-from-characters[hidden] { display: none; }
+.voice-card { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-2); }
+.voice-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.voice-card-meta { font-size: var(--fs-sm, 12px); color: var(--muted); }
+.voice-card progress { width: 100%; height: 6px; accent-color: var(--accent-bright); }
+.voice-card-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.voice-card-actions audio { flex: 1 1 240px; min-width: 0; height: 32px; }
+.voice-remove { margin-left: auto; }
+.voice-state { flex: none; font-size: var(--fs-sm, 12px); padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.voice-state-ready { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, transparent); }
+.voice-state-busy, .voice-state-wait { color: var(--text); }
+.voice-state-failed { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.voice-error { margin: 0; color: var(--danger); overflow-wrap: anywhere; line-height: 1.45; }
+.voice-speaker { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: var(--fs-sm, 12px); }
+.voice-speaker-label { color: var(--muted); }
+.voice-speaker-text { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.voice-speaker.is-editing { display: grid; gap: 6px; }
+.voice-speaker.is-editing input { width: 100%; box-sizing: border-box; }
+.voice-speaker-hint { margin: 0; color: var(--muted); line-height: 1.45; }
+.voice-add { display: grid; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border); }
+.voice-add h3 { margin: 0 0 4px; }
+.voice-add input:not([type=file]) { width: 100%; box-sizing: border-box; }
+.voice-drop { display: grid; gap: 4px; padding: 18px; border: 1px dashed var(--border-strong); border-radius: 12px; cursor: pointer; text-align: center; }
+.voice-drop:hover, .voice-drop:has(+ .voice-file-input:focus-visible), .voice-drop.is-over { background: var(--v2-hover, rgba(255,255,255,.04)); border-color: var(--accent-bright); }
+.voice-drop.has-file { border-style: solid; }
+.voice-drop[hidden] { display: none; }
+.voice-drop-main { color: var(--text); }
+.voice-drop-sub { font-size: var(--fs-sm, 12px); color: var(--muted); }
+/* The real file input stays in the page (the drop area is its label) but is not drawn. */
+.voice-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+.voice-actions, .voice-render-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.voice-actions { justify-content: space-between; }
+.voice-message { margin: 0; min-height: 1.2em; color: var(--muted); }
+.voices-revoice { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.voices-revoice .hint { margin: 4px 0 0; }
+.voice-render-field { display: grid; gap: 8px; margin: 12px 0; }
+.voice-render-field[hidden] { display: none; }
+.voice-render-row > label { min-width: 44px; color: var(--muted); }
+.voice-render-row > select { flex: 1 1 180px; min-width: 0; }
+.cm-voice-field { display: grid; gap: 4px; flex: 0 0 140px; min-width: 0; }
+.cm-voice-field select { width: 100%; }
+.chars-manage-row:has(.cm-voice-field) { flex-wrap: wrap; }
+.chars-manage-row:has(.cm-voice-field) .cm-name-input { flex-basis: 160px; }
+
+#newCharacterModal[hidden] { display: none; }
+#newCharacterForm { display: grid; gap: 12px; }
+#newCharacterForm > input, #newCharacterForm > select { width: 100%; box-sizing: border-box; }
+#newCharacterForm .new-character-train { display: flex; align-items: center; gap: 8px; }
+#newCharacterTrain { width: auto; margin: 0; }
+
+.revoice-source { display: grid; gap: 8px; margin-bottom: 12px; }
+.revoice-source[hidden], .revoice-lines[hidden], .revoice-empty[hidden], .revoice-status[hidden] { display: none; }
+#revoicePreview { width: 100%; max-height: 220px; background: #000; border-radius: 10px; }
+#revoiceAudio { width: 100%; }
+.revoice-source-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.revoice-source-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.revoice-status { display: flex; align-items: center; gap: 10px; margin: 8px 0; color: var(--muted); line-height: 1.45; }
+.voice-spinner { flex: none; width: 14px; height: 14px; border: 2px solid var(--border-strong); border-top-color: var(--accent-bright); border-radius: 50%; display: none; animation: setup-card-spin 0.9s linear infinite; }
+.revoice-status.is-busy .voice-spinner { display: inline-block; }
+.revoice-lines-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.revoice-all { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm, 12px); color: var(--muted); white-space: nowrap; }
+.revoice-all select { width: auto; max-width: 220px; }
+.revoice-phrase { display: grid; grid-template-columns: auto 3.2em minmax(0, 1fr) minmax(150px, .7fr); gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.revoice-play { width: 30px; padding: 0; display: inline-grid; place-items: center; }
+.revoice-play .ph { width: 12px; height: 12px; }
+.revoice-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--fs-sm, 12px); }
+.revoice-text { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .revoice-phrase { grid-template-columns: auto 3.2em minmax(0, 1fr); } .revoice-phrase select { grid-column: 1 / -1; } }
+.revoice-empty { margin: 12px 0; padding: 14px; border: 1px dashed var(--border); border-radius: 12px; }
+.revoice-empty p { margin: 0 0 10px; }
+.revoice-foot { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+
+/* Re-voice as a mode (owner, 20 Nov 2026): its own form in the left column, in place of the video
+   form, with its own footer button. Only on the Video tab. */
+#revoiceSection { position: relative; }
+body[data-workflow]:not([data-workflow="manual"]) #revoiceSection { display: none !important; }
+.form-pane > #revoiceSection { padding-left: var(--v2-col); padding-right: var(--v2-col); }
+#modeGroup .mode-chip[data-mode="revoice"] { position: relative; }
+/* The Pro tag sits on the chip's top edge like a badge, so it never covers the label in any language
+   (it covered "Re-voice" at the default column width, 20 Nov walk). */
+#modeGroup .mode-chip[data-mode="revoice"] .pro-tag { position: absolute; top: -8px; right: 8px; margin: 0; z-index: 1; }
+.revoice-intro { position: relative; margin: 6px 0 14px; padding: 12px 34px 12px 14px; border: 1px solid var(--site-line, var(--border));
+  border-radius: 10px; background: var(--site-panel, var(--bg-2)); }
+.revoice-intro .hint { margin: 0; color: var(--muted); line-height: 1.5; }
+.revoice-steps { margin: 8px 0 0; padding-left: 20px; color: var(--text); line-height: 1.5; font-size: 13.5px; }
+.revoice-steps li + li { margin-top: 2px; }
+.revoice-steps[hidden] { display: none; }
+.revoice-intro.is-short { padding-right: 14px; }
+.revoice-intro.is-short .revoice-steps-x { display: none; }
+.revoice-steps-x { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; padding: 0; border: 0; background: none;
+  color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; border-radius: 6px; }
+.revoice-steps-x:hover { background: var(--v2-hover, rgba(255,255,255,.06)); color: var(--text); }
+.revoice-h { margin: 14px 0 8px; }
+.revoice-lines-head .revoice-h { margin: 0; }
+#revoiceSection #revoicePreview { max-height: 150px; }
+.revoice-use-player { justify-self: start; padding: 0; border: 0; background: none; color: var(--accent-bright, var(--accent)); cursor: pointer;
+  font-size: 13px; text-align: left; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
+.revoice-use-player:hover { text-decoration-color: currentColor; }
+.revoice-use-player[hidden] { display: none; }
+.revoice-lines-head { flex-direction: column; align-items: stretch; gap: 6px; }
+.revoice-all { justify-content: space-between; white-space: normal; }
+.revoice-all select { flex: 0 1 auto; min-width: 0; max-width: 60%; }
+/* The column is narrow: words on one line, the voice picker under them. */
+#revoiceSection .revoice-phrase { grid-template-columns: auto 3.2em minmax(0, 1fr); row-gap: 6px; }
+#revoiceSection .revoice-phrase select { grid-column: 2 / -1; width: 100%; }
+.revoice-speaker { margin: 12px 0 0; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--v2-dim, var(--muted)); }
+#formActionFooterRevoice .actions #revoiceRun { flex: 1 1 auto; }

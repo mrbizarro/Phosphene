@@ -32,6 +32,7 @@ const DOCS_SECTIONS = [
   { id: 'speech', title: T('docs.speech', 'Speech'), group: T('docs.make', 'Make'), file: 'speech.md' },
   { id: 'editor', title: T('docs.editor', 'Editor'), group: T('docs.cut', 'Cut'), file: 'editor.md' },
   { id: 'train-character', title: T('docs.train_character', 'Train Character'), group: T('docs.characters', 'Characters'), file: 'train-character.md' },
+  { id: 'voices', title: T('docs.voices', 'Voices and characters'), group: T('docs.characters', 'Characters'), file: 'voices.md' },
   { id: 'loras', title: 'LoRAs', group: T('docs.characters', 'Characters'), file: 'loras.md' },
   { id: 'settings', title: T('docs.settings', 'Settings'), group: T('docs.reference', 'Reference'), file: 'settings.md' },
   { id: 'bench', title: T('docs.phosphene_bench', 'Phosphene Bench'), group: T('docs.reference', 'Reference'), file: 'bench.md' },

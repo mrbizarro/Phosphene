@@ -1,0 +1,11 @@
+mlx>=0.32.0
+mlx-vlm>=0.4.4
+numpy>=1.26
+safetensors>=0.4
+huggingface_hub>=0.30
+transformers>=4.57
+pillow>=11
+
+# Validation only — the port itself needs neither torch nor diffusers.
+# torch>=2.5
+# git+https://github.com/huggingface/diffusers@minimax-h3
