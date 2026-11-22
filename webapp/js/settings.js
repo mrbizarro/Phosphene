@@ -1902,13 +1902,55 @@ async function proStatusRefresh() {
   // (Remote's components and renewal while the app is closed need it).
   if (btn) { btn.hidden = isMacApp(); btn.textContent = active ? T('settings.licence', 'Licence') : 'Pro'; }
   if (mark) { mark.hidden = !active; mark.textContent = active && st.label ? st.label : 'Pro'; }
+  globalThis.proRenewalNotice = (st && st.renewal_notice) || null;
   globalThis.proSpeedStatus = (st && st.ltx_speedup) || null;
   globalThis.proCrisperStatus = (st && st.crisper_detail) || null;
+  proRenewalNoticeRender(globalThis.proRenewalNotice);
   proMarksApply();
   proSpeedRender();
   crisperRender();
   proDraftRender();
   return st;
+}
+
+function _safeRenewUrl(url) {
+  const fallback = typeof siteLink === 'function' ? siteLink('/zh/pricing/', 'upgrade', 'china-renew') : '/zh/pricing/';
+  const s = String(url || '').trim();
+  if (s.startsWith('https://whop.com/checkout/')) return s;
+  try {
+    const u = new URL(s);
+    if (u.protocol === 'https:' && u.hostname === 'phosphene.video') {
+      return typeof siteLink === 'function' ? siteLink(u.pathname + u.search + u.hash, 'upgrade', 'china-renew') : s;
+    }
+  } catch (_) {}
+  return fallback;
+}
+
+function proRenewalNoticeRender(notice) {
+  const rn = notice && notice.plan === 'year_cny_wechat' && notice.expires_date ? notice : null;
+  const banner = document.getElementById('proRenewBanner');
+  const licBox = document.getElementById('proLicenceRenew');
+  const yourBox = document.getElementById('yourProRenew');
+  if (!rn) {
+    if (banner) banner.hidden = true;
+    if (licBox) licBox.hidden = true;
+    if (yourBox) yourBox.hidden = true;
+    return;
+  }
+  const url = _safeRenewUrl(rn.renew_url);
+  const dateStr = String(rn.expires_date || '');
+  const cta = T('settings.renew_with_wechat', 'Renew with WeChat');
+  const lead = rn.state === 'expired'
+    ? T('settings.your_year_of_pro_ended_on', 'Your year of Pro ended on {date}', {date: dateStr})
+    : T('settings.your_year_of_pro_ends_on', 'Your year of Pro ends on {date}', {date: dateStr});
+  if (banner) {
+    banner.href = url;
+    banner.textContent = `${lead} · ${cta}`;
+    banner.hidden = false;
+  }
+  const html = `${escapeHtml(lead)} · <a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(cta)}</a>`;
+  if (licBox) { licBox.innerHTML = html; licBox.hidden = false; }
+  if (yourBox) { yourBox.innerHTML = html; yourBox.hidden = false; }
 }
 
 // ---- Crisper detail, in the composer tools (Pro ledger row ltx-crisper-detail) -------------------------------
@@ -2173,9 +2215,30 @@ function proMarksApply(root = document) {
       const sel = w[0] ? document.getElementById(w[0]) : null;
       el.hidden = !!(sel && sel.value !== w[1]);
     } else {
-      el.textContent = on ? 'Pro ✓' : 'Pro';
-      el.classList.toggle('pro-on', on);
-      el.title = text;
+      const rn = !on && globalThis.proRenewalNotice && globalThis.proRenewalNotice.state === 'expired' ? globalThis.proRenewalNotice : null;
+      if (rn) {
+        const url = _safeRenewUrl(rn.renew_url);
+        const cta = T('settings.renew_with_wechat', 'Renew with WeChat');
+        if (el.closest('button, label')) {
+          el.innerHTML = `<span class="pro-renew-inline" role="link" tabindex="0">${escapeHtml(cta)}</span>`;
+          const sp = el.querySelector('.pro-renew-inline');
+          if (sp) {
+            const openRenew = ev => { ev.preventDefault(); ev.stopPropagation(); window.open(url, '_blank', 'noopener,noreferrer'); };
+            sp.addEventListener('click', openRenew);
+            sp.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') openRenew(ev); });
+          }
+        } else {
+          el.innerHTML = `<a class="pro-renew-inline" href="${escapeHtml(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escapeHtml(cta)}</a>`;
+        }
+        el.classList.remove('pro-on');
+        el.classList.add('pro-renew-tag');
+        el.title = T('settings.your_year_of_pro_ended_on', 'Your year of Pro ended on {date}', {date: rn.expires_date || ''}) + ' · ' + cta;
+      } else {
+        el.textContent = on ? 'Pro ✓' : 'Pro';
+        el.classList.toggle('pro-on', on);
+        el.classList.remove('pro-renew-tag');
+        el.title = text;
+      }
     }
   });
 }
@@ -2184,7 +2247,16 @@ document.addEventListener('change', e => {
 });
 function proFeatureListHtml() {
   const on = proIsOn();
-  const item = f => `<li><p class="pro-feature-name">${escapeHtml(f.name)}${f.id ? `<span class="pro-tag${on ? ' pro-on' : ''}">${on ? 'Pro ✓' : 'Pro'}</span>` : ''}</p>`
+  const rn = !on && globalThis.proRenewalNotice && globalThis.proRenewalNotice.state === 'expired' ? globalThis.proRenewalNotice : null;
+  const tagHtml = () => {
+    if (rn) {
+      const url = _safeRenewUrl(rn.renew_url);
+      const cta = T('settings.renew_with_wechat', 'Renew with WeChat');
+      return `<span class="pro-tag pro-renew-tag"><a class="pro-renew-inline" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(cta)}</a></span>`;
+    }
+    return `<span class="pro-tag${on ? ' pro-on' : ''}">${on ? 'Pro ✓' : 'Pro'}</span>`;
+  };
+  const item = f => `<li><p class="pro-feature-name">${escapeHtml(f.name)}${f.id ? tagHtml() : ''}</p>`
     + `<p class="pro-feature-line">${escapeHtml(f.line)}</p>`
     + (f.where ? `<p class="pro-feature-where">${T('settings.where', 'Where:')} <b>${escapeHtml(f.where)}</b></p>` : '') + '</li>';
   return '<ul class="pro-feature-list">' + PRO_FEATURES.map(item).join('') + item(PRO_SUPPORT) + '</ul>';
@@ -2230,6 +2302,10 @@ function proLicenceShow(doc) {
   if (!msg) msg = pro ? (via === 'app' ? T('settings.pro_is_on_through_the', 'Pro is on through the Phosphene Mac app on this Mac.') : T('settings.pro_is_on_for_this', 'Pro is on for this Mac.')) : T('settings.free_paste_the_licence_key', 'Free. Paste the licence key from your purchase email to turn Pro on.');
   st.textContent = msg;
   st.dataset.on = pro ? '1' : '';
+  if (doc && (Object.prototype.hasOwnProperty.call(doc, 'renewal_notice') || Object.prototype.hasOwnProperty.call(lic, 'renewal_notice'))) {
+    globalThis.proRenewalNotice = doc.renewal_notice || lic.renewal_notice || null;
+    proRenewalNoticeRender(globalThis.proRenewalNotice);
+  }
   const own = !!lic.licensed;
   // The key box is hidden only when this Studio already holds its own working licence; borrowed Pro (the Mac app's pass) keeps it.
   document.getElementById('proLicenceForm').hidden = pro && own;

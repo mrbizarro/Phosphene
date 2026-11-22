@@ -3854,5 +3854,108 @@
   "5.0.80": {
     "silent": true,
     "date": "2026-11-22"
+  },
+  "5.0.81": {
+    "date": "2026-11-22",
+    "headline": "Choose when Phosphene updates, keep moved models working, and clearer repair messages.",
+    "free": [
+      "Turn automatic updates off in Settings to choose when Phosphene updates; your previous version keeps working until a new update finishes setting up.",
+      "Moving models to an external drive keeps them working, and opening the updated Mac app repairs links from an earlier move without downloading models again.",
+      "Mac app setup messages now follow your chosen language, with a verified backup source in China if the main download cannot connect.",
+      "When a Hailuo H3 file on your Mac is damaged, the card now points to Repair instead of asking you to Retry."
+    ],
+    "pro": [],
+    "i18n": {
+      "de": {
+        "headline": "Selbst wählen, wann Phosphene aktualisiert, verschobene Modelle weiter nutzen und klarere Reparaturhinweise.",
+        "free": [
+          "Schalte automatische Updates in den Einstellungen aus, um selbst zu wählen, wann Phosphene aktualisiert; deine bisherige Version läuft weiter, bis ein neues Update fertig eingerichtet ist.",
+          "Modelle funktionieren weiter, nachdem du sie auf ein externes Laufwerk verschoben hast, und das Öffnen der neuen Mac-App repariert Verknüpfungen früherer Umzüge ohne neuen Download.",
+          "Die Einrichtungsmeldungen der Mac-App folgen jetzt deiner Sprache, mit einer geprüften Ersatzquelle in China, falls der Hauptdownload keine Verbindung bekommt.",
+          "Wenn eine Hailuo H3 Datei auf deinem Mac beschädigt ist, verweist die Karte jetzt auf Reparieren statt auf Erneut versuchen."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "Elige cuándo se actualiza Phosphene, mantén funcionando los modelos movidos y avisos de reparación más claros.",
+        "free": [
+          "Desactiva las actualizaciones automáticas en Ajustes para elegir cuándo se actualiza Phosphene; tu versión anterior sigue funcionando hasta que la nueva termina de prepararse.",
+          "Mover modelos a una unidad externa los mantiene funcionando, y abrir la app para Mac actualizada repara los enlaces de un traslado anterior sin volver a descargarlos.",
+          "Los mensajes de configuración de la app para Mac siguen ahora tu idioma, con una fuente de respaldo verificada en China si la descarga principal no conecta.",
+          "Cuando un archivo de Hailuo H3 en tu Mac está dañado, la tarjeta ahora indica Reparar en lugar de pedirte Reintentar."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Choisissez quand Phosphene se met à jour, gardez vos modèles déplacés utilisables et des avis de réparation plus clairs.",
+        "free": [
+          "Désactivez les mises à jour automatiques dans Réglages pour choisir quand Phosphene se met à jour ; votre version précédente reste utilisable jusqu'à la fin de l'installation.",
+          "Déplacer vos modèles sur un disque externe les garde utilisables, et ouvrir l'app Mac mise à jour répare les liens d'un ancien déplacement sans tout retélécharger.",
+          "Les messages d'installation de l'app Mac suivent maintenant votre langue, avec une source de secours vérifiée en Chine si le téléchargement principal échoue.",
+          "Lorsqu'un fichier Hailuo H3 sur votre Mac est endommagé, la carte indique maintenant Réparer au lieu de demander de Réessayer."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "Scegli quando aggiornare Phosphene, mantieni funzionanti i modelli spostati e avvisi di riparazione più chiari.",
+        "free": [
+          "Disattiva gli aggiornamenti automatici in Impostazioni per scegliere quando aggiornare Phosphene; la versione precedente continua a funzionare finché il nuovo aggiornamento non è pronto.",
+          "Spostare i modelli su un disco esterno li mantiene funzionanti, e aprire l'app Mac aggiornata ripara i collegamenti di uno spostamento precedente senza riscaricarli.",
+          "I messaggi di configurazione dell'app Mac ora seguono la tua lingua, con una fonte di riserva verificata in Cina se il download principale non si connette.",
+          "Quando un file di Hailuo H3 sul tuo Mac è danneggiato, la scheda ora rimanda a Ripara invece di chiedere di Riprova."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "更新タイミングの選択、外付けドライブへ移動したモデルの保護、修復案内の改善を行いました。",
+        "free": [
+          "設定で自動アップデートをオフにすると、Phospheneを更新するタイミングを自分で選べます。新しいバージョンの準備が終わるまで以前のバージョンがそのまま使えます。",
+          "モデルを外付けドライブへ移動してもそのまま使え、更新後のMacアプリを開くだけで以前移動して切れたリンクも再ダウンロードなしで修復します。",
+          "Macアプリのセットアップ表示が選択した言語に合うようになり、主なダウンロードに接続できない場合は中国向けの検証済みバックアップ元を使います。",
+          "Mac上のHailuo H3ファイルが破損しているとき、再試行ではなく修復を案内するようになりました。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "업데이트 시점을 직접 고르고, 외장 드라이브로 옮긴 모델을 유지하며, 복구 안내를 더 명확하게 바꿨습니다.",
+        "free": [
+          "설정에서 자동 업데이트를 끄면 Phosphene을 업데이트할 시점을 직접 고를 수 있고, 새 업데이트 준비가 끝날 때까지 이전 버전이 계속 동작합니다.",
+          "모델을 외장 드라이브로 옮겨도 그대로 작동하며, 업데이트된 Mac 앱을 열면 예전 이동으로 끊긴 링크도 다시 내려받지 않고 복구합니다.",
+          "Mac 앱 설정 메시지가 선택한 언어에 맞춰 표시되며, 기본 다운로드에 연결되지 않으면 중국용 검증된 백업 경로를 사용합니다.",
+          "Mac의 Hailuo H3 파일이 손상되면 다시 시도 대신 복구를 안내하도록 바뀌었습니다."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "Escolha quando atualizar o Phosphene, mantenha modelos movidos funcionando e avisos de reparo mais claros.",
+        "free": [
+          "Desative as atualizações automáticas em Ajustes para escolher quando o Phosphene atualiza; sua versão anterior continua funcionando até a nova terminar de preparar.",
+          "Mover modelos para um disco externo mantém tudo funcionando, e abrir o app para Mac atualizado repara os vínculos de uma mudança anterior sem baixar tudo de novo.",
+          "As mensagens de configuração do app para Mac agora seguem o seu idioma, com uma fonte reserva verificada na China se o download principal não conectar.",
+          "Quando um arquivo do Hailuo H3 no seu Mac está danificado, o cartão agora aponta para Reparar em vez de pedir para Tentar novamente."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "Выбор времени обновлений, сохранность перенесённых моделей и более понятные подсказки по восстановлению.",
+        "free": [
+          "Отключите автообновление в Настройках, чтобы самим выбирать время обновления Phosphene; прежняя версия продолжает работать, пока новая не завершит подготовку.",
+          "Перенос моделей на внешний диск сохраняет их работоспособность, а запуск обновлённого приложения для Mac чинит ссылки от прошлых переносов без повторной загрузки.",
+          "Сообщения настройки приложения для Mac теперь соответствуют выбранному языку, а если основная загрузка не подключается, используется проверенный резервный источник в Китае.",
+          "Если файл Hailuo H3 на вашем Mac повреждён, карточка теперь предлагает Восстановить вместо Повторить."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "自由决定何时更新 Phosphene、移至外接硬盘的模型保持可用，并改进修复提示。",
+        "free": [
+          "在“设置”中关闭自动更新后，你可以自己决定何时更新 Phosphene；在新更新准备完成前，旧版本会继续正常工作。",
+          "将模型移到外接硬盘后可继续正常使用，打开更新后的 Mac 应用还会自动修复此前移动导致的失效链接，无需重新下载。",
+          "Mac 应用的安装提示现已跟随你选择的语言显示，当主下载无法连接时会改用经过校验的中国备用下载源。",
+          "当 Mac 上的 Hailuo H3 文件损坏时，任务卡片现在会提示点按“修复”，而不再要求重试。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

@@ -27531,7 +27531,7 @@ SIDECAR_WARNING = ("The clip was saved, but its settings record ({name}) could n
 # The ratios come from pro_perks.json (the one list of Pro perks and their measurements).
 PRO_SPEEDUPS = {"h3": pro_perks.ratio("h3-faster", 1.48), "ltx": pro_perks.ratio("ltx-faster", 1.29),
                 "image": pro_perks.ratio("ph3-image-fast-pro", 1.54)}
-PRO_PLANS = {"monthly": "Pro", "yearly": "Pro", "founding": "Founding", "hardship": "Pro", "pro": "Pro", "dev": "Pro"}
+PRO_PLANS = {"monthly": "Pro", "yearly": "Pro", "year_cny_wechat": "Pro", "founding": "Founding", "hardship": "Pro", "pro": "Pro", "dev": "Pro"}
 
 
 def pro_status() -> dict:

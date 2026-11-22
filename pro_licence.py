@@ -391,6 +391,7 @@ def activate(key: str, opener=None, now=None) -> dict:
         rec = {"key": key, "instance_id": str(inst["id"]), "device": dev, "status": "active", "last_validated": t,
                "last_checked": t, "variant": str((r.get("meta") or {}).get("variant_name") or ""),
                "expires_at": (r.get("license_key") or {}).get("expires_at"), "token_error": None}
+        _store_renewal_notice(rec, r.get("renewal_notice"))
         if not _save(rec):
             gave_back = _deactivate_remote(key, rec["instance_id"], opener)
             msg = MESSAGES["record_unsaved"] + ("" if gave_back else " (Your place on the key may still be held by this Mac; trying again here reuses it.)")
@@ -459,6 +460,7 @@ def validate(opener=None, now=None) -> dict:
             rec.update(status=str(lk.get("status") or "active"), expires_at=lk.get("expires_at"), last_validated=t,
                        last_checked=t, variant=str((r.get("meta") or {}).get("variant_name") or rec.get("variant") or ""))
             rec.pop("refused_since", None)
+            _store_renewal_notice(rec, r.get("renewal_notice"))
             tok = r.get("pro_token")
             failure = None
             if tok:
@@ -479,8 +481,12 @@ def validate(opener=None, now=None) -> dict:
                 return {"ok": False, "storage_error": failure[0], "message": failure[1], **status()}
             return {"ok": True, "message": None, **status()}
         # the server said no: refunded, disabled, expired, or this slot was given up elsewhere
-        rec.update(status=str(lk.get("status") if lk.get("status") not in (None, "active") else "invalid"),
-                   token_error="refused", last_checked=t)
+        new_status = str(lk.get("status") if lk.get("status") not in (None, "active") else "invalid")
+        rec.update(status=new_status, token_error="refused", last_checked=t)
+        if new_status == "expired":
+            _store_renewal_notice(rec, r.get("renewal_notice"))
+        else:
+            rec.pop("renewal_notice", None)
         rec.setdefault("refused_since", t)
         gone = _remove(token_path())
         _save(rec)
@@ -520,6 +526,69 @@ def deactivate(opener=None) -> dict:
         return {"ok": True, "message": msg, **out}
 
 
+def _safe_renew_url(url) -> str:
+    s = str(url or "").strip()
+    if s.startswith("https://whop.com/checkout/") or s.startswith("https://phosphene.video/"):
+        return s
+    return "https://phosphene.video/zh/pricing/"
+
+
+def _nonneg_int(val) -> int:
+    try:
+        return max(0, int(val or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _store_renewal_notice(rec: dict, raw) -> None:
+    if isinstance(raw, dict) and raw.get("plan") == "year_cny_wechat" and raw.get("expires_date"):
+        rec["renewal_notice"] = {
+            "plan": "year_cny_wechat",
+            "state": "expired" if raw.get("state") == "expired" else "expiring_soon",
+            "expires_at": str(raw.get("expires_at") or ""),
+            "expires_date": str(raw.get("expires_date") or "")[:32],
+            "days_left": _nonneg_int(raw.get("days_left")),
+            "renews": False,
+            "renew_url": _safe_renew_url(raw.get("renew_url")),
+            "payment_method": "wechat_pay",
+            "lang": str(raw.get("lang") or "zh-CN")[:16],
+        }
+    else:
+        rec.pop("renewal_notice", None)
+
+
+def renewal_notice(rec: dict | None = None, now: int | None = None) -> dict | None:
+    """In-app renewal notice for manual-renewal China yearly licences, from 30 days before expiry and after expiry."""
+    if rec is None:
+        rec, _ = read_record()
+    if not rec or rec.get("status") == "disabled":
+        return None
+    raw = rec.get("renewal_notice")
+    if not isinstance(raw, dict) or raw.get("plan") != "year_cny_wechat" or not raw.get("expires_date"):
+        return None
+    t = int(time.time()) if now is None else int(now)
+    end = _epoch(raw.get("expires_at"))
+    state = raw.get("state")
+    days_left = _nonneg_int(raw.get("days_left"))
+    if end is not None:
+        remaining = end - t
+        if remaining > 30 * 86400:
+            return None
+        state = "expired" if remaining <= 0 else "expiring_soon"
+        days_left = max(0, (remaining + 86399) // 86400) if remaining > 0 else 0
+    return {
+        "plan": "year_cny_wechat",
+        "state": "expired" if state == "expired" else "expiring_soon",
+        "expires_at": str(raw.get("expires_at") or ""),
+        "expires_date": str(raw.get("expires_date") or "")[:32],
+        "days_left": days_left,
+        "renews": False,
+        "renew_url": _safe_renew_url(raw.get("renew_url")),
+        "payment_method": "wechat_pay",
+        "lang": str(raw.get("lang") or "zh-CN")[:16],
+    }
+
+
 def status() -> dict:
     """What Settings > Pro shows. `via`: 'app' (the Mac app's token), 'studio' (this module's record), or None."""
     rec, prob = read_record()
@@ -530,6 +599,9 @@ def status() -> dict:
     out = {"licensed": bool(rec), "via": via, "pro": bool(st.get("ok")), "reason": st.get("reason"),
            "expires_at": st.get("expires_at"), "variant": (rec or {}).get("variant") or None,
            "storage_problem": prob, "remote_needs_licence": bool(via == "app" and not rec)}
+    rn = renewal_notice(rec)
+    if rn:
+        out["renewal_notice"] = rn
     note = _note(rec, st, prob)
     if note:
         out["note"] = note

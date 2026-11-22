@@ -31,9 +31,12 @@ def get_pro_status(h, parsed) -> None:
     doc["addon"] = P.pro_addon_state()
     # Pinokio only: whether this Studio can take a licence key itself (the Mac app has its own door).
     doc["licence_here"] = not P._dist.is_mac_app()
+    import pro_licence
     if doc["licence_here"]:
-        import pro_licence
         doc["own_licence"] = pro_licence.load() is not None
+    rn = pro_licence.renewal_notice()
+    if rn:
+        doc["renewal_notice"] = rn
     h._json(doc)
 
 

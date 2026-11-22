@@ -3805,7 +3805,7 @@ function friendlyJobError(raw, engine) {
   // tokenizer beside the text encoder"). One fresh install failed five renders
   // in a row on these before a re-download fixed it. Retry repeats the same
   // failure; Repair re-downloads only the broken files, so that is the action.
-  if (/invalid json header length|expecting value: line 1 column 1 \(char 0\)|parameters not in model|no usable tokenizer beside the text encoder/i.test(raw)) {
+  if (/invalid json header length|expecting value: line 1 column 1 \(char 0\)|parameters not in model|no usable tokenizer beside the text encoder|couldn't instantiate the backend tokenizer/i.test(raw)) {
     return {
       friendly: T('queue.a_model_file_on_this', 'A model file on this Mac is damaged.'),
       hint: T('queue.usually_an_interrupted_download_press', 'Usually an interrupted download. Press Repair in the red bar at the ')

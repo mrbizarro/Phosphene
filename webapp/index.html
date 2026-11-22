@@ -173,6 +173,7 @@
     <img class="brand-word" src="/assets/phosphene_wordtext.png" alt="Phosphene">
     <span id="proMark" class="pro-mark" hidden role="button" tabindex="0" title="Your Pro: what your licence turns on" onclick="openYourPro(event)" onkeydown="if(event.key==='Enter'||event.key===' ')openYourPro(event)" data-i18n-title="proMark.title.your_pro_what_your">Pro</span>
   </a>
+  <a id="proRenewBanner" class="pro-renew-banner" href="https://phosphene.video/zh/pricing/" data-utm-campaign="upgrade" target="_blank" rel="noopener" hidden></a>
   <!-- The standalone version badge is gone: #versionPill already carries the
        version in EVERY state it can be in — "Up to date · 4.2.0",
        "Update to 4.3.0", "Checking · 4.2.0", "4.2.0 · dev · <sha>",
@@ -7304,6 +7305,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
     <section class="pro-licence" id="proLicence" aria-label="Your Pro licence" data-i18n-aria-label="proLicence.aria-label.your_pro_licence">
       <p class="lights-on-eyebrow" data-i18n="proLicence.your_licence">YOUR LICENCE</p>
       <p class="pro-licence-state" id="proLicenceState" role="status"></p>
+      <p class="pro-renew-notice" id="proLicenceRenew" hidden></p>
       <form class="pro-licence-form" id="proLicenceForm" onsubmit="proLicenceActivate(event)">
         <input type="password" id="proLicenceKey" autocomplete="off" spellcheck="false" placeholder="Paste your licence key" aria-label="Licence key" data-i18n-placeholder="proLicenceKey.placeholder.paste_your_licence_key" data-i18n-aria-label="proLicenceKey.aria-label.licence_key">
         <button type="submit" class="ghost-btn" id="proLicenceGo" data-i18n="proLicenceGo.turn_on_pro">Turn on Pro</button>
@@ -7331,6 +7333,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       <button type="button" class="dlg-x" aria-label="Close" title="Close" onclick="closeYourPro()" data-i18n-title="yourProModal.title.close" data-i18n-aria-label="yourProModal.aria-label.close"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg></button></header>
     <div class="dlg-body">
       <p class="dlg-lead" id="yourProLead"></p>
+      <p class="pro-renew-notice" id="yourProRenew" hidden></p>
       <div id="yourProList"></div>
     </div>
     <footer class="dlg-foot">
