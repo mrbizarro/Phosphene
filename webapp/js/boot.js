@@ -167,8 +167,6 @@ function setKeyframeMode(n) {
     const m = c.dataset.kfMode;
     c.classList.toggle('active', m === 'multi' ? n >= 3 : parseInt(m, 10) === n);
   });
-  const countRow = document.getElementById('kfCountRow');
-  if (countRow) countRow.style.display = (currentMode === 'keyframe' && n >= 3) ? '' : 'none';
   const countSelect = document.getElementById('keyframe_count');
   if (countSelect && n >= 3) countSelect.value = String(n);
   const hint = document.getElementById('keyframeHint');
@@ -188,6 +186,7 @@ function setKeyframeMode(n) {
   }
   window._kfTimingLastFrames = null;
   renderKeyframeDynamicSlots();
+  keyframeGridLayout();
   syncKeyframeTiming();
   if (typeof updatePromptPlaceholder === 'function') updatePromptPlaceholder();
   updateDerived();
@@ -223,16 +222,27 @@ function renderKeyframeDynamicSlots() {
   const countRow = document.getElementById('kfCountRow');
   if (!wrap) return;
   const visible = currentMode === 'keyframe' && window._kfMode >= 3;
-  if (countRow) countRow.style.display = visible ? '' : 'none';
-  if (timingRow) timingRow.style.display = visible ? '' : 'none';
+  // Feedback 6: the count lives in the grid (add / remove), the timing under each slot.
+  if (countRow) countRow.style.display = 'none';
+  if (timingRow) timingRow.style.display = 'none';
+  // Codex r6 sweep: the beats' pictures and times survive leaving Keyframes (a player action, another
+  // mode) and come back with it. Load Params of a keyframe recipe drops this draft (queue.js).
+  const stash = () => {
+    if (!wrap.children.length) return;
+    const d = window._kfDraft = window._kfDraft || { images: {}, seconds: {} };
+    wrap.querySelectorAll('input[type="hidden"][data-kf-image-key]').forEach(inp => { d.images[inp.id] = inp.value; });
+    wrap.querySelectorAll('input[type="number"][data-kf-seconds-key]').forEach(inp => { d.seconds[inp.id] = inp.value; });
+  };
   if (!visible) {
+    stash();
     wrap.innerHTML = '';
     window._kfRenderedMode = null;
     return;
   }
   if (window._kfRenderedMode === window._kfMode && wrap.children.length) return;
-  const previousImages = {};
-  const previousSeconds = {};
+  stash();
+  const previousImages = Object.assign({}, (window._kfDraft || {}).images);
+  const previousSeconds = Object.assign({}, (window._kfDraft || {}).seconds);
   wrap.querySelectorAll('input[type="hidden"][data-kf-image-key]').forEach(inp => { previousImages[inp.id] = inp.value; });
   wrap.querySelectorAll('input[type="number"][data-kf-seconds-key]').forEach(inp => { previousSeconds[inp.id] = inp.value; });
   const slots = keyframeTimingSlots();
@@ -240,17 +250,17 @@ function renderKeyframeDynamicSlots() {
     const imageKey = slot.imageKey;
     const path = previousImages[imageKey] || '';
     const sec = previousSeconds[slot.secId] || '';
+    const label = T('boot.kf_beat_n', 'Beat {n}', {n: slot.idx});
     return `
-      <div class="kf-dynamic-section" data-kf-slot="${slot.key}">
-        <h2 style="margin-top:10px">${slot.label} <span class="hint">(keyframe ${slot.idx} of ${window._kfMode})</span></h2>
+      <div class="kf-slot kf-dynamic-section" data-kf-slot="${slot.key}" data-kf-pos="beat">
         <div class="picker" data-key="${imageKey}">
-          <div class="picker-drop" id="picker_drop_${imageKey}">
+          <div class="picker-drop" id="picker_drop_${imageKey}" title="${TA('boot.kf_beat_tip', 'Keyframe {i} of {n}: the clip passes through this picture at its time. Drop a picture, click to browse, or drag one from another frame to swap.', {i: slot.idx, n: window._kfMode})}">
+            <span class="kf-tag"><span>${escapeHtml(label)}</span></span>
             <div class="picker-empty">
               <div class="picker-icon"><svg class="ph"><use href="#ph-film-strip"/></svg></div>
-              <div class="picker-cta">${T('boot.drop', 'Drop')} <strong>${slot.label.toLowerCase()}</strong>, or <strong>${T('boot.click_to_browse', 'click to browse')}</strong></div>
-              <div class="hint">${T('boot.intermediate_motion_anchor_between_start', 'Intermediate motion anchor between Start and End.')}</div>
+              <div class="picker-cta">${T('boot.kf_drop_or_click', 'Drop or click')}</div>
             </div>
-            <img class="picker-preview" id="picker_preview_${imageKey}" alt="" style="display:none">
+            <img class="picker-preview" id="picker_preview_${imageKey}" alt="" style="display:none" draggable="true">
             <button type="button" class="picker-clear" id="picker_clear_${imageKey}" title="${TA('boot.clear', 'Clear')}" style="display:none"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
           </div>
           <input type="file" id="picker_file_${imageKey}" accept="image/*" style="display:none">
@@ -260,17 +270,20 @@ function renderKeyframeDynamicSlots() {
             <div class="picker-recent-strip" id="picker_recent_${imageKey}"></div>
           </div>
         </div>
-        <div class="mini-fields" style="margin-top:10px">
-          <div class="mf-cell">
-            <span class="mf-label">${slot.label} at (s)</span>
-            <input id="${slot.secId}" name="${slot.secId}" value="${escapeHtml(sec)}" type="number" min="0.04" step="0.01" data-kf-seconds-key="1">
-            <input id="${slot.frameId}" name="${slot.frameId}" value="" type="hidden">
-          </div>
+        <div class="kf-time">
+          <input id="${slot.secId}" name="${slot.secId}" value="${escapeHtml(sec)}" type="number" min="0.04" step="0.01" data-kf-seconds-key="1"
+                 title="${TA('boot.kf_at_tip', '{label} at (s): when the clip passes through this picture', {label})}" aria-label="${TA('boot.kf_at_aria', '{label} at (s)', {label})}">
+          <span class="kf-time-unit">s</span>
+          <input id="${slot.frameId}" name="${slot.frameId}" value="" type="hidden">
+          <button type="button" class="kf-remove" data-kf-remove="${slot.key}" title="${TA('boot.kf_remove', 'Remove this keyframe')}" aria-label="${TA('boot.kf_remove', 'Remove this keyframe')}"><svg class="ph" aria-hidden="true"><use href="#ph-trash-simple-sm"/></svg></button>
         </div>
       </div>
     `;
   }).join('');
   window._kfRenderedMode = window._kfMode;
+  wrap.querySelectorAll('.kf-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); keyframeRemove(btn.dataset.kfRemove); });
+  });
   slots.forEach(slot => {
     registerDynamicPicker(slot.imageKey);
     const inp = document.getElementById(slot.secId);
@@ -340,9 +353,110 @@ function syncKeyframeTiming() {
   for (let i = 0; i < allFrames.length - 1; i++) {
     segments.push(((allFrames[i + 1] - allFrames[i]) / FPS).toFixed(2) + 's');
   }
-  hint.textContent = window._kfMode === 6
-    ? `Segments ${segments.join(' / ')} · frames ${allFrames.join(', ')}`
-    : `First segment ${segments[0]} · second segment ${segments[1]} · mid frame ${allFrames[1]}/${frames - 1}`;
+  const endTime = document.getElementById('kfEndTime');
+  if (endTime) endTime.textContent = total.toFixed(2) + ' s';
+  // Feedback 6: one plain line under the grid, only with beats (Start & end has no segments to show).
+  hint.textContent = slots.length ? T('boot.kf_segments', 'Segments {list}', {list: segments.join(' / ')}) : '';
+  hint.title = slots.length ? T('boot.kf_frames_tip', 'Frames {list}', {list: allFrames.join(', ')}) : '';
+}
+
+// ---- Feedback 6: the keyframe grid (Start & end and Keyframes share it) ----
+// Columns: 2 for Start & end (the swap button sits between them), 3 for Keyframes. The add tile spans
+// whatever the last row has left, so a row never ends in a hole; at 8 it stays as a quiet "Up to 8".
+function keyframeGridLayout() {
+  const grid = document.getElementById('kfGrid');
+  if (!grid) return;
+  const n = window._kfMode >= 3 ? window._kfMode : 2;
+  grid.dataset.kfN = String(n);
+  grid.classList.toggle('kf-multi', n >= 3);
+  grid.classList.toggle('kf-pair', n < 3);
+  const sec = document.getElementById('keyframeSection');
+  if (sec) sec.classList.toggle('kf-multi', n >= 3);
+  const add = document.getElementById('kfAddBtn');
+  if (add) {
+    const rest = n % 3;
+    add.style.gridColumn = n >= 3 ? `span ${rest === 0 ? 3 : 3 - rest}` : '';
+    add.disabled = n >= 8;
+    add.classList.toggle('is-max', n >= 8);
+    add.classList.toggle('is-bar', n >= 3 && rest === 0);
+  }
+  const count = document.getElementById('kfCountLabel');
+  if (count) count.textContent = n >= 3 ? `· ${n}` : '';
+}
+function keyframeGridKeys() {
+  const keys = ['start_image'];
+  keyframeTimingSlots().forEach(slot => keys.push(slot.imageKey));
+  keys.push('end_image');
+  return keys;
+}
+function keyframeAdd() {
+  const n = window._kfMode >= 3 ? window._kfMode : 2;
+  if (n >= 8) return;
+  setKeyframeMode(Math.max(3, n + 1));
+}
+// Remove beat `slotKey` ('02'..): the beats after it move up one place, pictures and any time the
+// user set with them, then the count drops by one. Keyframes keeps at least 3 (Start & end is its own tile).
+function keyframeRemove(slotKey) {
+  const n = window._kfMode;
+  if (n <= 3) return;
+  const at = parseInt(slotKey, 10);
+  for (let idx = at; idx <= n - 2; idx++) {
+    const k = keyframeSlotKey(idx), k2 = keyframeSlotKey(idx + 1);
+    const img = document.getElementById(keyframeImageKey(idx)), img2 = document.getElementById(keyframeImageKey(idx + 1));
+    const sec = document.getElementById(`keyframe_${k}_seconds`), sec2 = document.getElementById(`keyframe_${k2}_seconds`);
+    if (img && img2) img.value = img2.value;
+    if (sec && sec2) sec.value = sec2.value;
+    window._kfTimingTouched[k] = !!window._kfTimingTouched[k2];
+  }
+  delete window._kfTimingTouched[keyframeSlotKey(n - 1)];
+  const lastImg = document.getElementById(keyframeImageKey(n - 1)), lastSec = document.getElementById(`keyframe_${keyframeSlotKey(n - 1)}_seconds`);
+  if (lastImg) lastImg.value = '';
+  if (lastSec) lastSec.value = '';
+  setKeyframeMode(n - 1);
+}
+function keyframeSwapImages(a, b) {
+  const ea = document.getElementById(a), eb = document.getElementById(b);
+  if (!ea || !eb || a === b) return;
+  const va = ea.value, vb = eb.value;
+  pickerSetImage(a, vb, { snapAspect: a === 'start_image' });
+  pickerSetImage(b, va, { snapAspect: b === 'start_image' });
+}
+function keyframeSwapEnds() { keyframeSwapImages('start_image', 'end_image'); }
+// One "Recent" strip for the whole grid: a click fills the next empty frame, a drag fills the frame it lands on.
+function keyframeRecentRender() {
+  const wrap = document.getElementById('kfRecentWrap');
+  const strip = document.getElementById('kfRecentStrip');
+  if (!wrap || !strip) return;
+  const list = (typeof _uploadsCache !== 'undefined' && Array.isArray(_uploadsCache)) ? _uploadsCache : [];
+  if (!list.length) { wrap.style.display = 'none'; strip.innerHTML = ''; return; }
+  wrap.style.display = '';
+  const used = new Set(keyframeGridKeys().map(k => (document.getElementById(k) || {}).value).filter(Boolean));
+  strip.innerHTML = list.map(u => `
+    <span class="picker-recent-wrap">
+      <img class="picker-recent-thumb${used.has(u.path) ? ' selected' : ''}" src="${escapeHtml(_thumbUrl(u.url, 128))}"
+           data-path="${escapeHtml(u.path)}" draggable="true" title="${escapeHtml(u.name)}" alt="${escapeHtml(u.name)}"
+           tabindex="0" role="button" aria-label="${TA('boot.kf_recent_aria', 'Put {name} in the next empty frame', {name: u.name})}">
+      <button type="button" class="picker-recent-x" data-path="${escapeHtml(u.path)}"
+              title="${TA('boot.kf_delete_upload', 'Delete this imported image')}"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+    </span>`).join('');
+  strip.querySelectorAll('img').forEach(img => {
+    img.addEventListener('click', () => keyframeFillNext(img.dataset.path));
+    img.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); keyframeFillNext(img.dataset.path); } });
+    img.addEventListener('dragstart', (e) => { try { e.dataTransfer.setData('application/x-phos-path', img.dataset.path); e.dataTransfer.effectAllowed = 'copy'; } catch (_) {} });
+  });
+  strip.querySelectorAll('.picker-recent-x').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); if (typeof deleteUpload === 'function') deleteUpload(btn.dataset.path); });
+  });
+}
+function keyframeFillNext(path) {
+  const keys = keyframeGridKeys();
+  const empty = keys.find(k => !(document.getElementById(k) || {}).value);
+  if (!empty) {
+    if (typeof phosToast === 'function') phosToast(T('boot.kf_all_full', 'Every frame has a picture. Drag this one onto the frame to replace.'), { kind: 'info' });
+    return;
+  }
+  pickerSetImage(empty, path);
+  keyframeRecentRender();
 }
 
 
@@ -795,7 +909,13 @@ function _paintControlGenNote() {
   if (!el) return;
   const ltx = BOOT.ltx || {};
   if (ltx.control_full_repaint === false && ltx.control_generation_note) {
-    el.textContent = ltx.control_generation_note;
+    // Feedback 4: one plain line in view, the measured detail behind "More info".
+    el.textContent = '';
+    const d = document.createElement('details'); d.className = 'more-info';
+    const sm = document.createElement('summary');
+    sm.textContent = T('boot.control_gen_short', 'On LTX-2.5 the motion carries over; the prompt barely changes the subject.');
+    const body = document.createElement('div'); body.textContent = ltx.control_generation_note;
+    d.append(sm, body); el.appendChild(d);
     el.style.display = '';
   } else {
     el.style.display = 'none';
@@ -1085,6 +1205,9 @@ function setMode(mode) {
   if (typeof _syncEngineForMode === 'function') {
     try { _syncEngineForMode(); } catch (e) {}
   }
+  if (typeof renderH3WindowPrompts === 'function') {
+    try { renderH3WindowPrompts(); } catch (e) {}
+  }
   updatePromptPlaceholder();
 }
 
@@ -1117,15 +1240,117 @@ function _portalLoraPicker(dest) {
 }
 
 
+// ---- Mode tiles: every row full (owner, 22 Nov 2026, feedback 4) ------------
+// The tiles used to wrap by width and leave one alone on a second row (Remix by itself, an empty
+// stretch beside it). Count the tiles that are actually showing, take as few rows as the column's
+// width needs, and share them out evenly: 10 -> 5+5, 9 -> 5+4 (the shorter row's tiles widen to fill
+// it), 6 -> one row. The markup and the tiles themselves are untouched.
+const MODE_TILE_MIN = 74, MODE_TILE_GAP = 5;
+function modeBarBalance() {
+  const bar = document.getElementById('modeGroup');
+  if (!bar) return;
+  const tiles = Array.from(bar.children).filter(el => el.classList.contains('mode-chip') && el.getClientRects().length);
+  const n = tiles.length;
+  const w = bar.clientWidth;
+  if (!n || !w) return;
+  const fit = Math.max(1, Math.floor((w + MODE_TILE_GAP) / (MODE_TILE_MIN + MODE_TILE_GAP)));
+  const rows = Math.ceil(n / fit);
+  const perRow = Math.ceil(n / rows);
+  if (!bar.style || typeof bar.style.setProperty !== 'function') return;
+  if (bar.style.getPropertyValue('--mode-per-row') !== String(perRow)) bar.style.setProperty('--mode-per-row', String(perRow));
+}
+let _modeBarBalanceQueued = false;
+function modeBarBalanceSoon() {
+  if (_modeBarBalanceQueued) return;
+  _modeBarBalanceQueued = true;
+  requestAnimationFrame(() => { _modeBarBalanceQueued = false; modeBarBalance(); });
+}
+function modeBarBalanceInstall() {
+  const bar = document.getElementById('modeGroup');
+  if (!bar) return;
+  if (typeof ResizeObserver === 'function') new ResizeObserver(modeBarBalanceSoon).observe(bar);
+  if (typeof MutationObserver === 'function') {
+    const mo = new MutationObserver(modeBarBalanceSoon);
+    mo.observe(bar, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'style'], childList: true });
+    mo.observe(document.body, { attributes: true, attributeFilter: ['data-engine', 'data-cap-tier', 'data-workflow', 'class'] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-pro'] });
+  }
+  modeBarBalance();
+}
+
+
+// ---- Easy / Advanced (owner, 22 Nov 2026, feedback 4) -------------------------
+// "Easy mode should exist for people who don't want so many options. They just want to render."
+// Easy shows what to make (Text, Character, Image, plus whichever mode is already open), the
+// prompt, pictures or characters, the Quality choice and Generate. It only HIDES: no field is
+// written on the way in or out, so whatever was set in Advanced renders exactly as before (the
+// form's own defaults are already this Mac's tier defaults), and a line names what is still on.
+const FORM_LEVEL_LS_KEY = 'phos_form_level';
+function formLevel() {
+  return document.body.classList.contains('form-easy') ? 'easy' : 'advanced';
+}
+function formLevelSet(level, opts) {
+  const easy = level === 'easy';
+  const was = formLevel();
+  document.body.classList.toggle('form-easy', easy);
+  document.querySelectorAll('#formLevel [data-form-level]').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.formLevel === (easy ? 'easy' : 'advanced'))));
+  // Shot setup holds the Quality choice: Easy shows it open (its heading row is hidden) and puts
+  // back the user's own open/closed state on the way out. This is the section's display state only.
+  const shot = document.getElementById('shotSetupDetails');
+  if (shot && was !== (easy ? 'easy' : 'advanced')) {
+    if (easy) { shot.dataset.easyWasOpen = shot.open ? '1' : '0'; shot.open = true; }
+    else if (shot.dataset.easyWasOpen != null) { shot.open = shot.dataset.easyWasOpen === '1'; delete shot.dataset.easyWasOpen; }
+  }
+  if (!(opts && opts.persist === false)) { try { localStorage.setItem(FORM_LEVEL_LS_KEY, easy ? 'easy' : 'advanced'); } catch (e) {} }
+  formLevelCarry();
+}
+// What Advanced still has switched on while Easy hides it, in plain words.
+function formLevelCarry() {
+  const box = document.getElementById('easyCarry');
+  if (!box) return;
+  if (formLevel() !== 'easy') { box.hidden = true; return; }
+  const on = [];
+  let loras = 0;
+  try { const v = JSON.parse((document.getElementById('lorasJson') || {}).value || '[]'); loras = Array.isArray(v) ? v.length : 0; } catch (e) {}
+  if (loras) on.push(loras === 1 ? T('formLevel.one_lora', '1 LoRA') : T('formLevel.n_loras', '{n} LoRAs', { n: loras }));
+  if (((document.getElementById('negative_prompt') || {}).value || '').trim()) on.push(T('formLevel.avoid', 'Avoid'));
+  if ((document.getElementById('h3FaceFixAfter') || {}).checked && document.body.dataset.engine === 'h3') on.push(T('formLevel.face_fix', 'Upscale & Face Fix'));
+  if ((document.getElementById('schedule_preset') || {}).value === 'fast' && document.body.dataset.engine !== 'h3') on.push(T('formLevel.fast_draft', 'Fast draft'));
+  // Per-window prompts (Codex r4-1 #4): they render when their row is in play and switched on.
+  const winRow = document.getElementById('h3WindowPromptsRow');
+  const winOn = !!(document.getElementById('h3WinPromptsToggle') || {}).checked;
+  if (document.body.dataset.engine === 'h3' && winRow && !winRow.hidden && winOn
+      && Array.from(document.querySelectorAll('#h3WinPromptsList textarea')).some(t => (t.value || '').trim())) {
+    on.push(T('formLevel.window_prompts', 'prompts per window'));
+  }
+  box.hidden = !on.length;
+  const txt = document.getElementById('easyCarryText');
+  if (txt) txt.textContent = on.length ? T('formLevel.still_on', 'Also on, from Advanced: {list}.', { list: on.join(' · ') }) : '';
+}
+function formLevelInstall() {
+  let saved = null;
+  try { saved = localStorage.getItem(FORM_LEVEL_LS_KEY); } catch (e) {}
+  document.querySelectorAll('#formLevel [data-form-level]').forEach(b =>
+    b.addEventListener('click', () => formLevelSet(b.dataset.formLevel)));
+  formLevelSet(saved === 'easy' ? 'easy' : 'advanced', { persist: false });
+  const form = document.getElementById('genForm');
+  if (form) { form.addEventListener('input', formLevelCarry); form.addEventListener('change', formLevelCarry); }
+  setInterval(() => { if (formLevel() === 'easy') formLevelCarry(); }, 2000);
+}
+
+
 // ---- published to the page --------------------------------------------------
 // Inline handlers in the markup and the other files resolve these through
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
   applyTierTimes, setKeyframeMode, keyframeTimingSlots, renderKeyframeDynamicSlots,
+  keyframeGridLayout, keyframeGridKeys, keyframeAdd, keyframeRemove, keyframeSwapImages, keyframeSwapEnds, keyframeRecentRender, keyframeFillNext,
   maybeScaleTouchedKeyframeTiming, syncKeyframeTiming, outputKind, isPhotoOutputMain, filteredMainOutputs,
   applyOutputsQuery, setOutputsQuery, paintOutputsCount, outputsTitleText, outputsQueryText,
   outputsLoadAll, outputsCacheMutated, _updateMainFilterChips, _maybeAutoLoadAllForEmptyFilter, setMainOutputsFilter,
   updateModelCredit, toggleAvoidRow, syncAvoidRowFromValue, ingredientsServed,
   _paintControlGenNote, defaultRemixMode, setMode, _portalLoraPicker,
-  isMacApp, distText, phEdition, siteLink, siteLinkApply,
+  isMacApp, distText, phEdition, siteLink, siteLinkApply, modeBarBalance, modeBarBalanceInstall,
+  formLevel, formLevelSet, formLevelCarry, formLevelInstall,
 });

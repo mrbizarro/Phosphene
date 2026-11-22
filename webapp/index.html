@@ -32,7 +32,7 @@
      boot: the per-engine fold rules (`body:not([data-engine="ltx"])
      [data-ltx-only]`) match a body with NO attribute, so every LTX-only
      control would flash hidden for the frame before the script runs. -->
-<body data-cap-tier="__CAP_TIER__" data-engine="ltx">
+<body data-cap-tier="__CAP_TIER__" data-engine="ltx" data-workflow="manual">
 
 <!-- Phosphor Icons (MIT, https://github.com/phosphor-icons/core) — inline symbol library.
      Referenced via <svg class="ph"><use href="#ph-NAME"/></svg>. The symbol set is
@@ -78,7 +78,17 @@
 <symbol id="ph-file-pdf" viewBox="0 0 256 256"><polyline points="216 152 184 152 184 208" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="208" y1="184" x2="184" y2="184" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M48,192H64a20,20,0,0,0,0-40H48v56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M112,152v56h16a28,28,0,0,0,0-56Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M48,112V40a8,8,0,0,1,8-8h96l56,56v24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="152 32 152 88 208 88" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-folder-simple" viewBox="0 0 256 256"><path d="M224,208H32V72a8,8,0,0,1,8-8H92.69a8,8,0,0,1,5.65,2.34L128,96h88a8,8,0,0,1,8,8V208Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-device-mobile" viewBox="0 0 256 256"><rect x="64" y="24" width="128" height="208" rx="16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="104" y1="56" x2="152" y2="56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
+<symbol id="pi-person" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.4" r="3.8"/><path d="M4.6 20c1.2-3.8 4-5.8 7.4-5.8s6.2 2 7.4 5.8"/></symbol>
+<symbol id="pi-place" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 18.6l5.6-7.4 4.2 5.2 2.6-3.2 6.4 5.4"/><path d="M2.6 18.6h18.8"/><circle cx="16.6" cy="6.6" r="2.1"/></symbol>
+<symbol id="pi-thing" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.4v9.2L12 21l-8-4.4V7.4z"/><path d="M4.2 7.5L12 12l7.8-4.5M12 12v8.8"/></symbol>
+<symbol id="pi-mic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.6 9.6V6.2a2.6 2.6 0 0 0-5.2 0v1.2"/><path d="M9.4 11.2v.6a2.6 2.6 0 0 0 4.3 2"/><path d="M17.4 11.8a5.4 5.4 0 0 1-.7 2.6M6.6 11.8a5.4 5.4 0 0 0 8.4 4.5M12 17.2V20"/><path d="M4 4l16 16"/></symbol>
+<symbol id="pi-frame" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.2"/><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor"/></symbol>
+<symbol id="ph-dots-three-bold" viewBox="0 0 256 256"><circle cx="60" cy="128" r="18" fill="currentColor"/><circle cx="128" cy="128" r="18" fill="currentColor"/><circle cx="196" cy="128" r="18" fill="currentColor"/></symbol>
 <symbol id="ph-user-plus" viewBox="0 0 256 256"><circle cx="108" cy="100" r="60" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="200" y1="116" x2="248" y2="116" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="224" y1="92" x2="224" y2="140" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M16,208c20.83-36.04,57.06-60,104-60s83.17,23.96,104,60" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
+<symbol id="ph-plus" viewBox="0 0 256 256"><line x1="40" y1="128" x2="216" y2="128" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="128" y1="40" x2="128" y2="216" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
+<symbol id="ph-arrows-left-right" viewBox="0 0 256 256"><polyline points="176 144 208 176 176 208" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="48" y1="176" x2="208" y2="176" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="80 112 48 80 80 48" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="208" y1="80" x2="48" y2="80" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
+<symbol id="ph-trash-simple-sm" viewBox="0 0 256 256"><line x1="216" y1="56" x2="40" y2="56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="104" y1="104" x2="104" y2="168" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="152" y1="104" x2="152" y2="168" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M200,56V208a8,8,0,0,1-8,8H64a8,8,0,0,1-8-8V56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
+<!-- Phosphene picture-slot icons (feedback 3): person, place, thing, frame. 24-unit grid, 1.7 stroke, currentColor (scripts/phos_icons.py in the layout-build folder). -->
 <symbol id="ph-microphone" viewBox="0 0 256 256"><rect x="88" y="24" width="80" height="144" rx="40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="128" y1="200" x2="128" y2="232" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M200,128a72,72,0,0,1-144,0" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-music-notes" viewBox="0 0 256 256"><circle cx="180" cy="184" r="28" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><circle cx="52" cy="200" r="28" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="80 200 80 56 208 24 208 184" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="80" y1="88" x2="208" y2="56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-star" viewBox="0 0 256 256"><path d="M132.4,190.7l50.4,32.5a8,8,0,0,0,12.1-8.7l-15.1-57.7a8,8,0,0,1,2.7-8.3l45.6-37.5a8,8,0,0,0-4.6-14.2l-59.5-3.8a8,8,0,0,1-7-5.1L134.6,31.5a8,8,0,0,0-14.9,0L97.3,87.9a8,8,0,0,1-7,5.1L30.8,96.8a8,8,0,0,0-4.6,14.2l45.6,37.5a8,8,0,0,1,2.7,8.3L60.5,209a8,8,0,0,0,12.1,8.7l50.4-32.5A8,8,0,0,1,132.4,190.7Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
@@ -181,6 +191,16 @@
        health cluster needed, on the machines where the cluster was
        already truncating. -->
   __PROFILE_BADGE__
+  <!-- THE MODEL PICKER, small, in the header (owner, 22 Nov 2026: "back in the header, small, as it
+       used to be ... it must stop pushing the form down"). Same element and ids as before:
+       renderEngineSwitch() fills it from the ENGINES registry on every surface with more than one
+       engine (video, images, music, One Shot) and the menu is portaled to <body> (the header is
+       overflow:hidden), opening downward from here. -->
+  <div class="engine-pick">
+    <span class="engine-pick-label" data-i18n="page.model">Model</span>
+    <div class="engine-switch" id="engineSwitch" role="group" aria-label="Render engine" hidden data-i18n-aria-label="engineSwitch.aria-label.render_engine"></div>
+    <span class="hdr-div" id="engineSwitchDivider" hidden></span>
+  </div>
   <span class="spacer"></span>
   <!-- ============== ENGINE SWITCHER ==============
        Which model renders the shot, as a first-class control in the top
@@ -390,8 +410,8 @@
       <header class="rm-head">
         <div class="rm-mark" aria-hidden="true"><svg class="ph"><use href="#ph-remote"/></svg></div>
         <div class="rm-head-text">
-          <h2 id="rmTitle" data-i18n="rmTitle.remote_control">Remote Control</h2>
-          <p class="rm-lede" data-i18n="remoteSection.control_phosphene_from_your">Control Phosphene from your iPhone: send prompts, watch progress, play and save finished clips. Your Mac does the rendering.</p>
+          <div class="rm-title-row"><h2 id="rmTitle" data-i18n="rmTitle.remote_control">Remote Control</h2><button type="button" class="help-dot" data-help="rmLedeHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+          <p class="rm-lede help-pop" id="rmLedeHelp" hidden data-i18n="remoteSection.control_phosphene_from_your">Control Phosphene from your iPhone: send prompts, watch progress, play and save finished clips. Your Mac does the rendering.</p>
         </div>
         <div class="rm-conn" id="rmConn" role="status" aria-live="polite">
           <span class="rm-dot" id="rmConnDot"></span><span id="rmConnText" data-i18n="rmConnText.checking">Checking…</span>
@@ -487,7 +507,7 @@
           </section>
 
           <section class="rm-card" aria-labelledby="rmConnTitle">
-            <div class="rm-card-head"><h3 id="rmConnTitle" data-i18n="rmConnTitle.connection">Connection</h3>
+            <div class="rm-card-head"><h3 id="rmConnTitle" data-i18n="rmConnTitle.connection">Connection</h3><button type="button" class="help-dot" data-help="rmConnHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button>
               <label class="rm-switch" title="Turn Remote Control on or off" data-i18n-title="rmMain.title.turn_remote_control_on"><input type="checkbox" id="rmEnable"><span class="rm-slider"></span><span class="sr-only" data-i18n="rmMain.remote_control_on">Remote Control on</span></label>
             </div>
             <dl class="rm-facts">
@@ -495,7 +515,7 @@
               <div><dt data-i18n="rmMain.away_from_home">Away from home</dt><dd id="rmFactRelay">—</dd></div>
               <div><dt data-i18n="rmMain.name_your_phone_sees">Name your phone sees</dt><dd><input type="text" id="rmName" maxlength="40" aria-label="Name your phone sees" spellcheck="false" data-i18n-aria-label="rmName.aria-label.name_your_phone_sees"></dd></div>
             </dl>
-            <p class="rm-hint" data-i18n="rmMain.keep_this_mac_awake">Keep this Mac awake while you use the remote. Everything between your iPhone and this Mac is encrypted.</p>
+            <p class="rm-hint help-pop" id="rmConnHelp" hidden data-i18n="rmMain.keep_this_mac_awake">Keep this Mac awake while you use the remote. Everything between your iPhone and this Mac is encrypted.</p>
             <button type="button" class="rm-link danger" id="rmForgetAll" hidden data-i18n="rmForgetAll.remove_all_phones_and">Remove all phones and reset</button>
           </section>
         </div>
@@ -522,11 +542,8 @@
          first choice. The Images tab fills this same picker with its image
          models (registry rows with surfaces=["image"]); the Images form keeps
          only the picked model's versions. -->
-    <div class="engine-pick">
-      <span class="engine-pick-label" data-i18n="page.model">Model</span>
-      <div class="engine-switch" id="engineSwitch" role="group" aria-label="Render engine" hidden data-i18n-aria-label="engineSwitch.aria-label.render_engine"></div>
-      <span class="hdr-div" id="engineSwitchDivider" hidden></span>
-    </div>
+    <!-- Owner, 22 Nov 2026 (feedback 3): the model picker went back to the header, small, so it
+         no longer pushes the form down. Same #engineSwitch, same menu, same behaviour. -->
 
     <!-- The original manual form is unchanged; it sits below in the DOM
          and is shown/hidden by JS as the workflow tab toggles. -->
@@ -581,6 +598,17 @@
          territory in this same mega-ship pass) — role=tab +
          aria-selected stay correct no matter which call site changes
          .active, with zero changes to that shared toggle logic. -->
+    <div class="sf-step-head sf-step-make" id="sfStepMake">
+      <span class="sf-step-num">1</span>
+      <span class="sf-step-title" data-i18n="shotForm.step_make">Make</span>
+      <span class="sf-step-sub" id="sfModeSub"></span>
+      <!-- Easy / Advanced (owner, 22 Nov 2026, feedback 4): Easy only HIDES the extra controls of this
+           form; it never changes a value. boot.js formLevelSet remembers the choice. -->
+      <span class="form-level" id="formLevel" role="group" aria-label="How many options" data-i18n-aria-label="formLevel.aria">
+        <button type="button" class="form-level-btn" data-form-level="easy" aria-pressed="false" title="Just the basics: what to make, the prompt, pictures or characters, the quality" data-i18n-title="formLevel.easy_title" data-i18n="formLevel.easy">Easy</button>
+        <button type="button" class="form-level-btn" data-form-level="advanced" aria-pressed="true" title="Every option" data-i18n-title="formLevel.advanced_title" data-i18n="formLevel.advanced">Advanced</button>
+      </span>
+    </div>
     <div class="mode-bar pill-group" id="modeGroup" role="tablist" aria-label="Mode" data-i18n-aria-label="modeGroup.aria-label.mode">
       <button type="button" class="mode-chip pill-btn" data-mode="t2v" data-i18n="modeGroup.text_prompt_video">Text<span class="mc-sub sub">prompt → video</span></button>
       <!-- Character intent — Codex C+ 2026-05-17. Promoted from a chip
@@ -594,7 +622,7 @@
            in-form "FFLF / Multi-Keyframe" toggle these chips duplicate
            (that toggle stays: it's the only way to change the keyframe
            COUNT once inside the section, not just enter it). -->
-      <button type="button" class="mode-chip pill-btn" data-mode="keyframe" title="First-frame / last-frame interpolation (FFLF)" data-i18n-title="modeGroup.title.first_frame_last_frame" data-i18n="modeGroup.start_end_frame_first">Start &amp; end frame<span class="mc-sub sub">first + last</span></button>
+      <button type="button" class="mode-chip pill-btn" data-mode="keyframe" title="First-frame / last-frame interpolation (FFLF)" data-i18n-title="modeGroup.title.first_frame_last_frame" data-i18n="modeGroup.start_end_short">Start &amp; end<span class="mc-sub sub">first + last</span></button>
       <!-- Multi-keyframe shares backend mode="keyframe"; the form dropdown
            chooses any total anchor count from 3–8. -->
       <button type="button" class="mode-chip pill-btn" data-mode="keyframe" data-kf-default="multi" data-i18n="modeGroup.keyframes_3_8_frames">Keyframes<span class="mc-sub sub">3–8 frames</span></button>
@@ -645,7 +673,7 @@
          stays lit. Inline styles use var(--x, fallback) so they're safe whether
          or not the theme defines those vars. -->
     <div id="remixSubGroup" style="display:none;margin:-2px 0 12px;padding:9px 11px;border:1px solid var(--line,#262a33);border-left:3px solid var(--accent,#8b7bff);border-radius:11px;background:var(--accent-wash,rgba(139,123,255,.06))">
-      <div style="font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--dim,#7a8194);margin-bottom:7px" data-i18n="remixSubGroup.remix_tool_bring_your">Remix tool · bring your own media · IC-LoRA</div>
+      <div style="font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--dim,#7a8194);margin-bottom:7px" data-i18n="remixSubGroup.remix_tool" title="Bring your own media (IC-LoRA tools)" data-i18n-title="remixSubGroup.title.remix_tool">Remix tool</div>
       <div class="mode-bar pill-group">
         <button type="button" class="mode-chip pill-btn" data-remix="ingredients" title="Ingredients IC-LoRA — 2–8 reference images (a face, a prop, a location) composed into one new clip." data-i18n-title="remixSubGroup.title.ingredients_ic_lora_2" data-i18n="remixSubGroup.ingredients_2_8_refs">Ingredients<span class="mc-sub sub">2–8 refs → one clip</span></button>
         <!-- "Control" said nothing about what it controls. The name people
@@ -723,67 +751,8 @@
 
       <div id="warnBanner" class="warn-banner"></div>
 
-      <!-- ============== CHARACTERS PICKER · COMPACT AVATAR STRIP ==============
-           Redesigned 2026-05-18 (round 2) per Mr Bizarro's feedback: the flat
-           card from the morning was still too bulky and visually
-           disconnected from the prompt. New shape: a thin row of round
-           avatars right ABOVE the prompt, integrated into the composer
-           card itself. Selected avatar gets a colored ring; clicking
-           switches characters in one tap. Strength tucks into the
-           Customize accordion (it's an advanced control, not a top-
-           level decision). Hover an avatar to see the name + trigger.
-
-           Empty + applied-note remain in the DOM for the JS hooks but
-           render as inline thin strings (or hide entirely) so they
-           don't punch a hole through the composer layout.
-
-           IDs preserved: charsList / charsEmpty / charsStrengthRow /
-           charsAppliedNote / charsSummaryMeta — JS layer untouched. -->
-      <div class="mode-only" id="manualCharactersPickerSlot">
-        <div class="chars-strip">
-          <div class="chars-avatar-row" id="charsList"><!-- avatars rendered by JS --></div>
-          <button type="button" class="chars-strip-action"
-                  title="Manage characters — rename or delete"
-                  onclick="openCharactersManageModal()" data-i18n-title="manualCharactersPickerSlot.title.manage_characters_rename_or"><svg class="ph" aria-hidden="true"><use href="#ph-pencil-simple"/></svg></button>
-          <button type="button" class="chars-strip-action"
-                  title="Rescan mlx_models/characters/ for new bundles"
-                  onclick="refreshManualCharacters()" data-i18n-title="manualCharactersPickerSlot.title.rescan_mlx_models_characters"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg></button>
-        </div>
-        <button type="button" class="ghost-btn" onclick="newCharacterOpen()" data-i18n="characters.new">New character</button>
-        <button type="button" class="ghost-btn" onclick="voicesOpen()" data-i18n="voices.library">Voices</button>
-        <div class="chars-q4-note" data-ltx-only>__Q8_CHARACTER_INSTALL_COPY__</div>
-        <!-- One-liner that surfaces under the strip when a character is
-             active. Shows trigger word + a tiny strength control inline.
-             charsSummaryMeta stays as a hidden carrier for legacy JS
-             callsites that still write to it. -->
-        <div class="chars-strip-active" id="charsAppliedNote" hidden></div>
-        <span class="chars-strip-meta-shadow" id="charsSummaryMeta" hidden></span>
-        <!-- Empty state — visible only when no bundles exist on disk. -->
-        <div class="chars-strip-empty" id="charsEmpty" hidden data-i18n="characters.new_empty">Add a character with pictures or a voice.</div>
-        <!-- Strength row carrier (kept in DOM for JS toggles; hidden
-             from view — the slider lives inside charsAppliedNote when a
-             character is selected so it sits right next to the trigger
-             reminder rather than as its own bulky row). -->
-        <div class="chars-strength-row" id="charsStrengthRow" hidden></div>
-      </div>
-      <!-- Voice for a new render: shown once there is a voice to pick (a saved voice, or a trained
-           character's own). Voices… opens the library. -->
-      <div class="voice-render-field" id="renderVoiceField" hidden>
-        <div class="voice-render-row">
-          <label for="renderVoice" data-i18n="voices.voice">Voice</label>
-          <select id="renderVoice" name="voice_id"><option value="inherit" data-i18n="voices.from_character">From the character</option></select>
-          <button type="button" class="ghost-btn small" onclick="voicesOpen()" data-i18n="voices.manage">Voices…</button>
-        </div>
-        <div class="voice-render-row" data-h3-only>
-          <label for="renderVoiceMethod" data-i18n="voices.method">How</label>
-          <select id="renderVoiceMethod" name="voice_method">
-            <option value="voice_pass" data-i18n="voices.pass_plain">Swap in the trained voice after the render (closest match)</option>
-            <option value="h3_reference" data-i18n="voices.reference_plain">Guide the render with the voice sample (H3 References)</option>
-          </select>
-        </div>
-        <small class="hint" data-h3-only data-i18n="voices.speakers_lines">Write each line with the character's name, like Bizarro: Did you hear that? One character picked? A line in quotes is theirs. Anyone without a saved voice keeps the voice the model gave them.</small>
-      </div>
       <input type="hidden" name="character_id" id="characterIdInput" value="">
+      <input type="hidden" name="character_ids" id="characterIdsInput" value="" disabled>
       <input type="hidden" name="character_strength" id="characterStrength" value="1.0">
       <!-- The VOICE half of a character's strength. A character is two trained
            files and the face file's audio-branch deltas are noise that is
@@ -805,6 +774,184 @@
              .mode-only block is shown/hidden by setMode(); when none are
              active (T2V), the slot collapses (CSS :empty/:not(.show)). -->
         <div class="composer-refs">
+          <div class="sf-step-head sf-step-in" id="sfStepInputs">
+            <span class="sf-step-num">2</span>
+            <span class="sf-step-title" data-i18n="shotForm.step_inputs">What goes in</span>
+            <span class="sf-step-sub" id="sfInputsSub" data-i18n="shotForm.optional_refs">optional</span>
+          </div>
+          <div class="mode-only" id="manualCharactersPickerSlot">
+            <div class="chars-head-row">
+              <strong class="chars-head-label" id="charsHeadLabel" data-i18n="characters.who_is_in_it">Who's in it</strong>
+              <span class="chars-head-hint" id="charsHeadHint" data-i18n="characters.pick_one_or_more">pick one or more characters</span>
+              <span class="chars-head-spacer"></span>
+              <button type="button" class="ghost-btn small" onclick="newCharacterOpen()" data-i18n="characters.new_short">+ Character</button>
+              <button type="button" class="chars-strip-action"
+                      title="Manage characters — rename or delete"
+                      onclick="openCharactersManageModal()" data-i18n-title="manualCharactersPickerSlot.title.manage_characters_rename_or"><svg class="ph" aria-hidden="true"><use href="#ph-pencil-simple"/></svg></button>
+              <button type="button" class="chars-strip-action"
+                      title="Rescan mlx_models/characters/ for new bundles"
+                      onclick="refreshManualCharacters()" data-i18n-title="manualCharactersPickerSlot.title.rescan_mlx_models_characters"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg></button>
+            </div>
+            <div class="chars-strip">
+              <div class="chars-avatar-row" id="charsList"><!-- avatars rendered by JS --></div>
+            </div>
+            <div class="chars-q4-note" data-ltx-only>__Q8_CHARACTER_INSTALL_COPY__</div>
+            <div class="chars-strip-active" id="charsAppliedNote" hidden></div>
+            <span class="chars-strip-meta-shadow" id="charsSummaryMeta" hidden></span>
+            <div class="chars-strip-empty" id="charsEmpty" hidden data-i18n="characters.new_empty">Add a character with pictures or a voice.</div>
+            <div class="chars-strength-row" id="charsStrengthRow" hidden></div>
+          </div>
+          <!-- Pictures (Hailuo H3, Text / Character / Image; owner, 21 Nov 2026): ONE place to give
+               the shot its pictures, as three plain questions, instead of five differently named boxes
+               (Reference image, Face to keep, References nested inside it, character pictures, the
+               Image mode). Nothing new underneath: Start from writes #image (+ #image_crop_focus) and
+               switches Text <-> Image; Who's in it and Where write #h3_reference / #h3_reference2 /
+               #h3_reference3 and tick #h3_refs exactly when more than one picture (or a place) is
+               given, so one face is today's Face to keep and more is today's References (Pro).
+               queue.js picturesSync() draws it; the old sections stay in the form, hidden. -->
+          <div class="mode-only px-section" id="picturesSection">
+            <h2 data-i18n="pictures.title">Pictures <span class="h2-hint">· all optional</span></h2>
+            <div class="px-group" id="pxStartGroup">
+              <div class="px-q"><strong data-i18n="pictures.start_q">Start from</strong> <button type="button" class="help-dot" data-help="pxStartHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="help.more_info">?</button></div>
+              <div class="help-pop" id="pxStartHelp" hidden data-i18n="pictures.start_hint">the video opens on this picture</div>
+              <div class="px-start-row">
+                <div class="px-slot px-slot-start" data-px-slot="start" tabindex="0" role="button">
+                  <div class="px-slot-empty">
+                    <span class="pi" data-icon="frame" aria-hidden="true"></span>
+                    <span data-i18n="pictures.start_empty">First frame</span>
+                    <button type="button" class="px-browse" data-px-browse="start" data-i18n="pictures.browse">Browse…</button>
+                  </div>
+                  <img class="px-slot-img" alt="">
+                  <button type="button" class="px-slot-x" data-px-clear="start" title="Remove this picture" data-i18n-title="pictures.remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                </div>
+                <div class="px-crop" id="pxCrop" hidden>
+                  <div class="px-crop-stage" id="pxCropStage">
+                    <button type="button" class="px-slot-x" data-px-clear="start" title="Remove this picture" data-i18n-title="pictures.remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                    <img id="pxCropImg" alt="" draggable="false">
+                    <div class="px-crop-shade" id="pxCropShade"></div>
+                    <div class="px-crop-box" id="pxCropBox">
+                      <span class="px-crop-handle" data-px-handle="nw"></span>
+                      <span class="px-crop-handle" data-px-handle="ne"></span>
+                      <span class="px-crop-handle" data-px-handle="sw"></span>
+                      <span class="px-crop-handle" data-px-handle="se"></span>
+                    </div>
+                  </div>
+                  <p class="px-crop-help" id="pxCropHelp" title="Drag the frame to choose what stays; pull a corner to zoom in. Everything outside it is cut." data-i18n-title="pictures.crop_help" data-i18n="pictures.crop_help_short">Drag to frame · corner to zoom</p>
+                </div>
+              </div>
+              <p class="px-shape" id="pxShape" hidden><span id="pxShapeText"></span> <button type="button" class="ghost-btn small" id="pxShapeBtn"></button></p>
+              <p class="px-note" id="pxStartNote" hidden></p>
+            </div>
+            <div class="px-group" id="pxWhoGroup">
+              <div class="px-q"><strong data-i18n="pictures.who_q">Who's in it</strong> <span class="px-q-hint" data-i18n="pictures.who_hint">pick a saved character, or drop a clear photo of a face</span>
+                <span class="px-meter" id="pxMeter" hidden><span class="px-meter-cells" id="pxMeterCells"></span><button type="button" class="help-dot" data-help="pxLabels" aria-expanded="false" aria-label="More info" data-i18n-aria-label="help.more_info">?</button></span>
+              </div>
+              <div class="help-pop" id="pxLabels" hidden></div>
+              <div class="px-chars" id="pxChars"></div>
+              <div class="px-slots" id="pxSlotsRow">
+                <div class="px-slot px-slot-who" data-px-slot="who" data-px-n="0" tabindex="0" role="button">
+                  <div class="px-slot-empty">
+                    <span class="pi" data-icon="person" aria-hidden="true"></span>
+                    <span data-i18n="pictures.face">A face</span>
+                    <button type="button" class="px-browse" data-px-browse="who" data-i18n="pictures.browse">Browse…</button>
+                  </div>
+                  <img class="px-slot-img" alt="">
+                  <span class="px-slot-tag"></span>
+                  <button type="button" class="px-slot-x" data-px-clear="who" title="Remove this picture" data-i18n-title="pictures.remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                </div>
+                <div class="px-slot px-slot-who" data-px-slot="who" data-px-n="1" tabindex="0" role="button">
+                  <div class="px-slot-empty">
+                    <span class="pi-pair" aria-hidden="true"><span class="pi" data-icon="person"></span><span class="pi" data-icon="thing"></span></span>
+                    <span data-i18n="pictures.person_or_thing">Person or thing</span>
+                    <span class="pro-tag" data-pro-feature="h3-references">Pro</span>
+                    <button type="button" class="px-browse" data-px-browse="who" data-i18n="pictures.browse">Browse…</button>
+                  </div>
+                  <img class="px-slot-img" alt="">
+                  <span class="px-slot-tag"></span>
+                  <button type="button" class="px-slot-x" data-px-clear="who" title="Remove this picture" data-i18n-title="pictures.remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                </div>
+                <div class="px-slot px-slot-who" data-px-slot="who" data-px-n="2" tabindex="0" role="button">
+                  <div class="px-slot-empty">
+                    <span class="pi-pair" aria-hidden="true"><span class="pi" data-icon="person"></span><span class="pi" data-icon="thing"></span></span>
+                    <span data-i18n="pictures.person_or_thing">Person or thing</span>
+                    <span class="pro-tag" data-pro-feature="h3-references">Pro</span>
+                    <button type="button" class="px-browse" data-px-browse="who" data-i18n="pictures.browse">Browse…</button>
+                  </div>
+                  <img class="px-slot-img" alt="">
+                  <span class="px-slot-tag"></span>
+                  <button type="button" class="px-slot-x" data-px-clear="who" title="Remove this picture" data-i18n-title="pictures.remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                </div>
+                <!-- Feedback 5 #5: the place is the 4th slot of the same row (was its own "Where" group below). -->
+                <div class="px-slot px-slot-where" data-px-slot="where" tabindex="0" role="button">
+                  <div class="px-slot-empty">
+                    <span class="pi" data-icon="place" aria-hidden="true"></span>
+                    <span data-i18n="pictures.place">A place</span>
+                    <span class="pro-tag" data-pro-feature="h3-references">Pro</span>
+                    <button type="button" class="px-browse" data-px-browse="where" data-i18n="pictures.browse">Browse…</button>
+                  </div>
+                  <img class="px-slot-img" alt="">
+                  <span class="px-slot-tag"></span>
+                  <button type="button" class="px-slot-x" data-px-clear="where" title="Remove this picture" data-i18n-title="pictures.remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                </div>
+              </div>
+              <p class="px-note" id="pxWhoNote" hidden></p>
+              <div class="px-lines" id="pxLines" hidden>
+                <span id="pxLinesText"></span>
+                <span class="px-lines-btns" id="pxLinesBtns"></span>
+                <button type="button" class="help-dot" data-help="pxLinesHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="help.more_info">?</button>
+              </div>
+              <div class="help-pop" id="pxLinesHelp" hidden></div>
+            </div>
+            <div class="px-get" id="pxGetSlot">
+              <div class="h3-refs-get" id="h3RefsGet" style="display:none">
+                <p class="h3-refs-plan" id="h3RefsPlan"></p>
+                <p class="h3-refs-check" id="h3RefsCheck" hidden></p>
+                <div class="h3-refs-progress" id="h3RefsProgress" hidden>
+                  <div class="h3-refs-bar"><span id="h3RefsBarFill"></span></div>
+                  <span class="h3-refs-progress-text" id="h3RefsProgressText"></span>
+                </div>
+                <div class="h3-refs-get-row">
+                  <button type="button" class="btn" id="h3RefsGetBtn" onclick="h3RefsGet()" data-i18n="h3RefsGet.get_references">Get References</button>
+                  <span class="hint" id="h3RefsGetNote"></span>
+                </div>
+              </div>
+            </div>
+            <div class="px-library" id="pxLibraryWrap" hidden>
+              <div class="px-library-label" id="pxLibraryLabel"></div>
+              <div class="px-library-strip" id="pxLibrary"></div>
+            </div>
+            <input type="file" id="pxFile" accept="image/*" hidden>
+            <!-- The one character whose saved voice comes along (resolve_render_voice reads it); disabled,
+                 so never posted, whenever this area is not the one in use. -->
+            <input type="hidden" name="voice_character_id" id="voice_character_id" value="" disabled>
+          </div>
+          <!-- Voice for a new render: shown once there is a voice to pick (a saved voice, or a trained
+               character's own). Voices… opens the library. -->
+          <div class="voice-render-field" id="renderVoiceField" hidden>
+            <!-- Feedback 4 (owner, 22 Nov): voices belong to characters. With a character picked there is no
+                 voice picker here: each chip carries its voice (a mic, or a small "no voice yet" mark that
+                 opens Add a voice / Let the model voice it). This line only shows when one shot uses
+                 another voice than the characters' own (picked from a chip's menu, or a replayed job). -->
+            <div class="voice-shot-line" id="renderVoiceShotLine" hidden>
+              <svg class="ph" aria-hidden="true"><use href="#ph-microphone"/></svg>
+              <span id="renderVoiceShotText"></span>
+              <button type="button" class="voice-shot-x" onclick="voicesShotReset()" title="Back to the characters' own voices" data-i18n-title="voices.shot_reset_title"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+            </div>
+            <div class="voice-render-row">
+              <label for="renderVoice" data-i18n="voices.voice">Voice</label>
+              <select id="renderVoice" name="voice_id" onchange="voicesSyncRenderField()"><option value="inherit" data-i18n="voices.from_character">From the character</option></select>
+              <button type="button" class="voice-lib-btn" onclick="voicesOpen()" title="Your voices: add, record or remove" aria-label="Your voices" data-i18n-title="voices.manage_title" data-i18n-aria-label="voices.manage_aria"><svg class="ph" aria-hidden="true"><use href="#ph-gear-six"/></svg></button>
+              <button type="button" class="help-dot" id="renderVoiceHintDot" data-help="renderVoiceHint" aria-expanded="false" aria-label="More info" data-i18n-aria-label="help.more_info" hidden>?</button>
+            </div>
+            <div class="voice-render-row" id="renderVoiceMethodRow" data-h3-only hidden>
+              <label for="renderVoiceMethod" data-i18n="voices.method">How</label>
+              <select id="renderVoiceMethod" name="voice_method">
+                <option value="voice_pass" data-i18n="voices.pass_short">After render · closest match</option>
+                <option value="h3_reference" data-i18n="voices.reference_short">Voice sample · with References</option>
+              </select>
+            </div>
+            <small class="help-pop" id="renderVoiceHint" hidden data-i18n="voices.speakers_lines">Write each line with the character's name, like Bizarro: Did you hear that? One character picked? A line in quotes is theirs. Anyone without a saved voice keeps the voice the model gave them.</small>
+          </div>
           <!-- Face to keep (4.20, Hailuo H3, Text and Image): an optional photo
                of a face the runner packs as a reference image (MiniMax's
                ref2va block on our model). Shown by updateDerived() only on H3,
@@ -875,18 +1022,6 @@
                 </div>
               </div>
               </div>
-              <div class="h3-refs-get" id="h3RefsGet" style="display:none">
-                <p class="h3-refs-plan" id="h3RefsPlan"></p>
-                <p class="h3-refs-check" id="h3RefsCheck" hidden></p>
-                <div class="h3-refs-progress" id="h3RefsProgress" hidden>
-                  <div class="h3-refs-bar"><span id="h3RefsBarFill"></span></div>
-                  <span class="h3-refs-progress-text" id="h3RefsProgressText"></span>
-                </div>
-                <div class="h3-refs-get-row">
-                  <button type="button" class="btn" id="h3RefsGetBtn" onclick="h3RefsGet()" data-i18n="h3RefsGet.get_references">Get References</button>
-                  <span class="hint" id="h3RefsGetNote"></span>
-                </div>
-              </div>
             </div>
           </div>
           <!-- I2V — single image ref. -->
@@ -949,8 +1084,13 @@
             </div>
           </div>
 
-          <!-- Keyframe interpolation — FFLF or a dynamic 3–8-anchor shot. -->
-          <div class="kf-toggle-row" id="kfToggleRow" style="display:none">
+          <!-- Keyframe interpolation — Start & end (FFLF) or a 3–8-keyframe shot.
+               Feedback 6 (22 Nov 2026): one grid of equal picture slots with
+               their times under them (First frame · beats · Last frame), a swap
+               button between the two ends, add / remove / drag to reorder. The
+               mode tiles (Start & end / Keyframes) pick 2 or 3–8; this old
+               toggle stays in the page for code that reads it, never shown. -->
+          <div class="kf-toggle-row" id="kfToggleRow" style="display:none" hidden>
             <span class="kf-toggle-label" data-i18n="kfToggleRow.keyframe_mode">Keyframe mode</span>
             <div class="kf-toggle-group pill-group" role="group">
               <button type="button" class="kf-toggle-chip pill-btn active" data-kf-mode="2" onclick="setKeyframeMode(2)" data-i18n="kfToggleRow.fflf_start_end">FFLF <span class="kf-sub">start → end</span></button>
@@ -959,28 +1099,64 @@
           </div>
 
           <div class="mode-only" id="keyframeSection">
-            <h2 data-i18n="keyframeSection.start_frame_frame_0">Start frame (frame 0)<span class="h2-hint" data-h3-only> · optional on Hailuo H3</span></h2>
-            <div class="picker" data-key="start_image">
-              <div class="picker-drop" id="picker_drop_start_image">
-                <div class="picker-empty">
-                  <div class="picker-icon"><svg class="ph"><use href="#ph-film-strip"/></svg></div>
-                  <div class="picker-cta" data-i18n="picker_drop_start_image.drop_the_first_frame">Drop the <strong>first frame</strong>, or <strong>click to browse</strong></div>
-                  <div class="hint" data-i18n="picker_drop_start_image.this_image_opens_the">This image opens the clip — its aspect picks the output dimensions.</div>
-                </div>
-                <img class="picker-preview" id="picker_preview_start_image" alt="" style="display:none">
-                <button type="button" class="picker-clear" id="picker_clear_start_image" title="Clear" style="display:none" data-i18n-title="picker_clear_start_image.title.clear"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
-              </div>
-              <input type="file" id="picker_file_start_image" accept="image/*" style="display:none">
-              <input type="hidden" name="start_image" id="start_image" value="">
-              <div class="picker-recent" id="picker_recent_start_image_wrap" style="display:none">
-                <div class="picker-recent-label" data-i18n="picker_recent_start_image_wrap.recent_uploads_click_to">Recent uploads · click to use</div>
-                <div class="picker-recent-strip" id="picker_recent_start_image"></div>
-              </div>
+            <div class="kf-head">
+              <h2 class="kf-title"><span class="kf-title-pair" data-i18n="keyframeSection.frames_title">Frames</span><span class="kf-title-multi" data-i18n="keyframeSection.keyframes_title">Keyframes</span> <span class="kf-count" id="kfCountLabel"></span><button type="button" class="help-dot" data-help="keyframeHint" aria-expanded="false" aria-label="More info" data-i18n-aria-label="keyframeSection.aria-label.more_info">?</button></h2>
             </div>
-
-            <div class="kf-count-row" id="kfCountRow" style="display:none">
-              <label class="lbl" for="keyframe_count" data-i18n="kfCountRow.keyframes">Keyframes</label>
-              <select id="keyframe_count" name="keyframe_count" onchange="setKeyframeMode(parseInt(this.value, 10))">
+            <div class="help-pop" id="keyframeHint" hidden data-i18n="keyframeHint.keyframe_mode_needs_q8">Keyframe mode needs Q8 — it always renders the Q8 two-stage pass, whatever the Quality pill says. FFLF anchors the first and last frames; multi-keyframe mode locks every intermediate beat at its At(s) time.</div>
+            <div class="kf-grid kf-pair" id="kfGrid" data-kf-n="2">
+              <div class="kf-slot" data-kf-pos="first">
+                <div class="picker" data-key="start_image">
+                  <div class="picker-drop" id="picker_drop_start_image" title="This image opens the clip — its aspect picks the output dimensions. Drop a picture, click to browse, or drag one from another frame to swap." data-i18n-title="picker_drop_start_image.title.opens_the_clip">
+                    <span class="kf-tag"><span data-i18n="keyframeSection.first_frame">First frame</span><span class="kf-opt" data-h3-only data-i18n="keyframeSection.optional"> · optional</span></span>
+                    <div class="picker-empty">
+                      <div class="picker-icon"><svg class="ph"><use href="#ph-film-strip"/></svg></div>
+                      <div class="picker-cta" data-i18n="picker_drop_start_image.drop_or_click">Drop or click</div>
+                    </div>
+                    <img class="picker-preview" id="picker_preview_start_image" alt="" style="display:none" draggable="true">
+                    <button type="button" class="picker-clear" id="picker_clear_start_image" title="Clear" style="display:none" data-i18n-title="picker_clear_start_image.title.clear"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                  </div>
+                  <input type="file" id="picker_file_start_image" accept="image/*" style="display:none">
+                  <input type="hidden" name="start_image" id="start_image" value="">
+                  <div class="picker-recent" id="picker_recent_start_image_wrap" style="display:none">
+                    <div class="picker-recent-label" data-i18n="picker_recent_start_image_wrap.recent_uploads_click_to">Recent uploads · click to use</div>
+                    <div class="picker-recent-strip" id="picker_recent_start_image"></div>
+                  </div>
+                </div>
+                <div class="kf-time"><span class="kf-time-fixed">0.00 s</span></div>
+              </div>
+              <div id="keyframeDynamicSlots" class="kf-dyn"></div>
+              <div class="kf-slot" data-kf-pos="last">
+                <div class="picker" data-key="end_image">
+                  <div class="picker-drop" id="picker_drop_end_image" title="The clip lands exactly on this image. A close-up here anchors face identity through the clip." data-i18n-title="picker_drop_end_image.title.lands_on_this">
+                    <span class="kf-tag"><span data-i18n="keyframeSection.last_frame">Last frame</span></span>
+                    <div class="picker-empty">
+                      <div class="picker-icon"><svg class="ph"><use href="#ph-target"/></svg></div>
+                      <div class="picker-cta" data-i18n="picker_drop_end_image.drop_or_click">Drop or click</div>
+                    </div>
+                    <img class="picker-preview" id="picker_preview_end_image" alt="" style="display:none" draggable="true">
+                    <button type="button" class="picker-clear" id="picker_clear_end_image" title="Clear" style="display:none" data-i18n-title="picker_clear_end_image.title.clear"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                  </div>
+                  <input type="file" id="picker_file_end_image" accept="image/*" style="display:none">
+                  <input type="hidden" name="end_image" id="end_image" value="">
+                  <div class="picker-recent" id="picker_recent_end_image_wrap" style="display:none">
+                    <div class="picker-recent-label" data-i18n="picker_recent_end_image_wrap.recent_uploads_click_to">Recent uploads · click to use</div>
+                    <div class="picker-recent-strip" id="picker_recent_end_image"></div>
+                  </div>
+                </div>
+                <div class="kf-time"><span class="kf-time-fixed" id="kfEndTime">—</span></div>
+              </div>
+              <button type="button" class="kf-add" id="kfAddBtn" onclick="keyframeAdd()" title="Add a keyframe before the last frame" data-i18n-title="kfAddBtn.title.add_a_keyframe"><svg class="ph" aria-hidden="true"><use href="#ph-plus"/></svg><span class="kf-add-txt" data-i18n="kfAddBtn.add_keyframe">Add keyframe</span><span class="kf-add-max" data-i18n="kfAddBtn.up_to_8">Up to 8</span></button>
+              <button type="button" class="kf-swap" id="kfSwapBtn" onclick="keyframeSwapEnds()" title="Swap the first and last frame" aria-label="Swap the first and last frame" data-i18n-title="kfSwapBtn.title.swap" data-i18n-aria-label="kfSwapBtn.title.swap"><svg class="ph" aria-hidden="true"><use href="#ph-arrows-left-right"/></svg></button>
+            </div>
+            <div class="kf-recent" id="kfRecentWrap" style="display:none">
+              <span class="kf-recent-label" title="Click a picture to fill the next empty frame, or drag it onto the frame you want." data-i18n-title="kfRecentWrap.title.click_fills" data-i18n="kfRecentWrap.recent">Recent</span>
+              <div class="kf-recent-strip" id="kfRecentStrip"></div>
+            </div>
+            <div class="kf-seg" id="kfTimingHint"></div>
+            <!-- Kept for the job fields and older code: the count rides in the
+                 hidden select, the old timing row stays empty. -->
+            <div class="kf-count-row" id="kfCountRow" style="display:none" hidden>
+              <select id="keyframe_count" name="keyframe_count" onchange="setKeyframeMode(parseInt(this.value, 10))" tabindex="-1" aria-hidden="true">
                 <option value="3" selected data-i18n="keyframe_count.3_keyframes">3 keyframes</option>
                 <option value="4" data-i18n="keyframe_count.4_keyframes">4 keyframes</option>
                 <option value="5" data-i18n="keyframe_count.5_keyframes">5 keyframes</option>
@@ -988,38 +1164,8 @@
                 <option value="7" data-i18n="keyframe_count.7_keyframes">7 keyframes</option>
                 <option value="8" data-i18n="keyframe_count.8_keyframes">8 keyframes</option>
               </select>
-              <div class="hint" style="margin-top:6px" data-i18n="kfCountRow.start_and_end_are">Start and End are fixed; the selected count creates the intermediate beats below.</div>
             </div>
-
-            <div id="keyframeDynamicSlots"></div>
-
-            <div class="mini-fields" id="kfTimingRow" style="display:none;margin-top:10px">
-              <div class="mf-cell" style="grid-column:span 3">
-                <span class="mf-label" data-i18n="kfTimingRow.segment_timing">Segment timing</span>
-                <div class="hint" id="kfTimingHint" style="margin-top:8px" data-i18n="kfTimingHint.intermediate_beat_timing_is">Intermediate beat timing is distributed evenly by default.</div>
-              </div>
-            </div>
-
-            <h2 style="margin-top:10px" data-i18n="keyframeSection.end_frame_last_frame">End frame (last frame)</h2>
-            <div class="picker" data-key="end_image">
-              <div class="picker-drop" id="picker_drop_end_image">
-                <div class="picker-empty">
-                  <div class="picker-icon"><svg class="ph"><use href="#ph-target"/></svg></div>
-                  <div class="picker-cta" data-i18n="picker_drop_end_image.drop_the_last_frame">Drop the <strong>last frame</strong>, or <strong>click to browse</strong></div>
-                  <div class="hint" data-i18n="picker_drop_end_image.a_close_up_here">A close-up here anchors face identity through the clip.</div>
-                </div>
-                <img class="picker-preview" id="picker_preview_end_image" alt="" style="display:none">
-                <button type="button" class="picker-clear" id="picker_clear_end_image" title="Clear" style="display:none" data-i18n-title="picker_clear_end_image.title.clear"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
-              </div>
-              <input type="file" id="picker_file_end_image" accept="image/*" style="display:none">
-              <input type="hidden" name="end_image" id="end_image" value="">
-              <div class="picker-recent" id="picker_recent_end_image_wrap" style="display:none">
-                <div class="picker-recent-label" data-i18n="picker_recent_end_image_wrap.recent_uploads_click_to">Recent uploads · click to use</div>
-                <div class="picker-recent-strip" id="picker_recent_end_image"></div>
-              </div>
-            </div>
-
-            <div class="hint" id="keyframeHint" style="margin-top:8px" data-i18n="keyframeHint.keyframe_mode_needs_q8">Keyframe mode needs Q8 — it always renders the Q8 two-stage pass, whatever the Quality pill says. FFLF anchors the first and last frames; multi-keyframe mode locks every intermediate beat at its At(s) time.</div>
+            <div id="kfTimingRow" style="display:none" hidden></div>
           </div>
 
           <!-- Extend — source-video select + extend-by + direction +
@@ -1039,8 +1185,15 @@
                  BOOT.tier.extend_max_dim) on boot and on every mode switch
                  into Extend, so it's said BEFORE Generate every time. -->
             <div class="hint" id="extendClampNote" style="margin-bottom:6px" data-ltx-only></div>
-            <select id="extendSrcSelect" onchange="document.getElementById('video_path').value=this.value"></select>
-            <input name="video_path" id="video_path" placeholder="/path/to/source.mp4" style="margin-top:6px" data-i18n-placeholder="video_path.placeholder.path_to_source_mp4">
+            <select id="extendSrcSelect" class="clip-pick-select" hidden tabindex="-1" aria-hidden="true" onchange="document.getElementById('video_path').value=this.value"></select>
+            <div class="clip-pick" id="clipPickExtend" data-input="video_path" data-select="extendSrcSelect">
+              <div class="clip-pick-row">
+                <div class="clip-pick-strip" role="listbox" aria-label="Recent clips" data-i18n-aria-label="clipPick.aria-label.recent_clips" hidden></div>
+                <button type="button" class="clip-pick-browse" title="Choose any video file on this Mac" data-i18n-title="clipPick.title.choose_any_video" data-i18n="clipPick.browse">Browse…</button>
+              </div>
+              <input type="file" class="clip-pick-file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" hidden>
+              <input name="video_path" id="video_path" class="clip-pick-path" placeholder="/path/to/source.mp4" data-i18n-placeholder="video_path.placeholder.path_to_source_mp4">
+            </div>
             <div class="row extend-only" style="margin-top:8px">
               <div>
                 <label class="lbl" data-i18n="extendSection.extend_by_seconds">Extend by (seconds)</label>
@@ -1111,8 +1264,15 @@
                updateDerived() when currentMode === 'restore'. -->
           <div class="mode-only" id="restoreSection">
             <h2 data-i18n="restoreSection.source_video_to_colorize">Source video to colorize</h2>
-            <select id="restoreSrcSelect" onchange="document.getElementById('restore_video_path').value=this.value"></select>
-            <input name="restore_video_path" id="restore_video_path" placeholder="/path/to/blackandwhite.mp4" style="margin-top:6px" data-i18n-placeholder="restore_video_path.placeholder.path_to_blackandwhite_mp4">
+            <select id="restoreSrcSelect" class="clip-pick-select" hidden tabindex="-1" aria-hidden="true" onchange="document.getElementById('restore_video_path').value=this.value"></select>
+            <div class="clip-pick" id="clipPickRestore" data-input="restore_video_path" data-select="restoreSrcSelect">
+              <div class="clip-pick-row">
+                <div class="clip-pick-strip" role="listbox" aria-label="Recent clips" data-i18n-aria-label="clipPick.aria-label.recent_clips" hidden></div>
+                <button type="button" class="clip-pick-browse" title="Choose any video file on this Mac" data-i18n-title="clipPick.title.choose_any_video" data-i18n="clipPick.browse">Browse…</button>
+              </div>
+              <input type="file" class="clip-pick-file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" hidden>
+              <input name="restore_video_path" id="restore_video_path" class="clip-pick-path" placeholder="/path/to/blackandwhite.mp4" data-i18n-placeholder="restore_video_path.placeholder.path_to_blackandwhite_mp4">
+            </div>
             <div class="hint" style="margin-top:6px" data-i18n="restoreSection.pick_a_black_and">Pick a black-and-white or washed-out clip. The prompt below describes the colors to paint in (e.g. "golden warm sunlight, blue sky, green grass"). Output matches the source's resolution + length. Runs on Q4 — no Q8 needed.</div>
           </div>
 
@@ -1126,8 +1286,15 @@
                currentMode === 'upscale'. -->
           <div class="mode-only" id="upscaleSection">
             <h2 data-i18n="upscaleSection.clip_to_fix">Clip to fix</h2>
-            <select id="upscaleSrcSelect" onchange="document.getElementById('upscale_source_path').value=this.value; refreshFaceFixPlan(true)"></select>
-            <input name="upscale_source_path" id="upscale_source_path" oninput="refreshFaceFixPlan(true)" placeholder="/path/to/draft.mp4" style="margin-top:6px" data-i18n-placeholder="upscale_source_path.placeholder.path_to_draft_mp4">
+            <select id="upscaleSrcSelect" class="clip-pick-select" hidden tabindex="-1" aria-hidden="true" onchange="document.getElementById('upscale_source_path').value=this.value; refreshFaceFixPlan(true)"></select>
+            <div class="clip-pick" id="clipPickUpscale" data-input="upscale_source_path" data-select="upscaleSrcSelect">
+              <div class="clip-pick-row">
+                <div class="clip-pick-strip" role="listbox" aria-label="Recent clips" data-i18n-aria-label="clipPick.aria-label.recent_clips" hidden></div>
+                <button type="button" class="clip-pick-browse" title="Choose any video file on this Mac" data-i18n-title="clipPick.title.choose_any_video" data-i18n="clipPick.browse">Browse…</button>
+              </div>
+              <input type="file" class="clip-pick-file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" hidden>
+              <input name="upscale_source_path" id="upscale_source_path" class="clip-pick-path" oninput="refreshFaceFixPlan(true)" placeholder="/path/to/draft.mp4" data-i18n-placeholder="upscale_source_path.placeholder.path_to_draft_mp4">
+            </div>
             <div id="faceFixPlan" class="hint" role="status" aria-live="polite"></div>
             <!-- Presets, not a slider: the number (keep_shot) maps server-side
                  to how the render starts — Faithful/Balanced refine the clip's
@@ -1222,8 +1389,15 @@
                Shown/hidden by updateDerived() when currentMode === 'control'. -->
           <div class="mode-only" id="controlSection">
             <h2 data-i18n="controlSection.motion_control_union_control">Motion Control <span class="hint" style="font-weight:400">· Union Control IC-LoRA · its motion, your subject</span></h2>
-            <select id="controlSrcSelect" onchange="document.getElementById('control_video_path').value=this.value"></select>
-            <input name="control_video_path" id="control_video_path" placeholder="/path/to/control.mp4" style="margin-top:6px" data-i18n-placeholder="control_video_path.placeholder.path_to_control_mp4">
+            <select id="controlSrcSelect" class="clip-pick-select" hidden tabindex="-1" aria-hidden="true" onchange="document.getElementById('control_video_path').value=this.value"></select>
+            <div class="clip-pick" id="clipPickControl" data-input="control_video_path" data-select="controlSrcSelect">
+              <div class="clip-pick-row">
+                <div class="clip-pick-strip" role="listbox" aria-label="Recent clips" data-i18n-aria-label="clipPick.aria-label.recent_clips" hidden></div>
+                <button type="button" class="clip-pick-browse" title="Choose any video file on this Mac" data-i18n-title="clipPick.title.choose_any_video" data-i18n="clipPick.browse">Browse…</button>
+              </div>
+              <input type="file" class="clip-pick-file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" hidden>
+              <input name="control_video_path" id="control_video_path" class="clip-pick-path" placeholder="/path/to/control.mp4" data-i18n-placeholder="control_video_path.placeholder.path_to_control_mp4">
+            </div>
             <div class="hint" style="margin-top:6px" data-i18n="controlSection.pick_the_clip_whose">Pick the clip whose <strong>motion, camera move, composition and pose</strong> the render should copy. The prompt describes the <strong>new subject and scene</strong> painted onto that structure — drive a crane-up off a man's face in a suburban street and you get a crane-up off a monk's face on a salt flat. Output matches the control clip's resolution and length, on the Q4 distilled checkpoint — no Q8 needed.</div>
             <!-- THE HONEST HALF, and the reason the X request was half right.
                  Union Control follows whatever control signal it is given, so
@@ -1245,9 +1419,17 @@
              documented in the LTX 2.3 paper but unobvious. -->
         <!-- SYS-25: had no label at all (placeholder only) — a screen
              reader announces a placeholder-only textarea as unlabeled. -->
+        <div class="sf-step-head sf-step-say" id="sfStepSay">
+          <span class="sf-step-num">3</span>
+          <!-- Feedback 4 (owner, 22 Nov): it is the prompt box, so it says Prompt. How lines go in
+               ("Name: line") and the mode's own advice sit behind the "?" (updatePromptPlaceholder). -->
+          <label class="sf-step-title" for="prompt" data-i18n="shotForm.step_prompt">Prompt</label>
+          <button type="button" class="help-dot" data-help="promptHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="help.more_info">?</button>
+        </div>
+        <div class="help-pop" id="promptHelp" hidden></div>
         <textarea name="prompt" id="prompt" class="composer-prompt"
                   oninput="updateLangHint()" aria-label="Describe your shot"
-                  placeholder="Describe the scene, action and camera. Include dialogue and sound cues — they are generated with the video." data-i18n-placeholder="prompt.placeholder.describe_the_scene_action" data-i18n-aria-label="prompt.aria-label.describe_your_shot"></textarea>
+                  placeholder="Describe the shot: action, camera, sound" data-i18n-placeholder="prompt.placeholder.describe_the_shot" data-i18n-aria-label="prompt.aria-label.describe_your_shot"></textarea>
 
         <!-- VC-13: a language hint — LTX itself was trained on English
              prompts, and nothing told a non-English typist that. Hidden
@@ -1284,10 +1466,10 @@
           </button>
           <button type="button" class="ghost-btn" id="h3AddLineBtn"
                   onclick="h3InsertDialogueLine()"
-                  title="Insert one dialogue line: the <d>…</d> tag, a speaker id, and a mouth-stop clause so the model doesn't keep the mouth moving on nothing." data-i18n-title="h3AddLineBtn.title.insert_one_dialogue_line" data-i18n="h3AddLineBtn.line">
+                  title="Insert one spoken line, like Name: Hello there." data-i18n-title="h3AddLineBtn.title.insert_spoken_line" data-i18n="h3AddLineBtn.line">
             + Line
           </button>
-          <select id="h3DialogueLang" title="Language the next inserted line is tagged with" style="max-width:120px" data-i18n-title="h3DialogueLang.title.language_the_next_inserted">
+          <select id="h3DialogueLang" name="dialogue_lang" title="Language for spoken lines" style="max-width:120px" data-i18n-title="h3DialogueLang.title.language_spoken_lines">
             <option value="English" selected data-i18n="h3DialogueLang.english">English</option>
             <option value="Spanish" data-i18n="h3DialogueLang.spanish">Spanish</option>
             <option value="French" data-i18n="h3DialogueLang.french">French</option>
@@ -1300,8 +1482,8 @@
           <span class="ct-spacer"></span>
           <span class="h3-prompt-helper-words" id="h3DialogueWordCount" hidden></span>
           <span class="h3-prompt-helper-warn" id="h3QuoteWarning" hidden
-                title="Prose quotes are not spoken — H3 only voices text inside a &lt;d&gt;…&lt;/d&gt; tag." data-i18n-title="h3QuoteWarning.title.prose_quotes_are_not" data-i18n="h3QuoteWarning.quoted_speech_outside_d">
-            <svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>Quoted speech outside &lt;d&gt;…&lt;/d&gt; won't be spoken
+                title="With several speakers, start each spoken line with who says it, like Bizarro: Hello." data-i18n-title="h3QuoteWarning.title.name_each_speaker" data-i18n="h3QuoteWarning.name_each_speaker">
+            <svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>Start each line with who speaks, like Name: Hello
           </span>
         </div>
 
@@ -1555,6 +1737,10 @@
            The selected cell's honest notes (#ltxTierNote / #h3TierNote) stay
            OUTSIDE it, visible: a warning about the render you are about to queue
            must not be foldable. -->
+      <div class="sf-step-head sf-step-look" id="sfStepLook">
+        <span class="sf-step-num">4</span>
+        <span class="sf-step-title" data-i18n="shotForm.step_look">How it looks</span>
+      </div>
       <div class="quick-settings">
         <!-- ============== ENGINE STATE ==============
              The PICKER heads the column now (#engineSwitch, rendered from
@@ -1959,9 +2145,6 @@
             </div>
           </div>
         </details>
-        <div class="engine-credit" id="h3Hint" hidden>
-          <span id="h3Credit" data-i18n="h3Credit.minimax_h3_licence"><span id="h3FlexCredit" hidden data-i18n="h3FlexCredit.h3_flex_by_pika">H3 Flex by Pika Labs · </span>MiniMax H3 · <a href="#" onclick="event.preventDefault(); openLicence('h3', {readOnly: true})">Licence</a></span>
-        </div>
         <!-- The selected cell's honest notes, joined — the mirror of
              #h3TierNote. Empty and hidden when the combination has nothing
              to warn about, which is most of them. -->
@@ -2079,6 +2262,7 @@
             <div class="loras-list" id="lorasList"></div>
           </div>
         </details>
+        <div class="loras-active-strip" id="lorasActiveStrip" hidden></div>
       </div>
       <div class="form-divider"></div>
       <!-- Hidden field; updated by the LoRA picker JS to a JSON-encoded
@@ -2114,7 +2298,7 @@
         <details id="finishDetails" class="customize-section">
           <summary class="cz-summary">
             <span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
-            <span class="cz-title" data-i18n="finishDetails.after_the_render">After the render</span>
+            <span class="cz-title" data-i18n="finishDetails.upscale">Upscale</span>
             <span class="cz-meta" id="finishSummary" data-i18n="finishSummary.native_export">native export</span>
           </summary>
           <div class="cz-body">
@@ -2508,6 +2692,11 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
                 </div>
               </div>
             </div>
+            <!-- Feedback 5 (owner, 22 Nov 2026): the H3 credit + licence no longer stand on the form (the
+                 licence was accepted at install). They live here, folded, still one click from the text. -->
+            <div class="engine-credit" id="h3Hint" hidden>
+          <span id="h3Credit" data-i18n="h3Credit.minimax_h3_licence"><span id="h3FlexCredit" hidden data-i18n="h3FlexCredit.h3_flex_by_pika">H3 Flex by Pika Labs · </span>MiniMax H3 · <a href="#" onclick="event.preventDefault(); openLicence('h3', {readOnly: true})">Licence</a></span>
+            </div>
           </div>
         </details>
       </div>
@@ -2529,17 +2718,13 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
            matter how far the user scrolls. The queue chip strip sits
            above it (Batch / Pause / Clear) — compact pills, never the
            primary touch target. -->
-      <div class="form-action-footer" id="formActionFooter">
-        <div class="queue-strip">
-          <button type="button" class="qchip" onclick="openBatch()" title="Queue many prompts, or several takes of this one" data-i18n-title="formActionFooter.title.queue_many_prompts_or" data-i18n="formActionFooter.batch"><svg class="ph" aria-hidden="true"><use href="#ph-film-strip"/></svg>Batch</button>
-          <button type="button" class="qchip" id="pauseBtn" onclick="togglePause()" title="Pause / resume the render queue" data-i18n-title="pauseBtn.title.pause_resume_the_render" data-i18n="pauseBtn.pause_queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
-          <button type="button" class="qchip" data-role="clear-queue-btn" onclick="requestClearQueue()" title="Clear all queued jobs (running job continues)" data-i18n-title="formActionFooter.title.clear_all_queued_jobs"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg><span class="clear-queue-label" data-i18n="formActionFooter.clear">Clear</span></button>
-          <!-- VC-38: the prompt/settings draft autosaves to this browser as you
-               type (see draftAutosaveInstall in queue.js) and survives a reload
-               or the restart every Update asks for. This is the way back to a
-               blank form on purpose, distinct from Clear queue above. -->
-          <button type="button" class="qchip" id="clearFormBtn" onclick="clearDraftForm()" title="Reset the prompt, Avoid and seed, and forget the saved draft" data-i18n-title="clearFormBtn.title.reset_the_prompt_avoid" data-i18n="clearFormBtn.clear_form">Clear form</button>
-          <span class="qchip-spacer"></span>
+            <!-- Easy mode: settings made in Advanced keep working while hidden, and this line says so. -->
+      <div class="easy-carry" id="easyCarry" hidden><span id="easyCarryText"></span> <button type="button" class="easy-carry-btn" onclick="formLevelSet('advanced')" data-i18n="formLevel.show_them">Show</button></div>
+<div class="form-action-footer" id="formActionFooter">
+        <!-- Feedback 3 (owner, 22 Nov 2026): the dock is Generate + a small More menu. The queue
+             chips (Batch, Pause queue, Clear queue, Clear form) and the after-render Upscale & Face
+             Fix live in More; the one summary line stays readable above Generate. -->
+        <div class="dock-line">
           <!-- SYS-22: at 1280-1440px (and worse below) the Shot Setup
                chips (Quality/Length) render below the sticky footer,
                reachable only by scrolling — "5.00s · 1024x576" here was
@@ -2549,15 +2734,6 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
                unchanged (queue.js's own comment on that design stands). -->
           <button type="button" class="qchip-derived" id="derivedFooter" onclick="scrollToShotSetup()" title="Jump to Quality / Length" data-i18n-title="derivedFooter.title.jump_to_quality_length"></button>
         </div>
-        <!-- The after-render Upscale & Face Fix, beside Generate (same state as
-             the checkbox under Upscale: h3_upscale = "ltx_x2"). The footer line
-             to the right of the queue chips prices the pair. -->
-        <label class="check h3-facefix-after h3-facefix-footer" id="h3FaceFixFooterRow" data-h3-only hidden
-               title="Queues a second job right after this render: the clip at twice the size with LTX-2.5 detail, the face and the sound kept. The original stays as rendered, next to it. Needs the 0.3 GB Upscale adapter (Settings → Models)." data-i18n-title="h3FaceFixFooterRow.title.queues_a_second_job">
-          <input type="checkbox" id="h3FaceFixFooter" onchange="setH3FaceFixAfter(this.checked)">
-          <span data-i18n="h3FaceFixFooterRow.also_run_upscale_face">Also run <b>Upscale &amp; Face Fix</b>
-            <span class="cz-label-hint" id="h3FaceFixFooterEta"></span></span>
-        </label>
         <!-- SYS-32: the circuit breaker paused the queue and explained why
              ONLY in a log line (Logs tab) -- the visible UI was "queue N ·
              paused" plus a bare Resume button. This surfaces the same
@@ -2600,6 +2776,29 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
           </div>
         </div>
         <div class="actions">
+          <!-- Before Generate in the DOM (the face-fix switch is read before #genBtn), drawn after it (CSS order). -->
+          <details class="dock-more" id="formMore">
+            <summary class="dock-more-btn" title="More: batch, queue, clear" aria-label="More" data-i18n-title="formMore.title.more_batch_queue" data-i18n-aria-label="formMore.aria-label.more"><svg class="ph" aria-hidden="true"><use href="#ph-dots-three-bold"/></svg><span data-i18n="formMore.more">More</span></summary>
+            <div class="dock-menu queue-strip" role="menu">
+              <button type="button" class="qchip" onclick="openBatch()" title="Queue many prompts, or several takes of this one" data-i18n-title="formActionFooter.title.queue_many_prompts_or" data-i18n="formActionFooter.batch"><svg class="ph" aria-hidden="true"><use href="#ph-film-strip"/></svg>Batch</button>
+              <button type="button" class="qchip" id="pauseBtn" onclick="togglePause()" title="Pause / resume the render queue" data-i18n-title="pauseBtn.title.pause_resume_the_render" data-i18n="pauseBtn.pause_queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
+              <button type="button" class="qchip" data-role="clear-queue-btn" onclick="requestClearQueue()" title="Clear all queued jobs (running job continues)" data-i18n-title="formActionFooter.title.clear_all_queued_jobs"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg><span class="clear-queue-label" data-i18n="formActionFooter.clear">Clear</span></button>
+              <!-- VC-38: the prompt/settings draft autosaves to this browser as you
+                   type (see draftAutosaveInstall in queue.js) and survives a reload
+                   or the restart every Update asks for. This is the way back to a
+                   blank form on purpose, distinct from Clear queue above. -->
+              <button type="button" class="qchip" id="clearFormBtn" onclick="clearDraftForm()" title="Reset the prompt, Avoid and seed, and forget the saved draft" data-i18n-title="clearFormBtn.title.reset_the_prompt_avoid" data-i18n="clearFormBtn.clear_form">Clear form</button>
+            <!-- The after-render Upscale & Face Fix, beside Generate (same state as
+                 the checkbox under Upscale: h3_upscale = "ltx_x2"). The footer line
+                 to the right of the queue chips prices the pair. -->
+            <label class="check h3-facefix-after h3-facefix-footer" id="h3FaceFixFooterRow" data-h3-only hidden
+                   title="Queues a second job right after this render: the clip at twice the size with LTX-2.5 detail, the face and the sound kept. The original stays as rendered, next to it. Needs the 0.3 GB Upscale adapter (Settings → Models)." data-i18n-title="h3FaceFixFooterRow.title.queues_a_second_job">
+              <input type="checkbox" id="h3FaceFixFooter" onchange="setH3FaceFixAfter(this.checked)">
+              <span data-i18n="h3FaceFixFooterRow.also_run_upscale_face">Also run <b>Upscale &amp; Face Fix</b>
+                <span class="cz-label-hint" id="h3FaceFixFooterEta"></span></span>
+            </label>
+            </div>
+          </details>
           <button type="submit" class="primary" id="genBtn" data-i18n="genBtn.generate">Generate</button>
           <button type="button" class="danger js-stop-btn" disabled data-role="stop-btn" onclick="requestStop()" title="Stop the current render" data-i18n-title="formActionFooter.title.stop_the_current_render" data-i18n="formActionFooter.stop">Stop</button>
         </div>
@@ -2621,6 +2820,12 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <button type="button" class="revoice-steps-x" onclick="revoiceHideSteps()" title="Hide these steps" aria-label="Hide these steps" data-i18n-title="revoice.hide_steps" data-i18n-aria-label="revoice.hide_steps">×</button>
       </div>
       <h2 class="revoice-h" data-i18n="revoice.clip">Clip</h2>
+      <div class="clip-pick" id="clipPickRevoice" data-pick="revoice">
+        <div class="clip-pick-row">
+          <div class="clip-pick-strip" role="listbox" aria-label="Recent clips" data-i18n-aria-label="clipPick.aria-label.recent_clips" hidden></div>
+          <button type="button" class="clip-pick-browse" title="Choose any video or audio file on this Mac: MP4, MOV, MP3, WAV, M4A and more" data-i18n-title="clipPick.title.choose_any_media" data-i18n="clipPick.browse">Browse…</button>
+        </div>
+      </div>
       <label class="voice-drop" id="revoiceDrop" for="revoiceFile">
         <span class="voice-drop-main" data-i18n="revoice.drop_main">Drop a video or audio file here, or click to choose one</span>
         <span class="voice-drop-sub" data-i18n="revoice.drop_sub">MP4, MOV, MP3, WAV, M4A and more</span>
@@ -2684,18 +2889,18 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
                  zone itself still leads (that's the more common path
                  here), but the hint now says text-only is a real option
                  too, in plain words. -->
-            <h2 data-i18n="studioSection.make_or_change_a">Make or change a picture
-              <span class="h2-hint">Drop a photo to edit it, or leave the slots empty and describe one in words below · FLUX 3 Klein and Ideogram 4 make pictures from text alone</span>
-            </h2>
+            <!-- Feedback 3: one short head; the how-to sentence sits behind "?". -->
+            <div class="ph-sec-head img-sec-head"><span data-i18n="studioSection.make_or_change_title">Make or change a picture</span><button type="button" class="help-dot" data-help="imgStudioHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+            <div class="help-pop" id="imgStudioHelp" hidden data-i18n="studioSection.drop_a_photo_help">Drop a photo to edit it, or leave the slots empty and describe one in words below. FLUX 3 Klein and Ideogram 4 make pictures from text alone.</div>
             <div class="studio-ref-grid" id="imgStudioRefs">
               <div class="studio-ref-slot" data-slot="0">
-                <span class="ref-tag" data-i18n="imgStudioRefs.primary">Primary</span>
+                <span class="ref-tag" data-i18n="imgStudioRefs.picture_1">Picture 1</span>
               </div>
               <div class="studio-ref-slot" data-slot="1">
-                <span class="ref-tag" data-i18n="imgStudioRefs.multi_ref">Multi-ref</span>
+                <span class="ref-tag" data-i18n="imgStudioRefs.picture_2">Picture 2</span>
               </div>
               <div class="studio-ref-slot" data-slot="2">
-                <span class="ref-tag" data-i18n="imgStudioRefs.multi_ref_2">Multi-ref</span>
+                <span class="ref-tag" data-i18n="imgStudioRefs.picture_3">Picture 3</span>
               </div>
             </div>
             <!-- Runtime warning when the user has 2+ refs loaded but the
@@ -2736,14 +2941,13 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <div class="ideo-setup-note" id="ideoSetupNote" hidden>
           <svg class="ph" aria-hidden="true" style="flex:0 0 auto;width:18px;height:18px;margin-top:1px"><use href="#ph-info"/></svg>
           <div class="ideo-setup-body">
-            <strong data-i18n="ideoSetupNote.first_render_downloads_ideogram">First render downloads Ideogram 4 (<span id="ideoSetupDlGb" data-i18n="ideoSetupDlGb.28_gb">~28&nbsp;GB</span>, one-time).</strong>
-            <span class="ideo-setup-hint" data-i18n="ideoSetupNote.no_account_or_token">No account or token needed — Phosphene pulls an un-gated community mirror. Personal/research use is free; commercial use needs a license from Ideogram.</span>
+            <strong data-i18n="ideoSetupNote.first_render_downloads_ideogram">First render downloads Ideogram 4 (<span id="ideoSetupDlGb" data-i18n="ideoSetupDlGb.28_gb">~28&nbsp;GB</span>, one-time).</strong><button type="button" class="help-dot" data-help="ideoSetupHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button>
+            <div class="help-pop ideo-setup-hint" id="ideoSetupHelp" hidden data-i18n="ideoSetupNote.no_account_or_token">No account or token needed — Phosphene pulls an un-gated community mirror. Personal/research use is free; commercial use needs a license from Ideogram.</div>
           </div>
         </div>
         <div class="ideo-head">
           <div class="ideo-head-titles">
-            <span class="ideo-head-title" data-i18n="ideoPanel.ideogram_4_text_in">Ideogram 4 — text in image</span>
-            <span class="ideo-head-sub" data-i18n="ideoPanel.place_words_on_the">Place words on the frame; the model renders the final typography.</span>
+            <span class="ideo-head-title ph-sec-head"><span data-i18n="ideoPanel.ideogram_4_text_in">Ideogram 4 — text in image</span><button type="button" class="help-dot" data-help="ideoHeadHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></span>
           </div>
           <div class="pill-group cols-2 ideo-mode-toggle" role="group" aria-label="Caption mode" data-i18n-aria-label="ideoPanel.aria-label.caption_mode">
             <button type="button" class="pill-btn active" id="ideoModeSimpleBtn" data-ideo-mode="simple" onclick="ideoSetMode('simple')" aria-pressed="true">
@@ -2756,8 +2960,13 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         </div>
 
         <!-- Simple-mode hint: the textarea above IS the prompt. -->
-        <div class="ideo-simple-hint" id="ideoSimpleHint" data-i18n="ideoSimpleHint.the_prompt_box_above">
+        <!-- Feedback 3: the two how-it-works sentences live behind the head's "?" (Simple mode text
+             stays its own element, #ideoSimpleHint, which stage.js still hides in Layout mode). -->
+        <div class="help-pop" id="ideoHeadHelp" hidden>
+          <span class="ideo-head-sub" data-i18n="ideoPanel.place_words_on_the">Place words on the frame; the model renders the final typography.</span>
+          <span class="ideo-simple-hint" id="ideoSimpleHint" data-i18n="ideoSimpleHint.the_prompt_box_above">
           The prompt box above is sent as-is. Switch to <strong>Layout</strong> to place text and objects on the frame and ship a structured caption (Ideogram 4 is strongest with structured captions).
+          </span>
         </div>
 
         <!-- Layout-mode body — everything below shows only in Layout. -->
@@ -2800,10 +3009,8 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
               <!-- guide lines + boxes are injected here by ideoRender() -->
             </div>
           </div>
-          <div class="ideo-stage-note" id="ideoStageNote" data-i18n="ideoStageNote.placement_preview_boxes_show">
-            <svg class="ph" aria-hidden="true"><use href="#ph-info"/></svg>
-            Placement preview — boxes show where words sit; Ideogram renders the final type, weight, and texture.
-          </div>
+          <div class="ideo-stage-note" id="ideoStageNote"><span data-i18n="ideoStageNote.placement_preview">Placement preview</span><button type="button" class="help-dot" data-help="ideoStageHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+          <div class="help-pop" id="ideoStageHelp" hidden data-i18n="ideoStageHelp.placement_preview_boxes_show">Placement preview — boxes show where words sit; Ideogram renders the final type, weight, and texture.</div>
 
           <!-- Inspector — appears when a box is selected. -->
           <div class="ideo-inspector" id="ideoInspector" hidden>
@@ -3009,7 +3216,9 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         </div>
 
         <p class="pro-note pro-spot" data-pro-feature="ph3-image-fast-pro" data-pro-when="imgStudioEngine=ph3image_fast_inline" hidden></p>
-        <p id="flux3Notice" class="hint" hidden data-i18n="flux3Notice.flux_3_klein_by">FLUX 3 Klein by Black Forest Labs. Free. Standard: 16 steps. Base Quality: 50 steps, separate download. Q8 recommended; Q6 uses less memory. 32 GB Mac recommended; 24 GB with small Q4 images and one reference. <button type="button" class="ghost-btn" onclick="openLicence('flux3', {readOnly:true})" data-i18n="flux3Notice.flux_kommunity_licence">FLUX Kommunity licence</button></p>
+        <!-- Feedback 3: the FLUX 3 paragraph folds into "More info" (stage.js still shows/hides #flux3Notice). -->
+        <details id="flux3Notice" class="more-info img-flux3-info" hidden><summary data-i18n="flux3Notice.about_flux_3_klein">About FLUX 3 Klein</summary>
+        <p data-i18n="flux3Notice.flux_3_klein_by">FLUX 3 Klein by Black Forest Labs. Free. Standard: 16 steps. Base Quality: 50 steps, separate download. Q8 recommended; Q6 uses less memory. 32 GB Mac recommended; 24 GB with small Q4 images and one reference. <button type="button" class="ghost-btn" onclick="openLicence('flux3', {readOnly:true})" data-i18n="flux3Notice.flux_kommunity_licence">FLUX Kommunity licence</button></p></details>
 
         <div>
           <div class="mini-fields">
@@ -3035,7 +3244,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
               </select>
             </div>
             <div class="mf-cell">
-              <span class="mf-label" data-i18n="studioSection.candidates_n">Candidates (n)</span>
+              <span class="mf-label" data-i18n="studioSection.how_many" title="Candidates: how many pictures one Generate makes" data-i18n-title="studioSection.title.candidates_how_many">How many</span>
               <input type="number" id="imgStudioN" min="1" max="8" value="1" oninput="imgStudioUpdateEstimate()">
             </div>
             <div class="mf-cell">
@@ -3059,17 +3268,17 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
            the user has scrolled. Pause/Clear/Batch live above it as compact
            pills, never the primary touch target. -->
       <div class="form-action-footer" id="formActionFooterStudio">
-        <div class="queue-strip">
-          <button type="button" class="qchip" onclick="openBatch()" title="Queue many prompts, or several takes of this one" data-i18n-title="formActionFooterStudio.title.queue_many_prompts_or" data-i18n="formActionFooterStudio.batch"><svg class="ph" aria-hidden="true"><use href="#ph-film-strip"/></svg>Batch</button>
-          <button type="button" class="qchip" id="pauseBtnStudio" onclick="togglePause()" title="Pause / resume the render queue" data-i18n-title="pauseBtnStudio.title.pause_resume_the_render" data-i18n="pauseBtnStudio.pause_queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
-          <button type="button" class="qchip" data-role="clear-queue-btn" onclick="requestClearQueue()" title="Clear all queued jobs (running job continues)" data-i18n-title="formActionFooterStudio.title.clear_all_queued_jobs"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg><span class="clear-queue-label" data-i18n="formActionFooterStudio.clear">Clear</span></button>
-          <span class="qchip-spacer"></span>
-        </div>
         <div class="actions">
           <button class="primary" id="imgStudioGenBtn" onclick="imgStudioGenerate()">
             <span id="imgStudioGenBtnLabel" data-i18n="imgStudioGenBtnLabel.generate">Generate</span>
           </button>
           <button type="button" class="danger js-stop-btn" disabled data-role="stop-btn" onclick="requestStop()" title="Stop the current render" data-i18n-title="formActionFooterStudio.title.stop_the_current_render" data-i18n="formActionFooterStudio.stop">Stop</button>
+          <!-- Feedback 3: slim dock, the queue chips live in More. -->
+          <details class="dock-more" id="studioMore"><summary class="dock-more-btn" aria-label="More" title="More: batch, queue" data-i18n-aria-label="studioMore.aria-label.more" data-i18n-title="studioMore.title.more_batch_queue"><svg class="ph" aria-hidden="true"><use href="#ph-dots-three-bold"/></svg><span data-i18n="studioMore.more">More</span></summary><div class="dock-menu queue-strip" role="menu">
+          <button type="button" class="qchip" onclick="openBatch()" title="Queue many prompts, or several takes of this one" data-i18n-title="formActionFooterStudio.title.queue_many_prompts_or" data-i18n="formActionFooterStudio.batch"><svg class="ph" aria-hidden="true"><use href="#ph-film-strip"/></svg>Batch</button>
+          <button type="button" class="qchip" id="pauseBtnStudio" onclick="togglePause()" title="Pause / resume the render queue" data-i18n-title="pauseBtnStudio.title.pause_resume_the_render" data-i18n="pauseBtnStudio.pause_queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
+          <button type="button" class="qchip" data-role="clear-queue-btn" onclick="requestClearQueue()" title="Clear all queued jobs (running job continues)" data-i18n-title="formActionFooterStudio.title.clear_all_queued_jobs"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg><span class="clear-queue-label" data-i18n="formActionFooterStudio.clear">Clear</span></button>
+          </div></details>
         </div>
       </div>
 
@@ -3385,7 +3594,6 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
           <div class="train-drop-empty" id="trainDropEmpty">
             <div class="picker-icon"><svg class="ph"><use href="#ph-image"/></svg></div>
             <div class="picker-cta" data-i18n="trainDropEmpty.drop_images_here_or">Drop images <em data-i18n="trainDropEmpty.optional_matching_captions">+ optional matching <code>.txt</code> captions</em> here, or <strong>click to browse</strong> — 15 minimum, 20–50 is the sweet spot</div>
-            <div class="hint" data-i18n="trainDropEmpty.png_jpg_webp_for">PNG / JPG / WEBP for images, <code>.txt</code> for captions (same filename stem). Each preview shows the 1:1 center-crop the trainer will see.</div>
           </div>
           <div class="train-thumbs" id="trainThumbs" hidden></div>
           <input type="file" id="trainFileInput" accept="image/png,image/jpeg,image/webp,text/plain,.png,.jpg,.jpeg,.webp,.txt" multiple style="display:none">
@@ -3393,10 +3601,13 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <div class="train-counter-row">
           <span class="train-counter" id="trainCounter" data-i18n="trainCounter.0_images">0 images</span>
           <span class="train-counter-hint" id="trainCounterHint" data-i18n="trainCounterHint.15_minimum_20_50">15 minimum · 20–50 is the sweet spot</span>
+          <button type="button" class="help-dot" data-help="trainDatasetHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button>
           <span class="train-caption-counter" id="trainCaptionCounter" hidden data-i18n="trainCaptionCounter.0_captioned">0 captioned</span>
           <span class="qchip-spacer"></span>
           <button type="button" class="qchip" id="trainClearAllBtn" onclick="trainClearAll()" hidden data-i18n="trainClearAllBtn.clear_all"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg>Clear all</button>
         </div>
+        <!-- Feedback 3: the file-format sentence moved out of the drop box, behind "?". -->
+        <div class="help-pop" id="trainDatasetHelp" hidden data-i18n="trainDropEmpty.png_jpg_webp_for">PNG / JPG / WEBP for images, <code>.txt</code> for captions (same filename stem). Each preview shows the 1:1 center-crop the trainer will see.</div>
 
         <!-- ============== BULK BUNDLE DROP ============== -->
         <!-- Mr Bizarro's "Cinematron" workflow: a single ZIP containing paired
@@ -3447,9 +3658,10 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
             <svg class="ph" aria-hidden="true"><use href="#ph-sparkle-fill"/></svg>
             <span id="trainAutoCaptionLabel" data-i18n="trainAutoCaptionLabel.auto_caption_with_gemma">Auto-caption with Gemma 3</span>
           </button>
-          <span class="train-autocaption-hint" id="trainAutoCaptionHint" data-i18n="trainAutoCaptionHint.local_gemma_3_12b">
+          <button type="button" class="help-dot" data-help="trainAutoCaptionHint" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button>
+        </div>
+        <div class="help-pop train-autocaption-hint" id="trainAutoCaptionHint" hidden data-i18n="trainAutoCaptionHint.local_gemma_3_12b">
             Local Gemma 3 12B writes one <code>[VISUAL]:</code> caption per image (~2–3 sec each). Overwrites existing captions.
-          </span>
         </div>
         <div class="train-autocaption-progress" id="trainAutoCaptionProgress" hidden>
           <div class="train-autocaption-bar">
@@ -3467,12 +3679,13 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <div class="train-trigger-row">
           <input type="text" id="trainTrigger" maxlength="32" placeholder="auto-generated rare token" autocomplete="off" data-i18n-placeholder="trainTrigger.placeholder.auto_generated_rare_token">
           <button type="button" class="qchip" onclick="trainSuggestTrigger()" title="Suggest a fresh rare token" data-i18n-title="trainSection.title.suggest_a_fresh_rare" data-i18n="trainSection.suggest">↻ Suggest</button>
+          <button type="button" class="help-dot" data-help="trainTriggerExampleHint" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button>
         </div>
-        <div class="hint" id="trainTriggerExampleHint" data-i18n="trainTriggerExampleHint.use_the_trigger_word">Use the trigger word in your video prompts (e.g. <code><span id="trainTriggerExample">mrztrn</span> man walking on the beach</code>).</div>
+        <div class="help-pop" hidden id="trainTriggerExampleHint" data-i18n="trainTriggerExampleHint.use_the_trigger_word">Use the trigger word in your video prompts (e.g. <code><span id="trainTriggerExample">mrztrn</span> man walking on the beach</code>).</div>
 
-        <h2 style="margin-top:14px" data-i18n="trainSection.quality_preset_trade_time">Quality preset
+        <div class="train-head-row" style="margin-top:14px"><h2 data-i18n="trainSection.quality_preset_trade_time">Quality preset
           <span class="h2-hint">trade time for fidelity</span>
-        </h2>
+        </h2><button type="button" class="help-dot" data-help="trainPresetNote" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
         <!-- THE BADGE AND THE PRE-SELECTION MOVED OFF QUICK (#62).
              Quick was `active` AND badged "Recommended" while training at
              rank 8 — the one tier that has never carried an identity. A
@@ -3489,7 +3702,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <!-- The one line that says what the pills cannot: what the numbers
              mean, and (on a sub-64 GB Mac) that no choice here reaches the
              graded recipe. Filled by trainUpdatePresetNote(). -->
-        <div class="hint train-preset-note" id="trainPresetNote" style="margin-top:8px"></div>
+        <div class="help-pop train-preset-note" id="trainPresetNote" hidden></div>
 
         <!-- Crop strategy — primary control (not buried in Advanced) because
              it has a big visible effect on what the model learns. Mr Bizarro 2026-05-17:
@@ -3576,15 +3789,22 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
            as siblings, not different surfaces. The whole card is
            hidden when train_type=style (styles don't have voices). -->
       <div class="composer-card train-card" id="trainVoiceCard">
-        <h2 data-i18n="trainVoiceCard.voice_optional_a_short">Voice
+        <div class="train-head-row"><h2 data-i18n="trainVoiceCard.voice_optional_a_short">Voice
           <span class="h2-hint">optional · a short clean clip becomes the character's voice</span>
-        </h2>
+        </h2><button type="button" class="help-dot" data-help="trainVoiceHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+        <!-- Feedback 3: the clip advice (formats, length, what skipping means) sits behind "?". -->
+        <div class="help-pop train-voice-help-pop" id="trainVoiceHelp" hidden>
+          <div data-i18n="trainVoiceEmpty.mp3_wav_m4a_or"><strong>MP3, WAV, M4A or FLAC</strong> — any format, auto-decoded. One file, up to 50 MB.</div>
+          <div style="margin-top:4px" data-i18n="trainVoiceEmpty.aim_for_10_25"><strong>Aim for 10–25 seconds</strong> of clean speech, single speaker, no music or background noise. Shorter than 5 s won't train well; longer than 30 s just adds repetition.</div>
+          <p class="train-voice-help" style="margin:4px 0 0" data-i18n="trainVoiceCard.a_5_30_second">
+          A 5–30 second voice clip (clean, single speaker) gives the character its own voice.
+          Skip this and the character will be silent — you can still use them for video but they won't speak/sing.
+        </p>
+        </div>
         <div class="train-voice-drop" id="trainVoiceDrop">
           <div class="train-voice-empty" id="trainVoiceEmpty">
             <div class="picker-icon"><svg class="ph"><use href="#ph-music-notes"/></svg></div>
             <div class="picker-cta" data-i18n="trainVoiceEmpty.drop_a_voice_clip">Drop a voice clip here, or <strong>click to browse</strong></div>
-            <div class="hint" data-i18n="trainVoiceEmpty.mp3_wav_m4a_or"><strong>MP3, WAV, M4A or FLAC</strong> — any format, auto-decoded. One file, up to 50 MB.</div>
-            <div class="hint" style="margin-top:4px" data-i18n="trainVoiceEmpty.aim_for_10_25"><strong>Aim for 10–25 seconds</strong> of clean speech, single speaker, no music or background noise. Shorter than 5 s won't train well; longer than 30 s just adds repetition.</div>
           </div>
           <div class="train-voice-loaded" id="trainVoiceLoaded" hidden>
             <div class="train-voice-fileline">
@@ -3615,20 +3835,16 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
           </label>
 
           <div class="train-voice-steps" id="trainVoiceStepsRow" hidden>
-            <span class="mf-label" data-i18n="trainVoiceStepsRow.audio_steps">Audio steps</span>
+            <span class="mf-label" data-i18n="trainVoiceStepsRow.audio_steps">Audio steps</span><button type="button" class="help-dot" data-help="trainVoiceStepsHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button>
             <div class="pill-group cols-3" id="trainVoicePresetGroup">
               <button type="button" class="pill-btn" data-voice-preset="smoke"><span data-i18n="trainVoicePresetGroup.smoke">Smoke <span class="rec-badge">100</span></span><span class="sub" data-i18n="trainVoicePresetGroup.7_min_wall">~7 min wall</span></button>
               <button type="button" class="pill-btn active" data-voice-preset="standard"><span data-i18n="trainVoicePresetGroup.standard">Standard <span class="rec-badge">250</span></span><span class="sub" data-i18n="trainVoicePresetGroup.17_min_wall">~17 min wall</span></button>
               <button type="button" class="pill-btn" data-voice-preset="long"><span data-i18n="trainVoicePresetGroup.long">Long <span class="rec-badge">500</span></span><span class="sub" data-i18n="trainVoicePresetGroup.33_min_wall">~33 min wall</span></button>
             </div>
-            <div class="hint" style="margin-top:6px" data-i18n="trainVoiceStepsRow.estimates_assume_about_30">Estimates assume about 30 s per step on an M4 Max; slower Macs take longer.</div>
+            <div class="help-pop" id="trainVoiceStepsHelp" hidden data-i18n="trainVoiceStepsRow.estimates_assume_about_30">Estimates assume about 30 s per step on an M4 Max; slower Macs take longer.</div>
           </div>
         </div>
 
-        <p class="train-voice-help" data-i18n="trainVoiceCard.a_5_30_second">
-          A 5–30 second voice clip (clean, single speaker) gives the character its own voice.
-          Skip this and the character will be silent — you can still use them for video but they won't speak/sing.
-        </p>
       </div>
 
       <!-- Estimate strip — wall time + RAM peak update as inputs
@@ -3658,14 +3874,14 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
 
       <!-- Sticky action footer — same chrome as the video/studio forms. -->
       <div class="form-action-footer" id="formActionFooterTrain">
-        <div class="queue-strip">
-          <button type="button" class="qchip" id="pauseBtnTrain" onclick="togglePause()" title="Pause / resume the queue" data-i18n-title="pauseBtnTrain.title.pause_resume_the_queue" data-i18n="pauseBtnTrain.pause_queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
-          <button type="button" class="qchip" data-role="clear-queue-btn" onclick="requestClearQueue()" title="Clear all queued jobs (running job continues)" data-i18n-title="formActionFooterTrain.title.clear_all_queued_jobs"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg><span class="clear-queue-label" data-i18n="formActionFooterTrain.clear">Clear</span></button>
-          <span class="qchip-spacer"></span>
-        </div>
         <div class="actions">
           <button type="button" class="primary" id="trainStartBtn" onclick="trainStart()" disabled data-i18n="trainStartBtn.train_character">Train Character</button>
           <button type="button" class="danger js-stop-btn" disabled data-role="stop-btn" onclick="requestStop()" title="Stop the current render" data-i18n-title="formActionFooterTrain.title.stop_the_current_render" data-i18n="formActionFooterTrain.stop">Stop</button>
+          <!-- Feedback 3: slim dock, the queue chips live in More. -->
+          <details class="dock-more" id="trainMore"><summary class="dock-more-btn" aria-label="More" title="More: queue" data-i18n-aria-label="trainMore.aria-label.more" data-i18n-title="trainMore.title.more_queue"><svg class="ph" aria-hidden="true"><use href="#ph-dots-three-bold"/></svg><span data-i18n="trainMore.more">More</span></summary><div class="dock-menu queue-strip" role="menu">
+          <button type="button" class="qchip" id="pauseBtnTrain" onclick="togglePause()" title="Pause / resume the queue" data-i18n-title="pauseBtnTrain.title.pause_resume_the_queue" data-i18n="pauseBtnTrain.pause_queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
+          <button type="button" class="qchip" data-role="clear-queue-btn" onclick="requestClearQueue()" title="Clear all queued jobs (running job continues)" data-i18n-title="formActionFooterTrain.title.clear_all_queued_jobs"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg><span class="clear-queue-label" data-i18n="formActionFooterTrain.clear">Clear</span></button>
+          </div></details>
         </div>
       </div>
 
@@ -3678,12 +3894,15 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
            character name as a link that switches workflow + selects
            the character on the Video tab. -->
       <div class="composer-card train-card">
-        <h2 data-i18n="trainSection.use_your_trained_characters">Use your trained characters</h2>
-        <div class="hint" style="margin-top:2px" data-i18n="trainSection.generate_a_video_with">
+        <div class="train-head-row"><h2 data-i18n="trainSection.use_your_trained_characters">Use your trained characters</h2><button type="button" class="help-dot" data-help="trainUseHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+        <div class="help-pop" id="trainUseHelp" hidden>
+        <div data-i18n="trainSection.generate_a_video_with">
           Generate a video with your trained characters
           <a href="#" class="train-go-video-link"
              onclick="workflowSwitch('manual'); return false;">on the Video tab</a>
           — the links below take you to each character's picker chip.
+        </div>
+        <div style="margin-top:6px" data-i18n="trainSection.trained_loras_land_in">Trained LoRAs land in <code id="trainLorasDir">mlx_models/loras/</code> alongside any LoRAs you've downloaded — they show up in the regular picker too.</div>
         </div>
         <!-- THE LOOP THE MEASUREMENT DID NOT CLOSE (#62). The panel has
              measured every finished adapter since v4.6.0, but the verdict
@@ -3695,7 +3914,6 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <div class="train-lora-link-row" id="trainLoraList" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
           <div class="hint" style="padding:4px 0" data-i18n="trainLoraList.no_trained_characters_yet">No trained characters yet. Start your first run above.</div>
         </div>
-        <div class="hint" style="margin-top:8px" data-i18n="trainSection.trained_loras_land_in">Trained LoRAs land in <code id="trainLorasDir">mlx_models/loras/</code> alongside any LoRAs you've downloaded — they show up in the regular picker too.</div>
       </div>
 
     </div>
@@ -3756,9 +3974,9 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
            plan exists and changing it means re-planning (the Re-plan modal
            carries the same control). Per-shot override stays cut for v1. -->
       <div class="cz-control" id="sbEngineRow">
-        <div class="cz-label" data-i18n="sbEngineRow.engine_who_renders_the">Engine <span class="cz-label-hint">who renders the shots</span></div>
+        <div class="sb-head-row"><div class="cz-label" data-i18n="sbEngineRow.engine_who_renders_the">Engine <span class="cz-label-hint">who renders the shots</span></div><button type="button" class="help-dot" data-help="sbEnginePickNote" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
         <div class="pill-group cols-3" id="sbEngineGroup"></div>
-        <div class="sb-enginepick-note" id="sbEnginePickNote"></div>
+        <div class="sb-enginepick-note help-pop" id="sbEnginePickNote" hidden></div>
       </div>
 
       <!-- THE DIRECTOR. A soundtrack on the brief makes this a music video:
@@ -3786,10 +4004,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
              "music video" ask — is the Audio tab's Music Video pane
              (drop the song, drop pictures, tag who sings), which a
              creator starting HERE would otherwise never find. -->
-        <div class="cz-label-hint sb-track-signpost" data-i18n="sbTrackRow.casting_a_singer_with">
-          Casting a singer with pictures? Try
-          <a href="#" onclick="event.preventDefault();sbGoToMusicVideo()">the Music Video planner</a>.
-        </div>
+        <div class="cz-label-hint sb-track-signpost" data-i18n="pagesA.sb_singer_signpost">Singer and pictures? <a href="#" onclick="event.preventDefault();sbGoToMusicVideo()">Music Video planner</a></div>
       </div>
 
       <div class="cz-control" id="sbStyleRow">
@@ -3854,11 +4069,21 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         </div>
       </details>
 
+      <div class="ph-sec-head sb-switch-head"><span data-i18n="pagesA.sb_how_it_is_made">How it is made</span>
+        <button type="button" class="help-dot" id="sbSwitchHelpBtn" data-help="sbSwitchHelpNote" aria-expanded="false"
+                aria-controls="sbSwitchHelpNote" title="What do they do?" onclick="sbToggleSwitchHelp()" data-i18n-title="sbSwitchHelpBtn.title.what_do_they_do">?</button>
+      </div>
+      <div class="h3-winhelp help-pop" id="sbSwitchHelpNote" hidden data-i18n="sbSwitchHelpNote.auto_once_the_plan">
+        <b>Auto</b> — once the plan lands, every shot renders on its own, the cut is made (on the beat when there is a track) and the film is assembled. You can still stop it or re-cut afterwards.<br>
+        <b>Start each shot from a still</b> — an image of the first frame is made first (seconds), from the character's sheet when the shot has one, and the clip starts from it. The composition is decided on the image, not discovered after minutes of video. A still that fails is written on the card and the shot renders without one. LTX shots only.<br>
+        <b>Long shots</b> — a shot over 5 seconds is normally shortened to fit one pass. With this on, it renders as a chain of 5-second passes, each continuing the last. Slower, and it needs the Q8 pack. LTX shots only.<br>
+        The planner writes the beats by the rules in <a href="https://phosphene.video/docs/prompting/" data-utm-campaign="docs" data-utm-content="one-shot-planner" target="_blank" rel="noopener" onclick="openExternal(this.href); return false;">Writing for Phosphene</a>; the same page can be copied into your own assistant if you write by hand.
+      </div>
       <!-- AUTO. One press: plan, render every shot, cut to the beat, make
            the film. Each step is the panel's existing one; only the
            hand-over is new. -->
-      <label class="check sb-auto" title="After the plan lands, every shot renders on its own, the cut is made (on the beat when there is a track) and the film is assembled — no more buttons. You can still stop the render or re-cut afterwards." data-i18n-title="sbSectionTab.title.after_the_plan_lands" data-i18n="sbSectionTab.auto_plan_render_every">
-        <input type="checkbox" id="sbAuto"> Auto — plan, render every shot, cut and make the film
+      <label class="check sb-auto" title="After the plan lands, every shot renders on its own, the cut is made (on the beat when there is a track) and the film is assembled — no more buttons. You can still stop the render or re-cut afterwards." data-i18n-title="sbSectionTab.title.after_the_plan_lands" data-i18n="pagesA.sb_auto_short">
+        <input type="checkbox" id="sbAuto"> Auto: plan, render, cut and make the film
       </label>
       <!-- ANCHOR STILLS. A still of each shot's first frame (from the
            character's sheet when it has one) is made first, in seconds; the
@@ -3872,25 +4097,14 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
            the (expensive) video minutes were spent. This holds the render
            for approval once each still lands. Implies "start from a
            still" — a still to approve has to exist. -->
-      <label class="check sb-auto" title="After a shot's still lands, the render stops there and waits for you to Approve it (or ask for a new one) before it spends the video minutes. Turns on &quot;Start each shot from a still&quot; too." data-i18n-title="sbSectionTab.title.after_a_shot_s" data-i18n="sbSectionTab.stills_first_approve_each">
-        <input type="checkbox" id="sbStillsFirst" onchange="sbStillsFirstSync()"> Stills first — approve each still before it renders
+      <label class="check sb-auto" title="After a shot's still lands, the render stops there and waits for you to Approve it (or ask for a new one) before it spends the video minutes. Turns on &quot;Start each shot from a still&quot; too." data-i18n-title="sbSectionTab.title.after_a_shot_s" data-i18n="pagesA.sb_stills_short">
+        <input type="checkbox" id="sbStillsFirst" onchange="sbStillsFirstSync()"> Stills first: approve each still
       </label>
       <!-- LONG WINDOWS. A shot longer than one LTX window renders as a chain
            of windows instead of being cut to fit. -->
-      <label class="check sb-auto" title="A shot longer than 5 seconds renders as a chain of 5-second passes, each continuing from the last, instead of being shortened to fit one. Slower. LTX shots only." data-i18n-title="sbSectionTab.title.a_shot_longer_than" data-i18n="sbSectionTab.long_shots_over_5">
-        <input type="checkbox" id="sbLongWindows"> Long shots (over 5 s): chain 5-second passes · needs the Q8 pack
+      <label class="check sb-auto" title="A shot longer than 5 seconds renders as a chain of 5-second passes, each continuing from the last, instead of being shortened to fit one. Slower. LTX shots only." data-i18n-title="sbSectionTab.title.a_shot_longer_than" data-i18n="pagesA.sb_long_short">
+        <input type="checkbox" id="sbLongWindows"> Long shots: chain 5-second passes (Q8 pack)
       </label>
-      <div class="sb-ramline">
-        <span data-i18n="sbSectionTab.these_three_decide_how">These three decide how the film gets made.</span>
-        <button type="button" class="help-dot" id="sbSwitchHelpBtn" aria-expanded="false"
-                aria-controls="sbSwitchHelpNote" title="What do they do?" onclick="sbToggleSwitchHelp()" data-i18n-title="sbSwitchHelpBtn.title.what_do_they_do">?</button>
-      </div>
-      <div class="h3-winhelp" id="sbSwitchHelpNote" hidden data-i18n="sbSwitchHelpNote.auto_once_the_plan">
-        <b>Auto</b> — once the plan lands, every shot renders on its own, the cut is made (on the beat when there is a track) and the film is assembled. You can still stop it or re-cut afterwards.<br>
-        <b>Start each shot from a still</b> — an image of the first frame is made first (seconds), from the character's sheet when the shot has one, and the clip starts from it. The composition is decided on the image, not discovered after minutes of video. A still that fails is written on the card and the shot renders without one. LTX shots only.<br>
-        <b>Long shots</b> — a shot over 5 seconds is normally shortened to fit one pass. With this on, it renders as a chain of 5-second passes, each continuing the last. Slower, and it needs the Q8 pack. LTX shots only.<br>
-        The planner writes the beats by the rules in <a href="https://phosphene.video/docs/prompting/" data-utm-campaign="docs" data-utm-content="one-shot-planner" target="_blank" rel="noopener" onclick="openExternal(this.href); return false;">Writing for Phosphene</a>; the same page can be copied into your own assistant if you write by hand.
-      </div>
       <div class="form-action-footer">
         <div class="sb-ramline" id="sbRamLine">
           <span data-i18n="sbRamLine.planning_borrows_the_memory">Planning borrows the memory for about a minute, then gives it back.</span>
@@ -3922,25 +4136,27 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
          the take from GET /oneshot/status. -->
     <div id="oneshotSectionTab" style="display:none">
       <div class="composer-card os-card">
-        <h2 data-i18n="oneshotSectionTab.one_shot_30_s">One Shot <span class="h2-hint">30 s to 2 min · never cuts</span></h2>
-        <div class="hint os-lead" data-i18n="oneshotSectionTab.write_the_whole_shot">Write the whole shot once and it renders as parts that continue from each other's last frame. Everything below is optional: the beats direct five seconds each, one camera line holds the move, and a trained character speaks with its own face and voice.</div>
-
-        <!-- The engine is picked in the column's top Model picker (#engineSwitch,
-             same as Video; owner 5 Nov 2026), which calls osSetEngine(). This
-             line says what the picked one does with the shot. -->
-        <div class="hint os-engine-meta" id="osEngineMeta"></div>
+        <div class="ph-sec-head os-head"><span data-i18n="oneshotSectionTab.one_shot_30_s">One Shot <span class="ph-sec-sub">30 s to 2 min · never cuts</span></span><button type="button" class="help-dot" data-help="osLeadHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+        <div class="help-pop" id="osLeadHelp" hidden><span class="os-lead" data-i18n="oneshotSectionTab.write_the_whole_shot">Write the whole shot once and it renders as parts that continue from each other's last frame. Everything below is optional: the beats direct five seconds each, one camera line holds the move, and a trained character speaks with its own face and voice.</span>
+          <!-- The engine is picked in the header Model picker (#engineSwitch,
+               same as Video; owner 5 Nov 2026), which calls osSetEngine(). This
+               line says what the picked one does with the shot (behind the "?"
+               since feedback 3). -->
+          <span class="os-engine-meta" id="osEngineMeta"></span></div>
         <div class="voice-render-field" id="osVoiceField" hidden><div class="voice-render-row"><label for="osVoice" data-i18n="voices.oneshot_voice">Voice</label>
           <select id="osVoice"><option value="inherit" data-i18n="voices.from_character">From the character</option></select>
-          <button type="button" class="ghost-btn small" onclick="voicesOpen()" data-i18n="voices.oneshot_manage">Voices…</button></div></div>
+          <button type="button" class="voice-lib-btn" onclick="voicesOpen()" title="Your voices: add, record or remove" aria-label="Your voices" data-i18n-title="voices.manage_title" data-i18n-aria-label="voices.manage_aria"><svg class="ph" aria-hidden="true"><use href="#ph-gear-six"/></svg></button></div></div>
 
         <div class="os-block">
-          <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.the_shot">The shot</span><span class="qs-meta" data-i18n="oneshotSectionTab.who_where_the_time">who, where, the time of day and the weather, the sound — once, for the whole shot</span></div>
+          <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.the_shot">The shot</span><span class="qs-meta" data-i18n="pagesA.os_shot_sub">who, where, light, sound</span><button type="button" class="help-dot" data-help="osShotHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+          <div class="help-pop" id="osShotHelp" hidden data-i18n="oneshotSectionTab.who_where_the_time">who, where, the time of day and the weather, the sound — once, for the whole shot</div>
           <textarea id="osPrompt" class="sb-textarea os-prompt" rows="4" spellcheck="false" placeholder="A red vintage tram rolls through a rain-soaked Lisbon street at night, neon on the wet cobbles; a woman with a yellow umbrella waits at the stop. The tram bell rings twice; rain on the roof, distant fado from a bar." data-i18n-placeholder="osPrompt.placeholder.a_red_vintage_tram"></textarea>
         </div>
 
         <div class="os-two">
           <div class="os-block">
-            <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.start_frame">Start frame</span><span class="qs-meta" data-i18n="oneshotSectionTab.optional_the_shot_opens">optional · the shot opens on this picture</span></div>
+            <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.start_frame">Start frame</span><span class="qs-meta" data-i18n="pagesA.optional">optional</span><button type="button" class="help-dot" data-help="osAnchorHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+            <div class="help-pop" id="osAnchorHelp" hidden data-i18n="oneshotSectionTab.optional_the_shot_opens">optional · the shot opens on this picture</div>
             <div class="os-anchor" id="osAnchor">
               <img class="os-anchor-thumb" id="osAnchorThumb" alt="" hidden>
               <button type="button" class="ghost-btn small" id="osAnchorPick" data-i18n="osAnchorPick.choose_an_image">Choose an image</button>
@@ -3974,6 +4190,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
           <div class="qs-label h3-axis-label">
             <span class="qs-name" data-i18n="oneshotSectionTab.beats">Beats</span>
             <span class="qs-meta" id="osBeatsHint" data-i18n="osBeatsHint.one_line_per_five">one line per five seconds · none written — the prompt carries the whole shot</span>
+            <button type="button" class="help-dot" data-help="osBeatsHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button>
           </div>
           <div class="os-beats-tools">
             <button type="button" class="ghost-btn small" id="osSplitBtn" title="Splits the shot above into one line per sentence — a start to edit, not the final word" data-i18n-title="osSplitBtn.title.splits_the_shot_above" data-i18n="osSplitBtn.split_my_prompt_into">Split my prompt into beats</button>
@@ -3983,23 +4200,27 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
                beat that wraps or a box that scrolls can never put a stamp
                beside the wrong line (the reviewer's first finding). -->
           <div class="os-beat-rows" id="osBeats" role="group" aria-label="Beats, one per five seconds" data-i18n-aria-label="osBeats.aria-label.beats_one_per_five"></div>
-          <div class="hint os-beats-note" data-i18n="oneshotSectionTab.a_blank_row_holds">A blank row holds that moment. Enter moves to the next row; paste a whole list and it fills the rows. <a href="https://phosphene.video/docs/prompting/" data-utm-campaign="docs" data-utm-content="one-shot-beats" target="_blank" rel="noopener" onclick="openExternal(this.href); return false;">How to write the beats</a>.</div>
+          <div class="help-pop os-beats-note" id="osBeatsHelp" hidden data-i18n="oneshotSectionTab.a_blank_row_holds">A blank row holds that moment. Enter moves to the next row; paste a whole list and it fills the rows. <a href="https://phosphene.video/docs/prompting/" data-utm-campaign="docs" data-utm-content="one-shot-beats" target="_blank" rel="noopener" onclick="openExternal(this.href); return false;">How to write the beats</a>.</div>
         </div>
         <div class="os-block">
-          <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.camera">Camera</span><span class="qs-meta" data-i18n="oneshotSectionTab.optional_one_move_for">optional · one move for the whole shot, its direction and speed — every part continues it</span></div>
+          <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.camera">Camera</span><span class="qs-meta" data-i18n="pagesA.os_camera_sub">optional · one move</span><button type="button" class="help-dot" data-help="osCameraHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+          <div class="help-pop" id="osCameraHelp" hidden data-i18n="oneshotSectionTab.optional_one_move_for">optional · one move for the whole shot, its direction and speed — every part continues it</div>
           <input type="text" id="osCamera" class="sb-input" maxlength="240" autocomplete="off" spellcheck="false" placeholder="a slow, steady clockwise arc around the table at eye level, wide to close" data-i18n-placeholder="osCamera.placeholder.a_slow_steady_clockwise">
         </div>
         <div class="os-toggles">
           <div class="os-toggle">
-            <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.lock_the_light">Lock the light</span><span class="qs-meta" data-i18n="oneshotSectionTab.the_time_of_day">the time of day and the weather stay the same in every part</span></div>
+            <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.lock_the_light">Lock the light</span><button type="button" class="help-dot" data-help="osLightHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+            <div class="help-pop" id="osLightHelp" hidden data-i18n="oneshotSectionTab.the_time_of_day">the time of day and the weather stay the same in every part</div>
             <div class="pill-group cols-2" data-os-toggle="light" role="group" aria-label="Lock the light" data-i18n-aria-label="oneshotSectionTab.aria-label.lock_the_light"><button type="button" class="pill-btn active" data-os-value="on"><span data-i18n="oneshotSectionTab.on">On</span><span class="sub" data-i18n="oneshotSectionTab.same_light_every_part">same light, every part</span></button><button type="button" class="pill-btn" data-os-value="off"><span data-i18n="oneshotSectionTab.off">Off</span><span class="sub" data-i18n="oneshotSectionTab.beats_as_written">beats as written</span></button></div>
           </div>
           <div class="os-toggle">
-            <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.redo_a_part_that">Redo a part that drifts / doesn't sync</span><span class="qs-meta" data-i18n="oneshotSectionTab.light_change_or_lip">light-change or lip-sync misses each get rendered again, fresh seed</span></div>
+            <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.redo_a_part_that">Redo a part that drifts / doesn't sync</span><button type="button" class="help-dot" data-help="osRetakeHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+            <div class="help-pop" id="osRetakeHelp" hidden data-i18n="oneshotSectionTab.light_change_or_lip">light-change or lip-sync misses each get rendered again, fresh seed</div>
             <div class="pill-group cols-2" data-os-toggle="retake" role="group" aria-label="Redo a part that drifts or doesn't sync" data-i18n-aria-label="oneshotSectionTab.aria-label.redo_a_part_that"><button type="button" class="pill-btn active" data-os-value="on"><span data-i18n="oneshotSectionTab.on_2">On</span><span class="sub" data-i18n="oneshotSectionTab.up_to_a_few">up to a few times, at most</span></button><button type="button" class="pill-btn" data-os-value="off"><span data-i18n="oneshotSectionTab.off_2">Off</span><span class="sub" data-i18n="oneshotSectionTab.keep_the_first_pass">keep the first pass</span></button></div>
           </div>
           <div class="os-toggle">
-            <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.hand_off_where_the">Hand off where the line ends</span><span class="qs-meta" data-i18n="oneshotSectionTab.for_dialogue_the_next">for dialogue: the next part starts while the mouth still moves</span></div>
+            <div class="qs-label h3-axis-label"><span class="qs-name" data-i18n="oneshotSectionTab.hand_off_where_the">Hand off where the line ends</span><button type="button" class="help-dot" data-help="osHandoffHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+            <div class="help-pop" id="osHandoffHelp" hidden data-i18n="oneshotSectionTab.for_dialogue_the_next">for dialogue: the next part starts while the mouth still moves</div>
             <div class="pill-group cols-2" data-os-toggle="handoff" role="group" aria-label="Hand off where the line ends" data-i18n-aria-label="oneshotSectionTab.aria-label.hand_off_where_the"><button type="button" class="pill-btn" data-os-value="speech"><span data-i18n="oneshotSectionTab.on_3">On</span><span class="sub" data-i18n="oneshotSectionTab.a_talking_character">a talking character</span></button><button type="button" class="pill-btn active" data-os-value="last"><span data-i18n="oneshotSectionTab.off_3">Off</span><span class="sub" data-i18n="oneshotSectionTab.on_the_last_frame">on the last frame</span></button></div>
           </div>
         </div>
@@ -4014,7 +4235,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
       </div>
 
       <div class="form-action-footer os-footer">
-        <div class="queue-strip"><span class="qchip-derived" id="osSummary"></span></div>
+        <div class="dock-line"><span class="qchip-derived" id="osSummary"></span></div>
         <div class="actions">
           <button type="button" class="primary" id="osGenBtn" data-i18n="osGenBtn.generate">Generate</button>
           <button type="button" class="danger js-stop-btn" disabled data-role="stop-btn" onclick="requestStop()" title="Stop the current render" data-i18n-title="oneshotSectionTab.title.stop_the_current_render" data-i18n="oneshotSectionTab.stop">Stop</button>
@@ -4042,8 +4263,8 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
       <div id="speechPane" hidden>
         <div class="studio-head">
           <div class="studio-head-text">
-            <div class="studio-title" data-i18n="speechPane.speech">Speech</div>
-            <div class="studio-sub" data-i18n="speechPane.write_a_script_choose">Write a script. Choose a voice. Make a WAV for lip-sync.</div>
+            <div class="studio-title"><span data-i18n="speechPane.speech">Speech</span><button type="button" class="help-dot" data-help="speechLeadHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+            <div class="studio-sub help-pop" id="speechLeadHelp" hidden data-i18n="speechPane.write_a_script_choose">Write a script. Choose a voice. Make a WAV for lip-sync.</div>
           </div>
         </div>
         <div class="composer-card speech-install-panel" id="speechInstallPanel" role="status" hidden></div>
@@ -4108,7 +4329,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
           </details>
         </div>
         <div class="form-action-footer">
-          <div class="queue-strip"><span class="qchip-derived" id="speechEstimate"></span></div>
+          <div class="dock-line"><span class="qchip-derived" id="speechEstimate"></span></div>
           <div class="actions">
             <button type="button" class="primary" id="speechGenBtn" onclick="speechGenerate()" data-i18n="speechGenBtn.generate">Generate</button>
             <button type="button" class="danger js-stop-btn" disabled data-role="stop-btn" onclick="requestStop()" title="Stop the current render" data-i18n-title="speechPane.title.stop_the_current_render" data-i18n="speechPane.stop">Stop</button>
@@ -4121,8 +4342,8 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
       <div id="musicComposePane" hidden>
         <div class="studio-head">
           <div class="studio-head-text">
-            <div class="studio-title" data-i18n="musicComposePane.music_studio">Music Studio</div>
-            <div class="studio-sub" data-i18n="musicComposePane.write_a_song_cover">Write a song, cover one, or read the score off a recording.</div>
+            <div class="studio-title"><span data-i18n="musicComposePane.music_studio">Music Studio</span><button type="button" class="help-dot" data-help="musicLeadHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+            <div class="studio-sub help-pop" id="musicLeadHelp" hidden data-i18n="musicComposePane.write_a_song_cover">Write a song, cover one, or read the score off a recording.</div>
           </div>
           <!-- SIMPLE or CUSTOM. Simple is one box: say what the song is and
                Gemma writes the style and the words for you to read. Custom is
@@ -4139,10 +4360,10 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <div class="composer-card music-install-panel" id="musicInstallPanel" role="status" hidden></div>
         <div id="musicSimplePane" hidden>
           <div class="composer-card">
-            <label for="musicSimpleDescription" data-i18n="musicSimplePane.describe_the_song">Describe the song</label>
+            <div class="pa-label-row"><label for="musicSimpleDescription" data-i18n="musicSimplePane.describe_the_song">Describe the song</label><button type="button" class="help-dot" data-help="musicSimpleDescHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
             <textarea id="musicSimpleDescription" class="composer-prompt" rows="4"
                       placeholder="Who sings it, what it is about, how it sounds — e.g. a slow piano ballad for a friend moving away, a woman with a low warm voice, brushed drums, a little sad but not bitter" data-i18n-placeholder="musicSimpleDescription.placeholder.who_sings_it_what"></textarea>
-            <div class="hint" data-i18n="musicSimplePane.one_breath_is_enough">One breath is enough. Gemma turns it into a style and the words, and shows you both before anything renders.</div>
+            <div class="help-pop" id="musicSimpleDescHelp" hidden data-i18n="musicSimplePane.one_breath_is_enough">One breath is enough. Gemma turns it into a style and the words, and shows you both before anything renders.</div>
             <div class="composer-tools">
               <label class="toggle-pill" id="musicSimpleInstrumentalPill" title="When on, the model is asked for a track with no vocal line — Gemma writes the style only, no words." data-i18n-title="musicSimpleInstrumentalPill.title.when_on_the_model">
                 <input type="checkbox" id="musicSimpleInstrumental" onchange="musicSimpleChanged()"><span class="dot"></span><span data-i18n="musicSimpleInstrumentalPill.instrumental">Instrumental</span>
@@ -4151,11 +4372,11 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
           </div>
           <div class="quick-settings">
             <div class="range-strip">
-              <label for="musicSimpleSeconds" data-i18n="musicSimplePane.max_length">Max length</label>
+              <label for="musicSimpleSeconds" data-i18n="musicSimplePane.max_length">Max length</label><button type="button" class="help-dot" data-help="musicSimpleSecondsHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button>
               <input type="range" id="musicSimpleSeconds" min="30" max="360" step="15" value="240" oninput="musicSimpleChanged()">
               <span id="musicSimpleSecondsVal">4:00</span>
             </div>
-            <div class="hint" data-i18n="musicSimplePane.how_long_the_words">How long the words are written for, and the ceiling on the song. It never stretches a short one.</div>
+            <div class="help-pop" id="musicSimpleSecondsHelp" hidden data-i18n="musicSimplePane.how_long_the_words">How long the words are written for, and the ceiling on the song. It never stretches a short one.</div>
           </div>
         </div>
         <div id="musicCustomPane">
@@ -4182,12 +4403,12 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
           </summary>
           <div class="cz-body">
             <div class="music-cover-install" id="musicCoverInstall" role="status" hidden></div>
-            <label class="mf-label" for="musicSourceAudio" data-i18n="musicCoverDetails.source_song">Source song</label>
+            <div class="pa-label-row"><label class="mf-label" for="musicSourceAudio" data-i18n="musicCoverDetails.source_song">Source song</label><button type="button" class="help-dot" data-help="musicSourceHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
             <input id="musicSourceAudio" placeholder="/path/to/the/song.mp3 — drag a file in"
                    oninput="musicFormChanged()" data-i18n-placeholder="musicSourceAudio.placeholder.path_to_the_song">
-            <div class="hint" data-i18n="musicCoverDetails.the_tune_comes_off">The tune comes off this recording. Everything else — style,
+            <div class="help-pop" id="musicSourceHelp" hidden data-i18n="musicCoverDetails.the_tune_comes_off">The tune comes off this recording. Everything else — style,
               lyrics, voice — is still yours. Leave empty to write a song from your prompt.</div>
-            <div class="mf-label" data-i18n="musicCoverDetails.take_from_it">Take from it</div>
+            <div class="pa-label-row"><div class="mf-label" data-i18n="musicCoverDetails.take_from_it">Take from it</div><button type="button" class="help-dot" data-help="musicCoverTaskHint" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
             <div class="pill-group cols-3" id="musicCoverTaskPills">
               <button type="button" class="pill-btn active" data-value="melody-full"
                       onclick="musicPick('musicCoverTask',this)" data-i18n="musicCoverTaskPills.melody_chords">Melody + chords</button>
@@ -4197,7 +4418,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
                       onclick="musicPick('musicCoverTask',this)" data-i18n="musicCoverTaskPills.everything">Everything</button>
             </div>
             <input type="hidden" id="musicCoverTask" value="melody-full">
-            <div class="hint" id="musicCoverTaskHint" data-i18n="musicCoverTaskHint.melody_and_the_chords">Melody and the chords under it, read from the
+            <div class="help-pop" id="musicCoverTaskHint" hidden data-i18n="musicCoverTaskHint.melody_and_the_chords">Melody and the chords under it, read from the
               whole mix. <b>The sung line</b> takes the vocal only, so the arrangement is new.
               <b>Everything</b> keeps the accompaniment too and needs the longest read.</div>
           </div>
@@ -4217,7 +4438,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
                — #musicLyrics is still the one field every caller reads — and
                Text flips to it for anyone who would rather type brackets. -->
           <div class="lyr-head">
-            <span class="lyr-title" data-i18n="musicCustomPane.lyrics">Lyrics</span>
+            <span class="lyr-title"><span data-i18n="musicCustomPane.lyrics">Lyrics</span><button type="button" class="help-dot" data-help="musicLyricsHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></span>
             <div class="studio-seg" id="musicLyricsViewSeg" role="group" aria-label="How to edit the lyrics" data-i18n-aria-label="musicLyricsViewSeg.aria-label.how_to_edit_the">
               <button type="button" class="seg-btn active" data-value="sections" onclick="musicLyricsViewPick(this)" data-i18n="musicLyricsViewSeg.sections">Sections</button>
               <button type="button" class="seg-btn" data-value="text" onclick="musicLyricsViewPick(this)" data-i18n="musicLyricsViewSeg.text">Text</button>
@@ -4255,10 +4476,10 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
                writes it, musicFormParams reads it, and the restyle and score
                verbs on a song read it too. -->
           <textarea id="musicLyrics" hidden tabindex="-1" aria-hidden="true"></textarea>
-          <div class="hint" data-i18n="musicCustomPane.square_brackets_mark_the">Square brackets mark the sections; everything else is sung. A section with no words is an instrumental passage.</div>
-          <label for="musicStyle" data-i18n="musicCustomPane.style">Style</label>
+          <div class="help-pop" id="musicLyricsHelp" hidden data-i18n="musicCustomPane.square_brackets_mark_the">Square brackets mark the sections; everything else is sung. A section with no words is an instrumental passage.</div>
+          <div class="pa-label-row"><label for="musicStyle" data-i18n="musicCustomPane.style">Style</label><button type="button" class="help-dot" data-help="musicStyleHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
           <textarea id="musicStyle" class="composer-prompt" rows="2" placeholder="Genre, instruments, vocal, language and tempo in plain words — e.g. English, warm piano pop, expressive female voice, acoustic piano, light drums, 88 BPM" data-i18n-placeholder="musicStyle.placeholder.genre_instruments_vocal_language"></textarea>
-          <div class="hint" data-i18n="musicCustomPane.prose_not_fields_put">Prose, not fields. Put the tempo, the language and the singer in the sentence.</div>
+          <div class="help-pop" id="musicStyleHelp" hidden data-i18n="musicCustomPane.prose_not_fields_put">Prose, not fields. Put the tempo, the language and the singer in the sentence.</div>
           <div class="composer-tools">
             <label class="toggle-pill" id="musicInstrumentalPill" title="When on, the model is asked for a track with no vocal line. Your lyrics stay in the box and are not used." data-i18n-title="musicInstrumentalPill.title.when_on_the_model">
               <input type="checkbox" id="musicInstrumental" onchange="musicFormChanged()"><span class="dot"></span><span data-i18n="musicInstrumentalPill.instrumental">Instrumental</span>
@@ -4270,27 +4491,27 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
           <div class="music-pack-note" id="musicLoraInstall" role="status" hidden></div>
         </div>
         <div class="quick-settings">
-          <div class="mf-label" data-i18n="musicCustomPane.score">Score</div>
+          <div class="pa-label-row"><div class="mf-label" data-i18n="musicCustomPane.score">Score</div><button type="button" class="help-dot" data-help="musicScoreHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
           <div class="pill-group cols-3" id="musicModePills">
             <button type="button" class="pill-btn active" data-value="full" onclick="musicPick('musicMode',this)" data-i18n="musicModePills.melody_chords">Melody + chords</button>
             <button type="button" class="pill-btn" data-value="melody" onclick="musicPick('musicMode',this)" data-i18n="musicModePills.melody_only">Melody only</button>
             <button type="button" class="pill-btn" data-value="off" onclick="musicPick('musicMode',this)" data-i18n="musicModePills.no_score">No score</button>
           </div>
           <input type="hidden" id="musicMode" value="full">
-          <div class="hint" data-i18n="musicCustomPane.yue2_writes_a_sheet">YuE2 writes a sheet-music plan first, then the song.</div>
-          <div class="mf-label" data-i18n="musicCustomPane.quality">Quality</div>
+          <div class="help-pop" id="musicScoreHelp" hidden data-i18n="musicCustomPane.yue2_writes_a_sheet">YuE2 writes a sheet-music plan first, then the song.</div>
+          <div class="pa-label-row"><div class="mf-label" data-i18n="musicCustomPane.quality">Quality</div><button type="button" class="help-dot" data-help="musicQualityHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
           <div class="pill-group cols-2" id="musicQualityPills">
             <button type="button" class="pill-btn" data-value="draft" onclick="musicPick('musicQuality',this)" data-i18n="musicQualityPills.draft_8_steps">Draft<span class="sub">8 steps</span></button>
             <button type="button" class="pill-btn active" data-value="final" onclick="musicPick('musicQuality',this)" data-i18n="musicQualityPills.final_32_steps">Final<span class="sub">32 steps</span></button>
           </div>
           <input type="hidden" id="musicQuality" value="final">
-          <div class="hint" data-i18n="musicCustomPane.draft_is_several_times">Draft is several times faster for auditioning ideas.</div>
+          <div class="help-pop" id="musicQualityHelp" hidden data-i18n="musicCustomPane.draft_is_several_times">Draft is several times faster for auditioning ideas.</div>
           <div class="range-strip">
-            <label for="musicMaxSeconds" data-i18n="musicCustomPane.max_length">Max length</label>
+            <label for="musicMaxSeconds" data-i18n="musicCustomPane.max_length">Max length</label><button type="button" class="help-dot" data-help="musicMaxSecondsHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button>
             <input type="range" id="musicMaxSeconds" min="30" max="360" step="15" value="240" oninput="musicFormChanged()">
             <span id="musicMaxSecondsVal">4:00</span>
           </div>
-          <div class="hint" data-i18n="musicCustomPane.yue2_writes_as_long">YuE2 writes as long as your lyrics need. This only cuts a longer song off; it never stretches a short one.</div>
+          <div class="help-pop" id="musicMaxSecondsHelp" hidden data-i18n="musicCustomPane.yue2_writes_as_long">YuE2 writes as long as your lyrics need. This only cuts a longer song off; it never stretches a short one.</div>
           <div class="mini-fields"><div class="mf-cell">
             <label class="mf-label" for="musicSeed" data-i18n="musicCustomPane.seed">Seed</label>
             <input type="number" id="musicSeed" value="-1" min="-1" max="4294967295" step="1" placeholder="-1 = random" title="-1 = random" data-i18n-title="musicSeed.title.1_random" data-i18n-placeholder="musicSeed.placeholder.1_random">
@@ -4329,7 +4550,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
         </div>
         </div><!-- /musicCustomPane -->
         <div class="form-action-footer">
-          <div class="queue-strip"><span class="qchip-derived" id="musicEstimate" title="Estimated for a song that runs to Max length, from M4 Max timings (a 3-minute song took about 3 minutes on Final) scaled for this chip. Most songs end sooner; the first song after install also loads the models." data-i18n-title="musicEstimate.title.estimated_for_a_song"></span></div>
+          <div class="dock-line"><span class="qchip-derived" id="musicEstimate" title="Estimated for a song that runs to Max length, from M4 Max timings (a 3-minute song took about 3 minutes on Final) scaled for this chip. Most songs end sooner; the first song after install also loads the models." data-i18n-title="musicEstimate.title.estimated_for_a_song"></span></div>
           <div class="actions">
             <button type="button" class="primary" id="musicGenBtn" onclick="musicGenerate()" data-i18n="musicGenBtn.compose">Compose</button>
             <button type="button" class="danger js-stop-btn" disabled data-role="stop-btn" onclick="requestStop()" title="Stop the current render" data-i18n-title="musicComposePane.title.stop_the_current_render" data-i18n="musicComposePane.stop">Stop</button>
@@ -4356,9 +4577,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       <div class="composer-card">
         <div class="composer-refs">
           <div class="show">
-            <h2 data-i18n="audioDrivePane.the_song_drop_a">The song
-              <span class="h2-hint">drop a file, or pick one you have written</span>
-            </h2>
+            <h2 data-i18n="audioDrivePane.the_song_drop_a">The song <span class="h2-hint">drop a file, or pick one you have written</span></h2>
             <div class="studio-ref-grid" style="grid-template-columns:1fr;">
               <div class="studio-ref-slot" id="mvSongSlot" data-slot="song" style="aspect-ratio:auto;min-height:96px;">
                 <span class="ref-tag" data-i18n="mvSongSlot.song">Song</span>
@@ -4369,20 +4588,19 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
             </div>
             <input type="file" id="mvSongInput" accept=".wav,.mp3,.m4a,.flac,audio/*" style="display:none">
             <div class="mf-cell" style="margin-top:10px">
-              <label class="mf-label" for="mvSongLibrary" data-i18n="audioDrivePane.use_a_song_from">Use a song from the library</label>
+              <div class="pa-label-row"><label class="mf-label" for="mvSongLibrary" data-i18n="pagesA.mv_from_library">Or from the library</label><button type="button" class="help-dot" data-help="mvSongLibraryHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
               <select id="mvSongLibrary" onchange="mvPickFromLibrary(this.value)">
                 <option value="" data-i18n="mvSongLibrary.nothing_composed_yet">Nothing composed yet</option>
               </select>
-              <div class="hint" style="margin-top:4px" data-i18n="audioDrivePane.a_song_this_panel">A song this panel wrote brings its own words and its own score, so the verses land where they really are instead of where the beat map guesses.</div>
+              <div class="help-pop" id="mvSongLibraryHelp" hidden data-i18n="audioDrivePane.a_song_this_panel">A song this panel wrote brings its own words and its own score, so the verses land where they really are instead of where the beat map guesses.</div>
             </div>
           </div>
         </div>
 
         <div class="composer-refs">
           <div class="show">
-            <h2 data-i18n="audioDrivePane.the_pictures_singer_sings">The pictures
-              <span class="h2-hint">Singer sings to camera · Instrument and Room are the B-roll</span>
-            </h2>
+            <div class="pa-head-row"><h2 data-i18n="pagesA.mv_the_pictures">The pictures <span class="h2-hint">who sings, and the B-roll</span></h2><button type="button" class="help-dot" data-help="mvPicturesHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+            <div class="help-pop" id="mvPicturesHelp" hidden data-i18n="pagesA.mv_pictures_help">Singer sings to camera · Instrument and Room are the B-roll</div>
             <div class="picker">
               <div class="picker-drop" id="mvImagesDrop">
                 <div class="picker-empty">
@@ -4398,9 +4616,9 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
         </div>
 
         <div class="mf-cell" style="margin-top:6px">
-          <label class="mf-label" for="mvStyle" data-i18n="audioDrivePane.look">Look</label>
+          <div class="pa-label-row"><label class="mf-label" for="mvStyle" data-i18n="audioDrivePane.look">Look</label><button type="button" class="help-dot" data-help="mvStyleHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
           <input type="text" id="mvStyle" value="handheld 16mm documentary, warm tungsten light, shallow depth of field, MTV Unplugged">
-          <div class="hint" style="margin-top:4px" data-i18n="audioDrivePane.one_line_on_every">One line, on every shot. A picture with its own note below overrides only its own direction, never this.</div>
+          <div class="help-pop" id="mvStyleHelp" hidden data-i18n="audioDrivePane.one_line_on_every">One line, on every shot. A picture with its own note below overrides only its own direction, never this.</div>
         </div>
       </div>
 
@@ -4415,14 +4633,14 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       <div class="mv-sections" id="mvSections" hidden></div>
 
       <div class="form-action-footer" id="mvFooter">
-        <div class="queue-strip">
-          <span class="qchip-spacer"></span>
+        <div class="dock-line">
           <span class="qchip-derived" id="mvSummary"></span>
         </div>
         <div class="actions">
           <button type="button" class="primary" id="mvPlanBtn" onclick="mvPlan()" data-i18n="mvPlanBtn.plan_the_video">Plan the video</button>
+          <button type="button" class="help-dot" data-help="mvPlanHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button>
         </div>
-        <div class="hint" data-i18n="mvFooter.planning_is_instant_and">Planning is instant and costs nothing — it reads the beat, writes the shot list, and opens it in Storyboard. Render all, then Film with the song.</div>
+        <div class="help-pop" id="mvPlanHelp" hidden data-i18n="mvFooter.planning_is_instant_and">Planning is instant and costs nothing — it reads the beat, writes the shot list, and opens it in Storyboard. Render all, then Film with the song.</div>
       </div>
 
       <details class="cz-section" id="mvOneShotDetails">
@@ -4431,8 +4649,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
                collided with the top-level One Shot tab (a different,
                unrelated multi-part composer). The Lip-sync chip in the
                Video mode bar opens this same section. -->
-          <span class="cz-title" data-i18n="mvOneShotDetails.lip_sync_one_clip">Lip-sync (one clip, one audio track)</span>
-          <span class="cz-sum" data-i18n="mvOneShotDetails.a_picture_and_a">a picture and a stretch of audio → one clip whose mouth follows the track</span>
+          <span class="cz-title" data-i18n="mvOneShotDetails.lip_sync" title="One clip, one audio track: a picture and a stretch of audio become one clip whose mouth follows the track" data-i18n-title="mvOneShotDetails.title.lip_sync">Lip-sync</span>
+          <span class="cz-sum" data-i18n="mvOneShotDetails.lip_sync_sum">picture + audio → it talks</span>
         </summary>
         <div class="cz-body">
         <!-- 4.19: which engine performs the track. LTX (the built-in a2v
@@ -4441,13 +4659,13 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
              runner's own lip-sync contract. Hidden until the installed H3
              runner can take a soundtrack (BOOT/status.h3.audio_drive). -->
         <div class="a2v-engine" id="a2vEngineRow" hidden>
-          <span class="mf-label" data-i18n="a2vEngineRow.engine">Engine</span>
+          <div class="pa-label-row"><span class="mf-label" data-i18n="a2vEngineRow.engine">Engine</span><button type="button" class="help-dot a2v-h3-only" data-help="a2vH3Note" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
           <div class="pill-group cols-2" id="a2vEngineGroup" role="radiogroup" aria-label="Lip-sync engine" data-i18n-aria-label="a2vEngineGroup.aria-label.lip_sync_engine">
             <button type="button" class="pill-btn active" role="radio" aria-checked="true" data-a2v-engine="ltx" onclick="setA2vEngine('ltx')" data-i18n="a2vEngineGroup.ltx_your_audio_drives">LTX<span class="sub">your audio drives the picture</span></button>
             <button type="button" class="pill-btn" role="radio" aria-checked="false" data-a2v-engine="h3" onclick="setA2vEngine('h3')" data-i18n="a2vEngineGroup.hailuo_h3_performs_it">Hailuo H3<span class="sub">performs it — face, body and room</span></button>
           </div>
           <div class="pill-group cols-3 a2v-h3-only" id="a2vH3QualityGroup" role="radiogroup" aria-label="Hailuo H3 canvas" data-i18n-aria-label="a2vH3QualityGroup.aria-label.hailuo_h3_canvas"></div>
-          <div class="hint a2v-h3-only" id="a2vH3Note" data-i18n="a2vH3Note.h3_keeps_your_track">H3 keeps your track exactly as it is and renders the picture to it. Start on a closed-mouth, face-forward picture and say what the performance looks like — never "still" or "static".</div>
+          <div class="help-pop a2v-h3-only" id="a2vH3Note" hidden data-i18n="a2vH3Note.h3_keeps_your_track">H3 keeps your track exactly as it is and renders the picture to it. Start on a closed-mouth, face-forward picture and say what the performance looks like — never "still" or "static".</div>
         </div>
 
         <div class="composer-card">
@@ -4470,9 +4688,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
 
           <div class="composer-refs">
             <div class="show">
-              <h2 data-i18n="mvOneShotDetails.reference_image_optional_anchors">Reference image
-                <span class="h2-hint">optional · anchors frame 0 like I2V</span>
-              </h2>
+              <div class="pa-head-row"><h2 data-i18n="mvOneShotDetails.reference_image_optional_anchors">Reference image <span class="h2-hint">optional · anchors frame 0 like I2V</span></h2><button type="button" class="help-dot" data-help="a2vRefHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
               <!-- Y2.005 — use the shared .picker component (same as I2V /
                    FFLF) instead of the bespoke studio-ref-slot. Mr Bizarro
                    report: "image preview and managing kinda shit in audio
@@ -4506,7 +4722,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
                   <div class="picker-recent-strip" id="picker_recent_a2v_image"></div>
                 </div>
               </div>
-              <div class="hint" style="margin-top:6px" data-i18n="mvOneShotDetails.leave_empty_for_pure">
+              <div class="help-pop" id="a2vRefHelp" hidden data-i18n="mvOneShotDetails.leave_empty_for_pure">
                 Leave empty for pure Audio → Video. Add an image to open the clip on that frame (e.g. a portrait for a talking-head shot).
               </div>
               <!-- Open-mouth anchor check (2026-09-22 anchor lesson): a
@@ -4533,9 +4749,10 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
                     placeholder="A woman sings to camera, eyebrows lifting on the high notes, breathing between lines, one hand drifting up" data-i18n-placeholder="audioStudioPrompt.placeholder.a_woman_sings_to"></textarea>
           <div class="composer-tools">
             <button type="button" class="ghost-btn" id="audioStudioEnhanceBtn" onclick="audioStudioEnhancePrompt()" title="Use Gemma to rewrite your prompt" data-i18n-title="audioStudioEnhanceBtn.title.use_gemma_to_rewrite" data-i18n="audioStudioEnhanceBtn.enhance"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Enhance</button>
+            <button type="button" class="help-dot" data-help="a2vPromptHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button>
             <span class="ct-spacer"></span>
-            <span class="hint" data-i18n="mvOneShotDetails.keep_it_under_40">Keep it under ~40 words and describe the performance — a sync sentence is appended automatically.</span>
           </div>
+          <div class="help-pop" id="a2vPromptHelp" hidden data-i18n="mvOneShotDetails.keep_it_under_40">Keep it under ~40 words and describe the performance — a sync sentence is appended automatically.</div>
           <!-- VA-05 (client half): live stillness check. The server ALWAYS
                strips these words and appends the sync contract before a
                render (a2v_prompt in run_job_inner), so this is purely a
@@ -4572,13 +4789,13 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
                    so every A2V render used the first N seconds of the file and the
                    only workaround was trimming the audio beforehand (#46). -->
               <div class="mf-cell">
-                <span class="mf-label" data-i18n="mvOneShotDetails.start_at">Start at</span>
+                <span class="mf-label"><span data-i18n="mvOneShotDetails.start_at">Start at</span><button type="button" class="help-dot" data-help="a2vStartHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></span>
                 <input type="number" id="audioStudioStart" value="0" min="0" step="0.5"
                        oninput="audioStudioDurationChanged()"
                        title="Seconds into the audio file where the clip starts reading. 0 = from the beginning." data-i18n-title="audioStudioStart.title.seconds_into_the_audio">
               </div>
             </div>
-            <div class="hint" style="margin-top:4px" data-i18n="mvOneShotDetails.start_at_is_an">
+            <div class="help-pop" id="a2vStartHelp" hidden data-i18n="mvOneShotDetails.start_at_is_an">
               Start at is an offset into the file you loaded — set it to 30 to drive the clip from 0:30 onward.
             </div>
             <!-- VA-21: the server has taken audio_stem_auto since the vocal
@@ -4589,18 +4806,20 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
                  case this helps. Install and Update put the separator in
                  place; if it is missing the render is refused with an
                  install offer, never quietly run on the full mix. -->
-            <label class="mf-cell" style="margin-top:8px;display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <div class="pa-check-row"><label class="mf-cell" style="margin-top:8px;display:flex;align-items:center;gap:8px;cursor:pointer;">
               <input type="checkbox" id="audioStudioStemAuto" checked style="width:auto;margin:0;" onchange="audioStudioRenderSeparator()">
-              <span data-i18n="mvOneShotDetails.listen_to_the_voice">Listen to the voice only <span class="hint" style="font-weight:normal">(separates the singer from the band before the model listens — the finished clip still plays the full mix; about 20 s once per song)</span></span>
-            </label>
+              <span data-i18n="pagesA.a2v_voice_only">Listen to the voice only</span>
+            </label><button type="button" class="help-dot" data-help="a2vStemHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
             <!-- Never a silent fallback: when vocal separation is missing the
                  form says so here and offers the install (/a2v/separator). -->
             <div class="music-pack-note" id="audioStudioStemStatus" role="status" style="margin-top:6px;display:none"></div>
+            <div class="help-pop" id="a2vStemHelp" hidden data-i18n="pagesA.a2v_voice_only_help">Separates the singer from the band before the model listens. The finished clip still plays the full mix. About 20 s, once per song.</div>
             <div id="audioStudioSceneSoundPanel" class="mf-cell">
-              <label class="scene-sound-toggle"><input type="checkbox" id="audioStudioSceneSound" onchange="audioStudioDurationChanged()">
-                <span data-i18n="audioStudioSceneSoundPanel.add_scene_sound_ambience">Add scene sound <span class="hint">(ambience and effects from your scene; lowers under the voice)</span></span>
-              </label>
-              <p class="hint" data-i18n="audioStudioSceneSoundPanel.adds_a_sound_generation">Adds a sound-generation pass. Turn off for voice only. Describe what we hear below, or leave blank to use the scene prompt.</p>
+              <div class="pa-check-row"><label class="scene-sound-toggle"><input type="checkbox" id="audioStudioSceneSound" onchange="audioStudioDurationChanged()">
+                <span data-i18n="pagesA.a2v_scene_sound">Add scene sound</span>
+              </label><button type="button" class="help-dot" data-help="a2vSceneHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></div>
+              <div class="help-pop" id="a2vSceneHelp" hidden><span data-i18n="pagesA.a2v_scene_sound_help">Ambience and effects from your scene; it lowers under the voice.</span>
+              <span data-i18n="audioStudioSceneSoundPanel.adds_a_sound_generation">Adds a sound-generation pass. Turn off for voice only. Describe what we hear below, or leave blank to use the scene prompt.</span></div>
               <input type="text" id="audioStudioScenePrompt" aria-label="Scene sound description" placeholder="Wind in the sails, creaking wood, a distant waterfall" data-i18n-placeholder="audioStudioScenePrompt.placeholder.wind_in_the_sails" data-i18n-aria-label="audioStudioScenePrompt.aria-label.scene_sound_description">
             </div>
             <div class="mf-cell" style="margin-top:8px">
@@ -4622,7 +4841,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
               <div class="hint" id="audioStudioDurationWarn" style="margin-top:4px; display:none"></div>
             </div>
             <div class="mf-cell a2v-ltx-only" style="margin-top:8px">
-              <span class="mf-label" data-i18n="mvOneShotDetails.audio_conditioning_strength">Audio conditioning strength</span>
+              <span class="mf-label"><span data-i18n="mvOneShotDetails.audio_conditioning_strength">Audio conditioning strength</span><button type="button" class="help-dot" data-help="audioConditioningScaleHint" aria-expanded="false" aria-label="More info" data-i18n-aria-label="pagesA.more_info">?</button></span>
               <!-- Starts on AUTO and stays there until the thumb is dragged:
                    the two A2V pipelines read this number differently and only
                    the panel knows which one this Mac will run, so an untouched
@@ -4633,18 +4852,19 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
                        data-auto="1" oninput="audioConditioningScaleChanged(this)">
                 <span id="audioConditioningScaleVal" class="range-val" data-i18n="audioConditioningScaleVal.auto">Auto</span>
               </div>
-              <div class="hint" style="margin-top:2px" id="audioConditioningScaleHint" data-i18n="audioConditioningScaleHint.higher_stronger_audio_adhesion">Higher = stronger audio adhesion, lower visual flexibility</div>
+              <div class="help-pop" id="audioConditioningScaleHint" hidden data-i18n="audioConditioningScaleHint.higher_stronger_audio_adhesion">Higher = stronger audio adhesion, lower visual flexibility</div>
             </div>
           </div>
         </div>
 
-        <div class="hint" style="margin-top:8px" id="audioStudioHint" data-i18n="audioStudioHint.audio_video_uses_audio">
+        <details class="more-info a2v-more-info"><summary data-i18n="pagesA.a2v_mouth_help">If the mouth doesn't move</summary>
+        <div id="audioStudioHint" data-i18n="audioStudioHint.audio_video_uses_audio">
           Audio → Video uses audio conditioning during generation (not post-hoc mux). If the mouth doesn't move: (1) start on a closed-mouth, face-forward picture — an open-mouth anchor tends to freeze open (the panel warns when it detects one); (2) remove "static" / "holds still" / "motionless" language from the prompt — a stillness word freezes the whole scene, mouth included; (3) for a song, try the vocal-only option so the model listens to the voice instead of the full mix.
         </div>
+        </details>
 
         <div class="form-action-footer" id="audioStudioFooter">
-          <div class="queue-strip">
-            <span class="qchip-spacer"></span>
+          <div class="dock-line">
             <span class="qchip-derived" id="audioStudioEstimate"></span>
           </div>
           <div class="actions">
@@ -4740,10 +4960,10 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
            audio track. Shown on the Sound tab only; painted by edRtPaint. -->
       <section class="ed-rt" id="edRoomTone" hidden aria-labelledby="edRtTitle">
         <div class="ed-rt-head">
-          <span class="ed-rt-title" id="edRtTitle" data-i18n="edRtTitle.room_tone">Room tone</span>
+          <span class="ed-rt-title" id="edRtTitle" data-i18n="edRtTitle.room_tone">Room tone</span><button type="button" class="help-dot" data-help="edRtHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button>
           <span class="ed-rt-status" id="edRtStatus"></span>
         </div>
-        <p class="ed-rt-sub" data-i18n="edRoomTone.background_noise_under_the">Background noise under the whole __SEQ__, so cuts never drop to silence.</p>
+        <p class="ed-rt-sub help-pop" id="edRtHelp" hidden data-i18n="edRoomTone.background_noise_under_the">Background noise under the whole __SEQ__, so cuts never drop to silence.</p>
         <select class="sb-input ed-rt-pick" id="edRtVariant" aria-label="Which room tone"
                 onchange="edRtPick()" data-i18n-aria-label="edRtVariant.aria-label.which_room_tone"></select>
         <label class="ed-rt-level" title="How loud the bed plays, in LUFS. Dialogue sits around −16; −38 is a bed you stop hearing, −27 is clearly there. The render applies exactly this." data-i18n-title="edRoomTone.title.how_loud_the_bed">
@@ -6679,8 +6899,10 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
     <div class="models-head">
       <h2 id="settingsModalTitle" data-i18n="settingsModalTitle.settings">Settings</h2>
       <button class="ghost-btn" onclick="closeSettingsModal()" data-i18n="settingsModal.close">Close</button>
+      <!-- After Close in the DOM so the dialog still focuses Close first; CSS shows it beside the title. -->
+      <button type="button" class="help-dot settings-intro-dot" data-help="settingsIntroHelp" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button>
     </div>
-    <div class="models-hint" data-i18n="settingsModal.your_choices_are_saved">
+    <div class="models-hint help-pop" id="settingsIntroHelp" hidden data-i18n="settingsModal.your_choices_are_saved">
       Your choices are saved on this Mac and used for every new render.
       Finished files are not changed. Most choices save right away; the
       rendering choices wait for their own Save button.
@@ -6715,8 +6937,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          nowhere, because this section didn't exist). Opens the existing
          Models modal rather than duplicating its content here. -->
     <div class="settings-section">
-      <h3 data-i18n="settingsModal.models">Models</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsModal.what_s_downloaded_what">
+      <div class="settings-head-row"><h3 data-i18n="settingsModal.models">Models</h3><button type="button" class="help-dot" data-help="settingsHelp1" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp1" hidden data-i18n="settingsModal.what_s_downloaded_what">
         What's downloaded, what else this Mac can run, and repairing a file
         that downloaded incomplete.
       </div>
@@ -6733,8 +6955,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          refreshOutputsFolder). Renders are still made on this Mac first; each
          finished file is copied to the chosen folder and checked. -->
     <div class="settings-section" id="settingsOutputsFolder">
-      <h3 data-i18n="settingsOutputsFolder.saved_files">Saved files</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsOutputsFolder.choose_where_new_videos">
+      <div class="settings-head-row"><h3 data-i18n="settingsOutputsFolder.saved_files">Saved files</h3><button type="button" class="help-dot" data-help="settingsHelp2" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp2" hidden data-i18n="settingsOutputsFolder.choose_where_new_videos">
         Choose where new videos and pictures are saved, for example a folder on an external drive.
         Each finished file is copied there and checked. Files you already made stay where they are,
         and your gallery keeps showing everything.
@@ -6754,8 +6976,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
 
     <!-- Storage stays visible even when there is nothing to reclaim. -->
     <div class="settings-section" id="settingsStorageSection" style="display:none">
-      <h3 data-i18n="settingsStorageSection.storage">Storage</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsStorageSection.model_folders_on_this">
+      <div class="settings-head-row"><h3 data-i18n="settingsStorageSection.storage">Storage</h3><button type="button" class="help-dot" data-help="settingsHelp3" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp3" hidden data-i18n="settingsStorageSection.model_folders_on_this">
         Model folders on this Mac, including files left behind by older installs.
         Cleanup removes only superseded files. Your outputs and LoRAs stay on disk.
       </div>
@@ -6765,8 +6987,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
     </div>
 
     <div class="settings-section">
-      <h3 data-i18n="settingsModal.check_model_files">Check model files</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsModal.if_videos_come_out">
+      <div class="settings-head-row"><h3 data-i18n="settingsModal.check_model_files">Check model files</h3><button type="button" class="help-dot" data-help="settingsHelp4" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp4" hidden data-i18n="settingsModal.if_videos_come_out">
         If videos come out garbled, check that every model downloaded
         correctly. Anything broken gets a one-click re-download. Takes 1–2 minutes.
       </div>
@@ -6781,8 +7003,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          a fixed, versioned benchmark of this Mac. Its own window, because it
          runs for minutes and ends in a result card. -->
     <div class="settings-section" id="settingsBenchSection">
-      <h3 data-i18n="settingsBenchSection.phosphene_bench">Phosphene Bench</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsBenchSection.run_a_fixed_set">
+      <div class="settings-head-row"><h3 data-i18n="settingsBenchSection.phosphene_bench">Phosphene Bench</h3><button type="button" class="help-dot" data-help="settingsHelp5" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp5" hidden data-i18n="settingsBenchSection.run_a_fixed_set">
         Run a fixed set of video and image jobs on your Mac and see the times.
       </div>
       <div class="settings-row">
@@ -6883,8 +7105,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
     </div>
 
     <div class="settings-section">
-      <h3 data-i18n="settingsModal.download_keys">Download keys</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsModal.kept_on_this_mac">
+      <div class="settings-head-row"><h3 data-i18n="settingsModal.download_keys">Download keys</h3><button type="button" class="help-dot" data-help="settingsHelp6" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp6" hidden data-i18n="settingsModal.kept_on_this_mac">
         Kept on this Mac and only ever sent to civitai.com or huggingface.co
         when you download from them. Each key saves when you click
         Save &amp; test.
@@ -6963,8 +7185,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          server enforces the gate independently in _civitai_search, so a
          tampered client can't bypass this. -->
     <div class="settings-section">
-      <h3 data-i18n="settingsModal.spicy_mode_adult_content">Spicy mode <span class="hint" style="font-weight:400">(adult content)</span></h3>
-      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.saves_right_away_when">
+      <div class="settings-head-row"><h3 data-i18n="settingsModal.spicy_mode_adult_content">Spicy mode <span class="hint" style="font-weight:400">(adult content)</span></h3><button type="button" class="help-dot" data-help="settingsHelp7" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp7" hidden data-i18n="settingsModal.saves_right_away_when">
         Saves right away. When OFF, the CivitAI LoRA browser hides NSFW models entirely —
         the "Show NSFW" toggle disappears and any NSFW result the API
         returns is filtered out. When ON, you can choose per-search whether
@@ -6997,8 +7219,9 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          here at once), so this section is hidden there and the row after it
          points to the app's switch instead. Pinokio keeps this section. -->
     <div class="settings-section" data-hide-mac-app>
-      <h3 data-i18n="settingsModal.share_anonymous_usage_stats">Share anonymous usage stats</h3>
-      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.saves_right_away_sends">
+      <div class="settings-head-row"><h3 data-i18n="settingsModal.share_anonymous_usage_stats">Share anonymous usage stats</h3></div>
+      <!-- What gets sent stays in plain view (consent text, never behind a ?). -->
+      <div class="hint" id="settingsHelp8" data-i18n="settingsModal.saves_right_away_sends">
         Saves right away. Sends anonymous counts so bugs in the field get noticed: Phosphene
         version, hardware class (e.g. <em>M4 Max, 64 GB</em>), which
         model generation you render with, which optional packs are
@@ -7084,8 +7307,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
     </div>
 
     <div class="settings-section" id="settingsMacStatsSection" hidden>
-      <h3 data-i18n="settingsMacStatsSection.share_anonymous_usage_stats">Share anonymous usage stats</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsMacStatsSection.one_switch_covers_the">
+      <div class="settings-head-row"><h3 data-i18n="settingsMacStatsSection.share_anonymous_usage_stats">Share anonymous usage stats</h3><button type="button" class="help-dot" data-help="settingsHelp9" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp9" hidden data-i18n="settingsMacStatsSection.one_switch_covers_the">
         One switch covers the whole app: it is in the app's own Settings,
         under Privacy.
       </div>
@@ -7099,8 +7322,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          the page is rendered in the chosen language from the first byte.
          "Same as this Mac" follows System Settings > Language & Region. -->
     <div class="settings-section" id="settingsLanguageSection">
-      <h3 data-i18n="settingsLanguageSection.language">Language</h3>
-      <div class="hint" style="margin-bottom:10px" data-i18n="settingsLanguageSection.hint">The Studio's language. "Same as this Mac" follows the Mac's own language list. Changing it reloads the page.</div>
+      <div class="settings-head-row"><h3 data-i18n="settingsLanguageSection.language">Language</h3><button type="button" class="help-dot" data-help="settingsHelp10" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp10" hidden data-i18n="settingsLanguageSection.hint">The Studio's language. "Same as this Mac" follows the Mac's own language list. Changing it reloads the page.</div>
       <div class="settings-row">
         <select id="settingsLanguage" style="flex:1" aria-label="Language" data-i18n-aria-label="settingsLanguageSection.aria-label.language"
                 onchange="i18nSetLanguage(this.value)"></select>
@@ -7108,8 +7331,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
     </div>
 
     <div class="settings-section">
-      <h3 data-i18n="settingsModal.appearance">Appearance</h3>
-      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.phosphene_s_colours_system">Phosphene's colours. "System" follows the Mac's own light or dark setting. Saves right away.</div>
+      <div class="settings-head-row"><h3 data-i18n="settingsModal.appearance">Appearance</h3><button type="button" class="help-dot" data-help="settingsHelp11" aria-expanded="false" aria-label="More info" data-i18n-aria-label="helpDot.aria-label.more_info">?</button></div>
+      <div class="hint help-pop" id="settingsHelp11" hidden data-i18n="settingsModal.phosphene_s_colours_system">Phosphene's colours. "System" follows the Mac's own light or dark setting. Saves right away.</div>
       <div class="pill-group cols-3" id="appearanceGroup">
         <button type="button" class="pill-btn active" data-appearance="dark" onclick="setAppearance('dark')" data-i18n="appearanceGroup.dark">Dark</button>
         <button type="button" class="pill-btn" data-appearance="light" onclick="setAppearance('light')" data-i18n="appearanceGroup.light">Light</button>
@@ -7576,14 +7799,21 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
        activity dot, denser Now card matching the composer-card visual
        language, refined badges. All IDs preserved so poll() and the
        click handlers downstream keep working. -->
+  <!-- Owner, 22 Nov 2026 (feedback 3): the queue must not take space while nothing runs. Idle, the
+       pane is one thin line (body.bp-folded); it opens by itself when a render starts or a job is
+       queued, and the chevron folds or opens it by hand. Folded while rendering, the line still
+       shows the progress (#bpFoldSummary + the thin bar), so nothing active is ever hidden. -->
   <nav class="tabs">
     <span class="bp-live-dot" id="bpLiveDot" title="Idle" data-i18n-title="bpLiveDot.title.idle"></span>
+    <span class="bp-fold-summary" id="bpFoldSummary" aria-live="polite"></span>
     <button data-tab="now" class="active" data-i18n="bottomPane.now">Now</button>
     <button data-tab="queue" data-i18n="bottomPane.queue">Queue <span class="badge" id="queueBadge" style="display:none">0</span></button>
     <button data-tab="recent" data-i18n="bottomPane.recent">Recent</button>
     <button data-tab="logs" data-i18n="bottomPane.logs">Logs</button>
     <span class="spacer"></span>
     <a class="model-credit" id="modelTag" href="https://github.com/dgrauet/ltx-2-mlx" target="_blank" rel="noopener" title="MLX port by @dgrauet" data-i18n-title="modelTag.title.mlx_port_by_dgrauet"></a>
+    <button type="button" class="bp-fold-btn" id="bpFoldBtn" onclick="bpToggleFold()" aria-controls="bottomPane" aria-expanded="true" title="Fold or open the queue" aria-label="Fold or open the queue" data-i18n-title="bpFoldBtn.title.fold_or_open" data-i18n-aria-label="bpFoldBtn.aria-label.fold_or_open"><svg class="ph" aria-hidden="true"><use href="#ph-caret-down-bold"/></svg></button>
+    <span class="bp-fold-bar" aria-hidden="true"><span id="bpFoldFill"></span></span>
     <!-- (Collapse-this-panel button removed 2026-05-12 — Mr Bizarro flagged
          it hid important data (active job progress, queue) and the
          "down arrow that goes up" affordance read as confusing. The
@@ -7867,5 +8097,8 @@ const BOOT = __BOOTSTRAP__;</script>
 <script type="module" src="/webapp/js/bench.js"></script>
 <script type="module" src="/webapp/js/main.js"></script>
 <div class="phos-toast-container" id="phosToast" aria-live="polite" aria-atomic="false"></div>
+<!-- A picked character's voice menu (feedback 4): opened from the mic / "no voice yet" mark on its chip
+     (Video form and One Shot), so it lives outside both forms. characters.js charVoiceMenuOpen fills it. -->
+<div class="cv-menu" id="charVoiceMenu" role="menu" hidden></div>
 </body>
 </html>

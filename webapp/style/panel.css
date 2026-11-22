@@ -15920,12 +15920,13 @@ body.h3-refs-on #h3SpeedRow { display: none !important; }
 #newCharacterForm .new-character-train { display: flex; align-items: center; gap: 8px; }
 #newCharacterTrain { width: auto; margin: 0; }
 
-.revoice-source { display: grid; gap: 8px; margin-bottom: 12px; }
+.revoice-source { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; margin-bottom: 12px; }
 .revoice-source[hidden], .revoice-lines[hidden], .revoice-empty[hidden], .revoice-status[hidden] { display: none; }
-#revoicePreview { width: 100%; max-height: 220px; background: #000; border-radius: 10px; }
+#revoicePreview { width: 100%; max-width: 100%; max-height: 220px; background: #000; border-radius: 10px; box-sizing: border-box; }
 #revoiceAudio { width: 100%; }
-.revoice-source-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.revoice-source-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.revoice-source-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.revoice-source-name { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.revoice-source-row > button { flex: 0 0 auto; }
 .revoice-status { display: flex; align-items: center; gap: 10px; margin: 8px 0; color: var(--muted); line-height: 1.45; }
 .voice-spinner { flex: none; width: 14px; height: 14px; border: 2px solid var(--border-strong); border-top-color: var(--accent-bright); border-radius: 50%; display: none; animation: setup-card-spin 0.9s linear infinite; }
 .revoice-status.is-busy .voice-spinner { display: inline-block; }
@@ -15978,3 +15979,1323 @@ body[data-workflow]:not([data-workflow="manual"]) #revoiceSection { display: non
 #revoiceSection .revoice-phrase select { grid-column: 2 / -1; width: 100%; }
 .revoice-speaker { margin: 12px 0 0; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--v2-dim, var(--muted)); }
 #formActionFooterRevoice .actions #revoiceRun { flex: 1 1 auto; }
+
+/* Pictures (Hailuo H3, owner 21 Nov 2026): one area, three questions (Start from, Who's in it, Where)
+   and one library. queue.js picturesSync() draws it; the old Face to keep / References / Image picker
+   are hidden while it shows (body.px-on), and so is the separate characters strip, because the
+   characters are picked inside Who's in it. */
+.chars-head-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: var(--fs-xs); }
+.chars-head-label { font-size: var(--fs-sm); color: var(--text); font-weight: 600; }
+.chars-head-hint { color: var(--muted); font-size: var(--fs-xs); }
+.chars-head-spacer { flex: 1 1 auto; }
+.chars-applied-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; width: 100%; }
+.chars-blend-note { margin-top: 5px; padding: 5px 8px; border-radius: 6px; border-left: 2px solid var(--warn, #e0a94a); background: rgba(224,169,74,0.08); color: var(--text); font-size: var(--fs-xs); line-height: 1.4; width: 100%; }
+.chars-piconly-row, .chars-lines-row { margin-top: 5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: var(--fs-xs); color: var(--muted); width: 100%; }
+.chars-line-btns { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+body.px-on #manualCharactersPickerSlot { display: none !important; }
+/* Who says each line is explained (with one-click lines) under Who's in it, so the generic hint goes. */
+body.px-on #renderVoiceField > small.hint { display: none; }
+.px-section h2 { margin-bottom: 10px; }
+.px-group { margin: 0 0 14px; }
+.px-group[hidden] { display: none; }
+.px-q { font-size: var(--fs-sm); color: var(--text); margin: 0 0 6px; }
+.px-q strong { font-weight: 600; }
+.px-q-hint { color: var(--muted); font-size: var(--fs-xs); margin-left: 4px; }
+.px-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.px-slot {
+  position: relative; min-height: 104px; border: 1.5px dashed var(--border, #272728); border-radius: 10px;
+  background: rgba(255,255,255,0.015); cursor: pointer; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+.px-slot[hidden] { display: none; }
+.px-slot:hover { border-color: var(--accent, #5a7cff); }
+.px-slot:focus-visible { outline: 2px solid var(--accent-bright, #7e98ff); outline-offset: 2px; }
+.px-slot.is-target { border-style: solid; border-color: var(--accent-bright, #7e98ff); box-shadow: 0 0 0 3px rgba(126,152,255,0.18); }
+.px-slot.dragover { border-style: solid; border-color: var(--accent-bright, #7e98ff); background: rgba(90,124,255,0.10); }
+.px-slot.has-image { border-style: solid; }
+.px-slot.is-locked .px-slot-empty > span:not(.pro-tag), .px-slot.is-locked .px-slot-empty > .ph { opacity: .55; }
+.px-slot.is-off { opacity: .45; cursor: not-allowed; }
+.px-slot.is-full { opacity: .42; border-style: dashed; }
+.px-slot.is-full .px-browse { display: none; }
+#pxLibrary .picker-recent-x { opacity: 0; transition: opacity 120ms ease; }
+#pxLibrary .picker-recent-wrap:hover .picker-recent-x, #pxLibrary .picker-recent-wrap:focus-within .picker-recent-x { opacity: 1; }
+.px-slot.is-parked .px-slot-img { opacity: .35; filter: grayscale(1); }
+.px-slot-start { min-height: 120px; }
+.px-slot-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 8px; text-align: center; color: var(--muted); font-size: var(--fs-xs); }
+.px-slot-empty .ph { width: 22px; height: 22px; color: var(--accent-bright); opacity: .85; }
+.px-slot-empty .pro-tag { margin-left: 0; }
+.px-slot.has-image .px-slot-empty { display: none; }
+.px-browse { width: auto; background: none; border: none; padding: 2px 4px; color: var(--accent-bright, #7e98ff); font: inherit; font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.px-slot.is-locked .px-browse, .px-slot.is-off .px-browse { display: none; }
+.px-slot-img { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.px-slot.has-image .px-slot-img { display: block; }
+.px-slot-x {
+  display: none; position: absolute; top: 5px; right: 5px; z-index: 3; width: 24px; height: 24px; border-radius: 50%;
+  border: 1px solid var(--border, #272728); background: rgba(0,0,0,0.65); color: var(--fg, #d8e0ee); cursor: pointer;
+  align-items: center; justify-content: center;
+}
+.px-slot.has-image .px-slot-x, .px-crop-stage .px-slot-x { display: flex; }
+.px-slot-x:hover { background: rgba(220,80,80,0.5); }
+.px-slot-tag {
+  position: absolute; left: 5px; bottom: 5px; z-index: 2; max-width: calc(100% - 10px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,0.72); color: #fff; font-size: var(--fs-2xs); font-weight: 600;
+}
+.px-slot-tag[hidden], .px-slot-tag:empty { display: none; }
+.px-slot-pics { position: absolute; right: 5px; bottom: 5px; z-index: 2; display: flex; gap: 3px; }
+.px-pic { flex: none; min-width: 0; width: 22px; height: 22px; padding: 0; border-radius: 5px; border: 2px solid rgba(0,0,0,.6); overflow: hidden; cursor: pointer; background: #000; }
+.px-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.px-pic.is-on { border-color: var(--accent-bright, #7e98ff); }
+.px-chars { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; border-radius: 10px; }
+.px-chars.px-pulse { animation: px-pulse 1.2s ease-out 1; }
+@keyframes px-pulse { 0% { box-shadow: 0 0 0 0 rgba(126,152,255,.55); } 100% { box-shadow: 0 0 0 10px rgba(126,152,255,0); } }
+@media (prefers-reduced-motion: reduce) { .px-chars.px-pulse { animation: none; } }
+.px-char {
+  display: inline-flex; flex: 0 0 auto; width: auto; min-width: 0; margin: 0; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 3px; border-radius: 999px;
+  border: 1px solid var(--border, #272728); background: rgba(255,255,255,0.03); color: var(--text); font-size: var(--fs-xs); cursor: pointer;
+}
+.px-char img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+.px-char:hover { border-color: var(--accent, #5a7cff); }
+.px-char.is-on { border-color: var(--accent-bright, #7e98ff); background: rgba(90,124,255,0.14); }
+.px-char-voice { width: 13px; height: 13px; opacity: .7; }
+.px-char-new { padding: 0 12px; color: var(--muted); border-style: dashed; }
+.px-start-row { display: block; }
+.px-crop[hidden] { display: none; }
+.px-crop-stage { position: relative; display: block; width: fit-content; max-width: 100%; margin: 0 auto; overflow: hidden; border-radius: 8px; touch-action: none; user-select: none; }
+.px-crop-stage > img { display: block; max-width: 100%; max-height: 280px; }
+.px-crop-box {
+  position: absolute; border: 2px solid var(--accent-bright, #7e98ff); cursor: move; touch-action: none;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.58), inset 0 0 0 1px rgba(0,0,0,.4);
+}
+.px-crop-handle { position: absolute; width: 14px; height: 14px; background: var(--accent-bright, #7e98ff); border: 2px solid #000; border-radius: 3px; }
+.px-crop-handle[data-px-handle="nw"] { left: -8px; top: -8px; cursor: nwse-resize; }
+.px-crop-handle[data-px-handle="ne"] { right: -8px; top: -8px; cursor: nesw-resize; }
+.px-crop-handle[data-px-handle="sw"] { left: -8px; bottom: -8px; cursor: nesw-resize; }
+.px-crop-handle[data-px-handle="se"] { right: -8px; bottom: -8px; cursor: nwse-resize; }
+.px-crop-help, .px-shape, .px-note, .px-labels, .px-lines { margin: 6px 0 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--muted); }
+.px-shape { color: var(--text); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.px-shape[hidden], .px-note[hidden], .px-labels[hidden], .px-lines[hidden] { display: none; }
+.px-lines { color: var(--text); }
+.px-lines-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.px-labels { color: var(--text); margin: 0 0 12px; }
+.px-get .h3-refs-get { margin: 0 0 12px; }
+.px-library { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border, #272728); }
+.px-library[hidden] { display: none; }
+.px-library-label { font-size: var(--fs-xs); color: var(--muted); margin-bottom: 6px; }
+.px-library-label b { color: var(--text); font-weight: 600; }
+.px-library-strip { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0; scrollbar-width: thin; }
+
+/* ---------- Layout v2: Left-column Shot Form reorganisation (22 Nov 2026) ----------
+   Scoped strictly to the Video shot form (`body[data-workflow="manual"] .form-pane`).
+   Header, logo, left rail (`#toolRail`), right stage/player/Outputs (`section.stage-pane`)
+   and `#bottomPane` remain untouched. */
+body[data-workflow]:not([data-workflow="manual"]) #sfStepMake { display: none !important; }
+body[data-workflow="manual"].mode-revoice #sfStepInputs,
+body[data-workflow="manual"].mode-revoice #sfStepSay,
+body[data-workflow="manual"].mode-revoice #sfStepLook { display: none !important; }
+
+.sf-step-head {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  margin: 0; padding: 0; font-family: var(--sans); font-size: 13px; line-height: 1.25;
+}
+.sf-step-head[hidden] { display: none !important; }
+.sf-step-num {
+  flex: 0 0 auto; display: inline-grid; place-items: center;
+  width: 19px; height: 19px; border-radius: 50%;
+  background: rgba(139, 123, 255, 0.16); color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(139, 123, 255, 0.35);
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+}
+html[data-theme="light"] .sf-step-num {
+  background: rgba(98, 70, 234, 0.12); box-shadow: inset 0 0 0 1px rgba(98, 70, 234, 0.28);
+}
+.sf-step-title {
+  flex: 0 0 auto; font-size: 13px; font-weight: 700; letter-spacing: 0;
+  color: var(--text);
+}
+.sf-step-sub {
+  flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* 1 · Make — compact wrapping mode pills (saves ~180 px over 4×44px grid + caption) */
+body[data-workflow="manual"] .form-pane > .sf-step-make {
+  margin: 6px var(--v2-col) 4px;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup.mode-bar {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin: 0 var(--v2-col) 6px; padding: 0;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip,
+body[data-workflow="manual"]:not([data-engine="h3"]) .form-pane > #modeGroup .mode-chip[data-h3-only].mode-reachable,
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip.eng-foreign {
+  position: relative; display: inline-flex !important; flex-direction: row; align-items: center;
+  flex: 0 0 auto; width: auto; min-height: 28px; height: 28px;
+  padding: 0 9px; gap: 5px; border-radius: 8px;
+  font-size: 13px !important; font-weight: 600; line-height: 1; white-space: nowrap;
+  transform: none !important;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip.mode-unreachable {
+  display: none !important;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip::before {
+  width: 6px; height: 6px; flex: 0 0 6px;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip .mc-sub {
+  display: none !important;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip[data-mode="revoice"] .pro-tag {
+  position: static; top: auto; right: auto; margin-left: 2px;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip .mc-eng {
+  display: inline-flex; align-items: center; margin-left: 2px;
+}
+body[data-workflow="manual"] #remixSubGroup {
+  margin: 0 var(--v2-col) 6px !important; padding: 4px 0 0 !important;
+}
+body[data-workflow="manual"] #remixSubGroup > div:first-child {
+  font-size: 13px !important; margin-bottom: 4px !important; padding-left: 2px;
+}
+body[data-workflow="manual"] #remixSubGroup .mode-bar {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+body[data-workflow="manual"] #remixSubGroup .mode-chip {
+  display: inline-flex; flex-direction: row; align-items: center;
+  width: auto; min-height: 28px; height: 28px; padding: 0 9px; gap: 5px;
+  border-radius: 8px; font-size: 13px !important; white-space: nowrap; transform: none !important;
+}
+body[data-workflow="manual"] #remixSubGroup .mode-chip .mc-sub { display: none !important; }
+
+/* 2 · What goes in & 3 · What you say — unified composer surface, prompt above the fold */
+body[data-workflow="manual"] #genForm > .composer-card:first-of-type { margin-top: 2px; }
+body[data-workflow="manual"] #genForm .composer-card .composer-refs {
+  padding: 7px 11px 5px; border-bottom: 1px solid var(--v3-rule, var(--site-line-soft));
+}
+body[data-workflow="manual"] #genForm .composer-card .composer-refs.is-empty {
+  display: none;
+}
+body[data-workflow="manual"] #genForm .sf-step-in { margin-bottom: 5px; }
+body[data-workflow="manual"] #genForm .sf-step-say { padding: 6px 11px 0; }
+body[data-workflow="manual"] #genForm #manualCharactersPickerSlot { margin: 0 0 4px; padding: 0; border: 0; background: none; }
+body[data-workflow="manual"] #genForm .chars-head-row { margin-bottom: 4px; }
+body[data-workflow="manual"] #genForm .chars-avatar-row { display: flex; flex-wrap: wrap; gap: 5px; }
+body[data-workflow="manual"] #genForm .chars-avatar-chip {
+  flex-direction: row; align-items: center; width: auto; max-width: 100%;
+  height: 29px; min-height: 29px; padding: 2px 9px 2px 3px; gap: 6px; border-radius: 999px;
+  border: 1px solid var(--v3-line, var(--border)); background: var(--v3-quiet, rgba(255,255,255,0.03));
+}
+body[data-workflow="manual"] #genForm .chars-avatar-chip.active {
+  border-color: var(--accent-bright, var(--accent)); background: rgba(139, 123, 255, 0.14);
+}
+body[data-workflow="manual"] #genForm .chars-avatar-chip .chars-avatar-img,
+body[data-workflow="manual"] #genForm .chars-avatar-chip .chars-avatar-ph {
+  width: 22px; height: 22px; font-size: 13px; flex: 0 0 22px;
+}
+body[data-workflow="manual"] #genForm .chars-avatar-chip .chars-avatar-name {
+  font-size: 13px; max-width: 130px; color: var(--text); line-height: 1.15;
+}
+body[data-workflow="manual"] #genForm .chars-avatar-chip .chars-avatar-voice {
+  position: static; width: 15px; height: 15px; border: 0; box-shadow: none; margin-left: -1px;
+}
+body[data-workflow="manual"] #genForm .chars-strip-active {
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px;
+}
+body[data-workflow="manual"] #genForm .chars-strip-active[hidden] {
+  display: none !important;
+}
+body[data-workflow="manual"] #genForm .voice-render-field { margin: 4px 0 2px; gap: 4px; }
+body[data-workflow="manual"] #genForm .voice-render-row { gap: 6px; }
+body[data-workflow="manual"] #genForm .voice-render-row > select { height: 28px; padding: 2px 8px; font-size: 13px; }
+body[data-workflow="manual"] #genForm .px-section > h2 { display: none; }
+body[data-workflow="manual"] #genForm .px-group { margin: 0 0 6px; }
+body[data-workflow="manual"] #genForm .px-group:last-child { margin-bottom: 2px; }
+body[data-workflow="manual"] #genForm .px-q { margin: 0 0 3px; font-size: 13px; }
+body[data-workflow="manual"] #genForm .px-chars { margin: 0 0 4px; gap: 5px; }
+body[data-workflow="manual"] #genForm .px-char { height: 28px; font-size: 13px; padding: 0 9px 0 3px; }
+body[data-workflow="manual"] #genForm .px-char img { width: 22px; height: 22px; }
+body[data-workflow="manual"] #genForm .px-char.px-char-new,
+body[data-workflow="manual"] #genForm .px-char.px-char-slots { padding: 0 10px; }
+body[data-workflow="manual"] #genForm .px-slot { min-height: 58px; }
+body[data-workflow="manual"] #genForm .px-slot-start { min-height: 62px; }
+body[data-workflow="manual"] #genForm .px-slot-empty { padding: 4px 6px; gap: 2px; }
+body[data-workflow="manual"] #genForm .px-slot-empty .ph { width: 16px; height: 16px; }
+body[data-workflow="manual"] #genForm .composer-refs .picker-drop:not(.has-image) { min-height: 60px; padding: 6px 10px; }
+body[data-workflow="manual"] #genForm .composer-refs .picker-empty .picker-icon { margin-bottom: 2px; }
+body[data-workflow="manual"] #genForm .composer-refs h2 { font-size: 13px; margin: 2px 0 4px; }
+body[data-workflow="manual"] #genForm #i2vRefModeRow { margin-top: 6px !important; }
+body[data-workflow="manual"] #genForm #i2vRefModeGroup .pill-btn {
+  display: inline-flex; flex-direction: row; align-items: center; justify-content: center;
+  gap: 5px; min-height: 28px; padding: 3px 8px; font-size: 13px;
+}
+body[data-workflow="manual"] #genForm #i2vRefModeGroup .pill-btn .sub { margin: 0; font-size: 13px; }
+body[data-workflow="manual"] #genForm .composer-refs .hint { line-height: 1.35; }
+
+body[data-workflow="manual"] #genForm .composer-card > textarea.composer-prompt {
+  min-height: 80px; padding: 7px 11px 9px; font-size: 14.5px !important; line-height: 1.42;
+}
+body[data-workflow="manual"] #genForm .composer-card .composer-tools {
+  padding: 4px 8px; gap: 4px;
+}
+body[data-workflow="manual"] #genForm .composer-card .composer-tools .ghost-btn,
+body[data-workflow="manual"] #genForm .composer-card .composer-tools .ct-link,
+body[data-workflow="manual"] #genForm .composer-card .composer-tools .toggle-pill {
+  height: 27px; padding: 0 8px; font-size: 13px !important;
+}
+body[data-workflow="manual"] #genForm .composer-card .composer-tools .ct-hint {
+  font-size: 13px; flex: 1 1 120px; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* 4 · How it looks — compact Shot setup, inline active LoRA pills, calm disclosures */
+body[data-workflow="manual"] #genForm > .sf-step-look { margin: 10px 0 4px; }
+body[data-workflow="manual"] #genForm .quick-settings > .customize-section:first-child { margin-top: 2px; }
+body[data-workflow="manual"] #genForm .cz-summary,
+body[data-workflow="manual"] #genForm .loras-summary {
+  min-height: 38px; padding: 7px 2px;
+}
+body[data-workflow="manual"] #genForm .cz-title,
+body[data-workflow="manual"] #genForm .loras-title { font-size: 14px; }
+body[data-workflow="manual"] #genForm .cz-meta,
+body[data-workflow="manual"] #genForm .loras-meta { font-size: 13px; }
+body[data-workflow="manual"] #genForm .cz-body { padding: 2px 2px 10px; }
+body[data-workflow="manual"] #genForm .form-divider { display: none; }
+
+.loras-active-strip {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 8px;
+}
+.loras-active-strip[hidden] { display: none !important; }
+.lora-active-pill {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 3px 5px 3px 9px; border-radius: 999px;
+  border: 1px solid var(--v3-line, var(--border));
+  background: var(--v3-quiet, rgba(255,255,255,0.04));
+  font-size: 13px; color: var(--text);
+}
+.lora-pill-name {
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600;
+}
+.lora-step-btn, .lora-pill-x {
+  flex: 0 0 auto; width: 20px; height: 20px; min-width: 20px; padding: 0; margin: 0;
+  display: inline-grid; place-items: center; border-radius: 50%;
+  border: 1px solid var(--site-line-soft, var(--border)); background: transparent;
+  color: var(--muted); font-family: var(--mono); font-size: 13px; line-height: 1; cursor: pointer;
+}
+.lora-step-btn:hover, .lora-pill-x:hover { color: var(--text); background: var(--v2-hover); }
+.lora-pill-x:hover { color: #ff9b95; }
+.lora-step-val {
+  min-width: 36px; text-align: center; font-family: var(--mono); font-size: 13px; color: var(--text);
+}
+
+/* Sticky Generate footer — readable derived summary + non-overflowing queue chips */
+body[data-workflow="manual"] .form-pane .form-action-footer {
+  margin: 6px calc(-1 * var(--v2-col)) 0; padding: 6px var(--v2-col) 8px;
+}
+body[data-workflow="manual"] .form-pane .form-action-footer .queue-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 3px 4px;
+  margin-bottom: 5px; overflow: visible;
+}
+body[data-workflow="manual"] .form-pane .form-action-footer .queue-strip .qchip-spacer {
+  display: none;
+}
+body[data-workflow="manual"] .form-pane .form-action-footer .queue-strip .qchip {
+  flex: 0 0 auto; height: 24px; padding: 0 7px; gap: 4px; font-size: 13px !important;
+}
+body[data-workflow="manual"] .form-pane .form-action-footer .queue-strip .qchip-derived {
+  flex: 1 0 100%; order: -1; min-width: 0; max-width: 100%; padding: 0 2px 1px;
+  text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px !important; line-height: 1.25;
+}
+body[data-workflow="manual"] .form-pane .form-action-footer .h3-facefix-footer {
+  margin: 0 0 5px; padding: 2px 6px; font-size: 13px; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body[data-workflow="manual"] .form-pane .form-action-footer .actions .primary,
+body[data-workflow="manual"] .form-pane .form-action-footer .actions #genBtn {
+  height: 36px; font-size: 15px !important;
+}
+body[data-workflow="manual"] .form-pane .form-action-footer .actions .danger {
+  height: 36px; min-width: 68px; padding: 0 12px; font-size: 14px !important;
+}
+
+/* ==========================================================================
+   LAYOUT v3 — OWNER FEEDBACK 3 (22 Nov 2026): ONE HARMONIZED STUDIO
+   One small system every page uses: quiet Pro tags (Free only), the model
+   picker small in the header, the queue as a thin line while idle, slim
+   docks (the main button + a small More menu), "?" help instead of
+   paragraphs, and one section-head style. The right side (player, Outputs),
+   the tool rail and the logo/header sizes are not touched here.
+   ========================================================================== */
+
+/* ---- 1. Pro tags: tiny and quiet; a Pro member never sees them ---------- */
+body .pro-tag {
+  height: 15px; padding: 0 4px; margin-left: 5px; gap: 0;
+  border: 1px solid color-mix(in srgb, var(--site-violet) 30%, transparent); border-radius: 4px;
+  background: transparent; color: color-mix(in srgb, var(--site-violet) 55%, var(--muted));
+  font: 600 9.5px/1 var(--sans); /* the tiny Pro badge (owner: tiny and quiet), not reading text */ letter-spacing: .05em; text-transform: uppercase;
+  box-shadow: none; vertical-align: 1px;
+}
+body .pro-tag.is-lead { margin: 0 6px 0 0; }
+/* Members: every Pro tag goes (they already have Pro). The What's new pop-up keeps its own content
+   exactly (standing rule), so its tags stay; the PRO mark by the logo is .pro-mark, not a tag. */
+html[data-pro]:not([data-pro=""]) .pro-tag,
+html[data-pro]:not([data-pro=""]) .tool-rail .workflow-tabs .rail-pro { display: none !important; }
+html[data-pro]:not([data-pro=""]) #whatsNewCard .pro-tag { display: inline-flex !important; }
+/* The mode-bar badge sits inline now (it used to float over the tile edge). */
+body #modeGroup .mode-chip[data-mode="revoice"] .pro-tag { position: static; top: auto; right: auto; margin: 0 0 0 3px; }
+
+/* ---- 2. The model picker, small, in the header --------------------------- */
+body > header .engine-pick { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; margin: 0 0 0 4px; }
+body > header .engine-pick:has(> .engine-switch[hidden]),
+body[data-workflow="editor"] > header .engine-pick { display: none; }
+body > header .engine-pick .engine-pick-label { flex: none; font: 600 13px/1 var(--sans); color: var(--muted); letter-spacing: .02em; }
+body > header .engine-pick .hdr-div { display: none !important; }
+body > header .engine-pick .engine-switch {
+  display: flex; flex: 0 1 auto; min-width: 0; height: auto; padding: 0; gap: 0;
+  border: 0; border-radius: 0; background: none; box-shadow: none;
+}
+body > header .engine-pick .eng-trigger {
+  display: inline-flex; align-items: center; justify-content: flex-start; gap: 7px;
+  width: auto; max-width: 280px; min-width: 0; height: 34px; min-height: 34px; padding: 0 10px 0 9px;
+  border: 1px solid var(--v3-line, var(--border)); border-radius: 8px; background: var(--v3-tile, transparent);
+  box-shadow: none; filter: none; transform: none; color: var(--text);
+  font: 600 13.5px/1 var(--sans) !important; white-space: nowrap; overflow: hidden;
+}
+body > header .engine-pick .eng-trigger:hover { border-color: var(--v3-hover-line, var(--accent)); background: var(--v3-hover, var(--v2-hover)); transform: none; }
+body > header .engine-pick .eng-trigger .eng-seg-name { overflow: hidden; text-overflow: ellipsis; }
+body > header .engine-pick .eng-trigger .eng-seg-gen { font: 400 13px/1 var(--mono); color: var(--muted); }
+body > header .engine-pick .eng-trigger .eng-mark svg { width: 15px; height: 15px; }
+body > header .engine-pick .eng-trigger .eng-caret { width: 11px; height: 11px; margin-left: 2px; opacity: .7; }
+@media (max-width: 1380px) {
+  body > header .engine-pick .engine-pick-label,
+  body > header .engine-pick .eng-trigger .eng-seg-gen { display: none; }
+}
+/* The column no longer starts with a Model row: the first heading gets the top breathing room. */
+body[data-workflow="manual"] .form-pane > .sf-step-make { margin-top: 14px; }
+
+/* ---- 3. The queue: a thin line while idle, opens by itself, folds by hand */
+.bottom-pane .tabs { position: relative; }
+.bp-fold-summary { display: none; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bp-fold-btn {
+  flex: none; width: 24px; height: 22px; min-width: 0; padding: 0; margin: 0 0 0 4px;
+  display: inline-grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer;
+}
+.bp-fold-btn:hover { color: var(--text); background: var(--v2-hover); }
+.bp-fold-btn .ph { width: 12px; height: 12px; transition: transform .18s ease; }
+.bp-fold-bar { display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: transparent; }
+.bp-fold-bar > span { display: block; height: 100%; width: 0; background: var(--v3-cyan, var(--accent)); transition: width .4s ease; }
+body.bp-folded .bp-fold-btn .ph { transform: rotate(180deg); }
+body.bp-folded #bottomPane { max-height: 30px; }
+body.bp-folded #bottomPane .bottom-body { display: none; }
+body.bp-folded #bottomPane .tabs { padding: 3px 10px 3px 12px; gap: 2px; min-height: 0; }
+body.bp-folded #bottomPane .tabs button[data-tab] { height: 22px; padding: 0 7px; font-size: 13px; }
+body.bp-folded #bottomPane .tabs button[data-tab]::after { display: none; }
+body.bp-folded #bottomPane .tabs button[data-tab="now"] { display: none; }
+body.bp-folded #bottomPane .bp-fold-summary { display: inline-block; flex: 0 1 auto; margin: 0 6px 0 2px; }
+body.bp-folded #bottomPane .model-credit { display: none; }
+body.bp-folded #bottomPane .bp-fold-bar { display: block; }
+/* Open, it never takes a third of the screen. */
+#bottomPane { max-height: min(250px, 28vh); }
+#bottomPane .bottom-body { min-height: 0; overflow: auto; }
+
+/* ---- 4. Slim docks: the main button + a small More menu ------------------ */
+.form-action-footer .dock-line { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 0 6px; }
+.form-action-footer .dock-line:empty { display: none; }
+.form-action-footer .dock-line .qchip-derived {
+  flex: 1 1 auto; min-width: 0; max-width: 100%; height: auto; padding: 0 2px; margin: 0; border: 0; background: none; box-shadow: none;
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 400 13px/1.3 var(--mono) !important; color: var(--muted); cursor: pointer;
+}
+.form-action-footer .dock-line .qchip-derived:hover { color: var(--text); }
+.form-action-footer .actions { display: flex; align-items: stretch; gap: 6px; }
+.form-action-footer .actions > .primary, .form-action-footer .actions > #genBtn { order: 1; flex: 1 1 auto; }
+.form-action-footer .actions > .danger.js-stop-btn { order: 2; flex: 0 0 auto; min-width: 0; padding: 0 12px; }
+.form-action-footer .actions > .danger.js-stop-btn:disabled { opacity: .45; }
+.form-action-footer .actions > .dock-more { order: 3; }
+.dock-more { position: relative; flex: 0 0 auto; }
+.dock-more > summary { list-style: none; }
+.dock-more > summary::-webkit-details-marker { display: none; }
+.dock-more-btn {
+  display: inline-flex; align-items: center; gap: 5px; height: 100%; min-height: 34px; padding: 0 11px;
+  border: 1px solid var(--v3-line, var(--border)); border-radius: 8px; background: var(--v3-tile, transparent);
+  color: var(--muted); font: 600 13px/1 var(--sans); cursor: pointer; user-select: none;
+}
+.dock-more-btn .ph { width: 14px; height: 14px; }
+.dock-more-btn:hover, .dock-more[open] > .dock-more-btn { color: var(--text); border-color: var(--v3-hover-line, var(--accent)); }
+.dock-menu {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 60; min-width: 230px; max-width: 320px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 6px;
+  border-radius: 10px; background: var(--site-panel, var(--bg-2));
+  box-shadow: inset 0 0 0 1px var(--site-line, var(--border)), 0 18px 44px -16px rgba(0,0,0,.8);
+}
+html[data-theme="light"] .dock-menu { box-shadow: inset 0 0 0 1px var(--site-line, var(--border)), 0 18px 40px -20px rgba(13,19,48,.35); }
+body .form-action-footer .dock-menu.queue-strip { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; margin: 0; overflow: visible; }
+body .form-action-footer .dock-menu .qchip {
+  justify-content: flex-start; width: 100%; height: 32px; padding: 0 10px; gap: 8px; margin: 0;
+  border: 0; border-radius: 7px; background: none; box-shadow: none; color: var(--text); font-size: 13.5px !important; font-weight: 500;
+}
+body .form-action-footer .dock-menu .qchip:hover { background: var(--v2-hover); }
+body .form-action-footer .dock-menu .qchip-spacer { display: none; }
+body .form-action-footer .dock-menu .check { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0 0; padding: 8px 10px 6px; border-top: 1px solid var(--v3-rule, var(--border)); font-size: 13px; line-height: 1.35; white-space: normal; }
+body .form-action-footer .dock-menu .check[hidden] { display: none; }
+body[data-workflow="manual"] .form-pane .form-action-footer { padding: 8px var(--v2-col) 10px; }
+body[data-workflow="manual"] .form-pane .form-action-footer .actions #genBtn { height: 38px; }
+
+/* ---- 5. "?" help and "More info": explanations never sit in the interface */
+.help-dot { width: 16px; height: 16px; font: 600 10.5px/1 var(--sans); /* a glyph mark, not reading text: the 13px floor is for text */ vertical-align: 1px; margin-left: 4px; }
+.help-pop {
+  margin: 6px 0 8px; padding: 8px 10px; border-left: 2px solid var(--eng-soft, var(--accent));
+  border-radius: 0 6px 6px 0; background: var(--v3-quiet, rgba(255,255,255,.03));
+  color: var(--muted); font-size: 13px; line-height: 1.5;
+}
+.help-pop[hidden] { display: none !important; }
+.help-pop b, .help-pop strong { color: var(--text); font-weight: 600; }
+details.more-info { margin: 4px 0 6px; }
+details.more-info > summary { list-style: none; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: var(--muted); font-size: 13px; }
+details.more-info > summary::-webkit-details-marker { display: none; }
+details.more-info > summary::before { content: "+"; display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--border); border-radius: 50%; font: 600 10px/1 var(--sans); /* glyph mark */ }
+details.more-info[open] > summary::before { content: "–"; }
+details.more-info > summary:hover { color: var(--text); }
+details.more-info > :not(summary) { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+/* ---- 6. One section head everywhere (the Video form's step heads) ------- */
+.ph-sec-head { display: flex; align-items: center; gap: 7px; min-width: 0; margin: 0 0 6px; font: 700 13px/1.25 var(--sans); color: var(--text); }
+.ph-sec-head .ph-sec-sub { flex: 1 1 auto; min-width: 0; font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Phosphene mode icons (feedback 3): scripts/phos_icons.py, one 24-unit grid, 1.7 stroke. */
+body .form-pane > #modeGroup .mode-chip[data-mode="t2v"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 6.5h10M9 6.5V18%22/%3E%3Cpath d=%22M15.5 13.2v5.6l4.6-2.8z%22 fill=%22%23000%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="character"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%2210%22 cy=%228.2%22 r=%223.6%22/%3E%3Cpath d=%22M3.6 19.5c1.1-3.5 3.6-5.3 6.4-5.3s5.3 1.8 6.4 5.3%22/%3E%3Cpath d=%22M18.8 2.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z%22 fill=%22%23000%22 stroke-width=%221.1%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="i2v"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Crect x=%222.6%22 y=%224.2%22 width=%2213.4%22 height=%2211.4%22 rx=%222%22/%3E%3Cpath d=%22M2.9 13.2l3.6-3.4 3.2 3 1.9-1.7 4.2 3.6%22/%3E%3Ccircle cx=%2211.6%22 cy=%227.9%22 r=%221%22/%3E%3Cpath d=%22M16.8 15.8v5.2l4.4-2.6z%22 fill=%22%23000%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="keyframe"]:not([data-kf-default]) { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Crect x=%222.2%22 y=%226.5%22 width=%226.2%22 height=%2211%22 rx=%221.6%22/%3E%3Crect x=%2215.6%22 y=%226.5%22 width=%226.2%22 height=%2211%22 rx=%221.6%22/%3E%3Cpath d=%22M10.4 12h3.4M12.4 10.4l1.6 1.6-1.6 1.6%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-kf-default="multi"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M7.6 12h1.8M14.6 12h1.8%22/%3E%3Cpath d=%22M5 9.4l2.6 2.6L5 14.6 2.4 12z%22/%3E%3Cpath d=%22M12 9.4l2.6 2.6-2.6 2.6L9.4 12z%22 fill=%22%23000%22/%3E%3Cpath d=%22M19 9.4l2.6 2.6-2.6 2.6-2.6-2.6z%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="extend"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Crect x=%222.4%22 y=%226%22 width=%2211%22 height=%2212%22 rx=%222%22/%3E%3Cpath d=%22M16.2 12h5.4M19.2 9.4l2.6 2.6-2.6 2.6%22/%3E%3Cpath d=%22M6.6 10v4l3.2-2z%22 fill=%22%23000%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="v2a"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M3.8 9.4h3.1l4.3-3.6v12.4l-4.3-3.6H3.8z%22/%3E%3Cpath d=%22M14.8 9.2a4 4 0 0 1 0 5.6M17.6 6.6a7.6 7.6 0 0 1 0 10.8%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-lipsync] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M2.6 12c2.2-2.7 4.4-3.6 5.9-2.8.8.4 1.6.4 2.4 0 1.5-.8 3.7.1 5.9 2.8-2.2 2.8-4.9 4.1-7.1 4.1S4.8 14.8 2.6 12z%22/%3E%3Cpath d=%22M2.6 12h14.2%22/%3E%3Cpath d=%22M19.6 9.6v4.8M22 10.8v2.4%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="revoice"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Crect x=%224.6%22 y=%223%22 width=%225.6%22 height=%229.4%22 rx=%222.8%22/%3E%3Cpath d=%22M2.4 10.4a5 5 0 0 0 10 0M7.4 15.4V20%22/%3E%3Cpath d=%22M15 9.2a4.2 4.2 0 0 1 6.6 1.2M21.6 14.8a4.2 4.2 0 0 1-6.6-1.2%22/%3E%3Cpath d=%22M21.8 7.6v2.9h-2.9M14.8 16.4v-2.9h2.9%22/%3E%3C/svg%3E"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="remix"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M3 7h3.4c2 0 3.2 1 4.3 2.7l2.6 4.6c1.1 1.7 2.3 2.7 4.3 2.7H21%22/%3E%3Cpath d=%22M3 17h3.4c1.3 0 2.3-.5 3.1-1.3M14.5 8.3c.8-.8 1.8-1.3 3.1-1.3H21%22/%3E%3Cpath d=%22M18.6 4.6 21 7l-2.4 2.4M18.6 14.6 21 17l-2.4 2.4%22/%3E%3C/svg%3E"); }
+body #remixSubGroup .mode-chip[data-remix="ingredients"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%227%22 cy=%228%22 r=%223.2%22/%3E%3Ccircle cx=%2217%22 cy=%228%22 r=%223.2%22/%3E%3Ccircle cx=%2212%22 cy=%2216.4%22 r=%223.2%22/%3E%3C/svg%3E"); }
+body #remixSubGroup .mode-chip[data-remix="control"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%2214.6%22 cy=%224.6%22 r=%221.8%22/%3E%3Cpath d=%22M8.4 21l2.6-5.2 3 2.2V22M6 11.4l3.8-3 4 .4 2.4 3.2 3 .8M11 15.8l2.2-5.4%22/%3E%3C/svg%3E"); }
+body #remixSubGroup .mode-chip[data-remix="restore"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M12 3.2s-6 6.4-6 10.6a6 6 0 0 0 12 0C18 9.6 12 3.2 12 3.2z%22/%3E%3Cpath d=%22M9 14.6a3 3 0 0 0 3 2.8%22/%3E%3C/svg%3E"); }
+body #remixSubGroup .mode-chip[data-remix="upscale"] { --mi: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.7%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5%22/%3E%3Crect x=%228.4%22 y=%228.4%22 width=%227.2%22 height=%227.2%22 rx=%221.4%22/%3E%3C/svg%3E"); }
+
+/* ---- 7. Mode buttons: small tiles, a clear icon over one short word ---- */
+body[data-workflow="manual"] .form-pane > #modeGroup.mode-bar {
+  display: flex !important; flex-wrap: wrap; gap: 5px;
+  margin: 0 var(--v2-col) 8px; padding: 0;
+}
+/* Feedback 4: no empty gaps. boot.js modeBarBalance sets --mode-per-row from the tiles that show; a
+   shorter last row's tiles grow to fill it. */
+body[data-workflow="manual"] .form-pane > #modeGroup.mode-bar > .mode-chip {
+  flex: 1 1 calc((100% - (var(--mode-per-row, 5) - 1) * 5px) / var(--mode-per-row, 5) - 1px) !important;
+  max-width: none;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip,
+body[data-workflow="manual"]:not([data-engine="h3"]) .form-pane > #modeGroup .mode-chip[data-h3-only].mode-reachable,
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip.eng-foreign,
+body[data-workflow="manual"] #remixSubGroup .mode-chip {
+  position: relative; display: flex !important; flex-direction: column; align-items: center; justify-content: center;
+  width: auto; min-width: 0; height: 52px; min-height: 52px; padding: 6px 4px 5px; gap: 5px;
+  border-radius: 9px; font-size: 13px !important; font-weight: 600; line-height: 1.1; letter-spacing: 0;
+  white-space: nowrap; text-align: center; overflow: visible; transform: none !important; color: var(--muted);
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip::before,
+body[data-workflow="manual"] #remixSubGroup .mode-chip::before {
+  content: ""; display: block; position: static; flex: 0 0 auto; width: 21px; height: 21px; margin: 0;
+  border: 0; border-radius: 0; box-shadow: none; opacity: .92; grid-row: auto;
+  background: currentColor; -webkit-mask: var(--mi) center / contain no-repeat; mask: var(--mi) center / contain no-repeat;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip:hover,
+body[data-workflow="manual"] #remixSubGroup .mode-chip:hover { color: var(--text); }
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip.active,
+body[data-workflow="manual"] #remixSubGroup .mode-chip.active {
+  color: var(--text); border-color: var(--accent-bright, var(--accent));
+  background: color-mix(in srgb, var(--accent-bright, #8b7bff) 14%, transparent);
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip.active::before,
+body[data-workflow="manual"] #remixSubGroup .mode-chip.active::before { background: var(--accent-bright, var(--accent)); opacity: 1; }
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip .mc-eng {
+  position: absolute; top: 4px; right: 4px; margin: 0; opacity: .7; transform: scale(.85); transform-origin: top right;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip .pro-tag {
+  position: absolute !important; top: 3px; right: 3px; margin: 0 !important; height: 13px; padding: 0 3px; font: 600 8.5px/1 var(--sans); /* the tiny Pro badge (owner: tiny and quiet) */
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip.eng-foreign { opacity: .55; }
+body[data-workflow="manual"] #remixSubGroup { margin: -2px var(--v2-col) 8px !important; padding: 6px !important; border-left-width: 1px !important; border-radius: 10px !important; }
+body[data-workflow="manual"] #remixSubGroup > div:first-child { font-size: 13px !important; margin: 0 0 5px 2px !important; }
+body[data-workflow="manual"] #remixSubGroup .mode-bar { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+body[data-workflow="manual"] #remixSubGroup .mode-chip { height: 50px; min-height: 50px; white-space: normal; font-size: 13px !important; }
+body .form-action-footer .dock-menu .qchip { display: flex; align-items: center; justify-content: flex-start; text-align: left; }
+body .form-action-footer .dock-menu .qchip .ph { width: 14px; height: 14px; flex: none; opacity: .8; }
+
+/* ---- 8. Pages A: One Shot, Storyboard, Audio (feedback 3) ---------------- */
+/* Page-A rules go directly above the section-9 marker. */
+
+/* One Shot: the Video form's heads, explanations behind "?", tighter rows. */
+.form-pane > #oneshotSectionTab { padding-top: 10px; gap: 8px; }
+#oneshotSectionTab .composer-card.os-card { gap: 10px; padding: 12px 14px; }
+#oneshotSectionTab .os-head { margin: 0; }
+#oneshotSectionTab .os-head > span:first-child { display: flex; align-items: baseline; gap: 7px; min-width: 0; flex: 0 1 auto; }
+#oneshotSectionTab .os-head .ph-sec-sub { flex: 0 1 auto; font-size: 13px; }
+#oneshotSectionTab .os-block, #oneshotSectionTab .os-toggle { gap: 6px; }
+#oneshotSectionTab .os-two, #oneshotSectionTab .os-toggles { gap: 8px; }
+#oneshotSectionTab .qs-label { display: flex; flex-wrap: nowrap; align-items: center; gap: 7px; margin: 0; min-width: 0; }
+#oneshotSectionTab .qs-label .qs-name {
+  flex: 0 0 auto; font: 700 13px/1.25 var(--sans); font-size: 13px !important; color: var(--text);
+  text-transform: none; letter-spacing: 0; white-space: nowrap;
+}
+#oneshotSectionTab .qs-label .qs-meta {
+  flex: 0 1 auto; min-width: 0; font: 400 13px/1.3 var(--sans); font-size: 13px !important; color: var(--muted);
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#oneshotSectionTab .qs-label .help-dot { flex: none; margin-left: 0; }
+#oneshotSectionTab .help-pop { margin: 0; }
+#oneshotSectionTab .help-pop .os-engine-meta:not(:empty)::before { content: " "; }
+/* The three switches: name + "?" on the left, a small On/Off on the right. */
+#oneshotSectionTab .os-toggle { grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; }
+#oneshotSectionTab .os-toggle > .help-pop { grid-column: 1 / -1; order: 3; }
+#oneshotSectionTab .os-toggle .qs-label .qs-name { white-space: normal; flex: 0 1 auto; }
+#oneshotSectionTab .os-toggle .pill-group.cols-2 { width: 128px; gap: 3px; }
+#oneshotSectionTab .os-toggle .pill-btn { min-height: 28px; height: 28px; padding: 0 8px; font-size: 13px; }
+#oneshotSectionTab .os-toggle .pill-btn .sub { display: none; }
+#oneshotSectionTab .os-beats-tools { gap: 6px; }
+#oneshotSectionTab .os-estimate:empty { display: none; }
+#oneshotSectionTab .os-character-note { font-size: 13px; margin: 0; }
+
+#oneshotSectionTab #osCharacterGroup { display: flex; flex-wrap: wrap; gap: 5px; }
+#oneshotSectionTab #osCharacterGroup .pill-btn { flex: 0 1 auto; width: auto; min-height: 0; height: auto; padding: 5px 10px; gap: 0; line-height: 1.25; text-align: left; align-items: flex-start; }
+#oneshotSectionTab #osCharacterGroup .pill-btn .sub { font-size: 13px; }
+#oneshotSectionTab #osLengthGroup .ql-spec { display: none; }
+#oneshotSectionTab .quality-strip .pill-btn { min-height: 0; padding: 6px 8px; gap: 1px; }
+#oneshotSectionTab .quality-strip .pill-btn .sub, #oneshotSectionTab .quality-strip .ql-tier { font-size: 13px; line-height: 1.25; }
+#oneshotSectionTab .os-estimate { font-size: 13px; line-height: 1.45; color: var(--muted); }
+
+#oneshotSectionTab .os-beat-rows .os-beat { height: 32px; min-height: 32px; padding-top: 0; padding-bottom: 0; }
+#oneshotSectionTab .os-beat-rows { gap: 4px; }
+
+/* Storyboard: Video-form heads (restyled .cz-label), help behind "?", tighter rows. */
+.form-pane > #sbSectionTab { padding-top: 10px; }
+#sbSectionTab .cz-control { margin-bottom: 10px; }
+#sbSectionTab .cz-label {
+  display: flex; align-items: baseline; gap: 7px; min-width: 0; margin: 0 0 6px;
+  font: 700 13px/1.25 var(--sans); font-size: 13px !important; color: var(--text);
+  letter-spacing: 0; text-transform: none; white-space: nowrap;
+}
+#sbSectionTab .cz-label .cz-label-hint {
+  flex: 0 1 auto; min-width: 0; margin-left: 0; font-weight: 400; font-size: 13px !important; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#sbSectionTab .sb-head-row { display: flex; align-items: center; gap: 7px; min-width: 0; margin: 0 0 6px; }
+#sbSectionTab .sb-head-row > .cz-label { margin: 0; flex: 0 1 auto; }
+#sbSectionTab .sb-head-row > .help-dot { flex: none; margin-left: 0; }
+#sbSectionTab .help-pop { margin: 6px 0 0; }
+#sbSectionTab .sb-boards-head { font: 700 13px/1.25 var(--sans); color: var(--text); letter-spacing: 0; text-transform: none; margin: 0 0 6px; }
+#sbSectionTab .sb-brief { margin-bottom: 10px; }
+#sbSectionTab .quality-strip .pill-btn, #sbSectionTab #sbTakeGroup .pill-btn { min-height: 0; padding: 6px 4px; gap: 1px; }
+#sbSectionTab .quality-strip .pill-btn .sub, #sbSectionTab #sbTakeGroup .pill-btn .sub { font-size: 13px; line-height: 1.25; }
+#sbSectionTab #sbEngineGroup .pill-btn { min-height: 0; padding: 6px 4px; gap: 1px; line-height: 1.25; }
+#sbSectionTab #sbEngineGroup .pill-btn .sub { font-size: 13px; }
+#sbSectionTab #sbEngineGroup .eng-mark { margin-bottom: 0; }
+#sbSectionTab .sb-track-signpost { display: block; margin-top: 5px; font-size: 13px !important; color: var(--muted); }
+#sbSectionTab .cz-meta#sbLocMeta { font-size: 13px; margin-top: 4px; }
+#sbSectionTab .sb-switch-head { margin: 4px 0 4px; }
+#sbSectionTab .sb-switch-head .help-dot { margin-left: 0; }
+#sbSectionTab label.check.sb-auto { margin: 0 0 4px; font-size: 13px; line-height: 1.35; }
+#sbSectionTab .form-action-footer #sbRamLine { margin: 0 0 6px; font-size: 13px; line-height: 1.35; color: var(--muted); }
+#sbSectionTab .form-action-footer #sbRamLine .help-dot { margin-left: 4px; }
+
+#sbSectionTab #sbMustSection > .cz-summary { padding-top: 8px; padding-bottom: 8px; }
+#sbSectionTab #sbMustSection .cz-title { font: 700 13px/1.25 var(--sans); font-size: 13px !important; }
+#sbSectionTab #sbMustSection .cz-meta, #sbSectionTab #sbLocMeta { font-family: var(--sans); font-size: 13px !important; letter-spacing: 0; color: var(--muted); }
+
+/* Audio: Compose, Speech, Music video and Lip-sync on the shared heads, help behind "?". */
+.form-pane > #audioSectionTab { padding-top: 10px; }
+#audioSectionTab .pa-label-row, #audioSectionTab .pa-head-row, #audioSectionTab .pa-check-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+#audioSectionTab .pa-label-row > label, #audioSectionTab .pa-label-row > .mf-label, #audioSectionTab .pa-label-row > span { margin: 0; flex: 0 1 auto; min-width: 0; }
+#audioSectionTab .pa-label-row { margin: 8px 0 4px; }
+#audioSectionTab .pa-head-row > h2 { flex: 0 1 auto; min-width: 0; margin: 0; }
+#audioSectionTab .pa-check-row > label { flex: 0 1 auto; margin-top: 6px !important; }
+#audioSectionTab .pa-check-row > .help-dot { margin-top: 6px; }
+#audioSectionTab .help-dot { flex: none; margin-left: 4px; }
+#audioSectionTab .help-pop { margin: 4px 0 6px; }
+/* Heads: the Video form's 13px title with a muted one-line sub. */
+#audioSectionTab h2 { font: 700 13px/1.3 var(--sans); font-size: 13px !important; letter-spacing: 0; text-transform: none; color: var(--text); margin: 0 0 6px; }
+#audioSectionTab h2 .h2-hint { margin-left: 6px; font-size: 13px !important; color: var(--muted); }
+#audioSectionTab .studio-head { margin-bottom: 8px; align-items: center; }
+#audioSectionTab .studio-title { display: flex; align-items: center; gap: 2px; font: 700 13px/1.3 var(--sans); font-size: 13px !important; color: var(--text); }
+#audioSectionTab .studio-sub.help-pop { font-size: 13px; }
+#audioSectionTab .mf-label, #audioSectionTab .composer-card > label, #audioSectionTab .pa-label-row > label,
+#audioSectionTab .range-strip > label, #audioSectionTab .lyr-title { font-size: 13px !important; font-weight: 600; color: var(--text); letter-spacing: 0; text-transform: none; }
+#audioSectionTab .lyr-title { display: inline-flex; align-items: center; }
+#audioSectionTab .hint { font-size: 13px; }
+/* The three-way switch: small tiles, the word over a short sub. */
+#audioSectionTab #audioModeGroup { gap: 4px; margin-bottom: 8px; }
+#audioSectionTab #audioModeGroup .mode-chip { min-height: 0; height: auto; padding: 6px 4px; line-height: 1.2; font-size: 13px; }
+#audioSectionTab #audioModeGroup .mode-chip .mc-sub { font-size: 13px; margin-top: 1px; }
+/* Tighter cards and rows. */
+#audioSectionTab .composer-card { padding: 12px 14px; }
+#audioSectionTab .composer-refs + .composer-refs { margin-top: 10px; }
+#audioSectionTab .studio-ref-slot[data-slot="song"], #audioSectionTab .studio-ref-slot[data-slot="audio"] { min-height: 64px !important; }
+#audioSectionTab .studio-ref-slot[data-slot="song"] .hint, #audioSectionTab .studio-ref-slot[data-slot="audio"] .hint { padding: 14px 12px !important; }
+#audioSectionTab .quick-settings .pill-btn { min-height: 0; padding: 6px 6px; }
+#audioSectionTab .mv-cast:empty { display: none; }
+#audioSectionTab #mvOneShotDetails .cz-sum { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#audioSectionTab details.more-info.a2v-more-info { margin: 8px 0 4px; }
+/* Docks: one summary line, the main button, Stop; credits stay small under it. */
+#audioSectionTab .form-action-footer .dock-line > .help-dot { margin-left: 0; }
+#audioSectionTab .form-action-footer .dock-line .qchip-derived:empty { display: none; }
+#audioSectionTab .form-action-footer > .help-pop { margin: 6px 0 0; }
+#audioSectionTab .form-action-footer .music-credit { font-size: 13px; margin-top: 4px; }
+#audioSectionTab #audioStudioFooter .actions > #audioStudioDraftBtn { order: 2; flex: 0 0 auto; padding: 0 10px; }
+#audioSectionTab #audioStudioFooter .actions > .danger.js-stop-btn { order: 3; }
+
+#audioSectionTab #mvFooter .actions > .help-dot { order: 2; align-self: center; margin: 0 2px; }
+#audioSectionTab .studio-ref-slot[data-slot="song"] .hint, #audioSectionTab .studio-ref-slot[data-slot="audio"] .hint { padding: 22px 12px 10px !important; }
+#audioSectionTab .composer-card > label .sub { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: 4px; }
+#audioSectionTab .mini-fields .mf-label { font-size: 13px !important; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text); }
+#audioSectionTab .customize-section > .cz-summary .cz-title, #audioSectionTab .cz-section > .cz-summary .cz-title { font: 700 13px/1.3 var(--sans); font-size: 13px !important; white-space: nowrap; }
+#audioSectionTab #mvOneShotDetails > .cz-summary { gap: 8px; }
+#audioSectionTab #mvOneShotDetails .quick-settings { margin-top: 8px; }
+
+/* ---- 9. Pages B: Images, Editor, Train and the other screens (feedback 3) */
+/* Page-B rules go directly above the section-10 marker. */
+
+/* -- Images (#studioSection) -- */
+#studioSection .img-sec-head { margin: 0 0 8px; }
+#studioSection .img-sec-head + .help-pop { margin: -2px 0 8px; }
+#studioSection .composer-refs { padding: 12px 14px 10px; }
+#studioSection .studio-ref-grid { gap: 8px; }
+#studioSection .studio-ref-recent-label { font-size: 13px; color: var(--muted); }
+#studioSection .ideo-panel { padding: 10px 14px; }
+#studioSection .ideo-head { align-items: center; gap: 10px; margin-bottom: 6px; }
+#studioSection .ideo-head-title.ph-sec-head { display: inline-flex; margin: 0; }
+#studioSection #ideoHeadHelp > span { display: block; }
+#studioSection #ideoHeadHelp > span + span { margin-top: 4px; }
+#studioSection #ideoHeadHelp .ideo-simple-hint[hidden] { display: none; }
+#studioSection .ideo-setup-body { display: block; }
+#studioSection .ideo-setup-note { padding: 8px 10px; margin-bottom: 8px; align-items: center; }
+#studioSection .ideo-setup-body strong { display: inline; margin: 0; font-weight: 600; }
+#studioSection #ideoHeadHelp .ideo-simple-hint { padding: 0; border: 0; background: none; font-size: inherit; color: inherit; }
+#studioSection .ideo-setup-body > .help-pop { margin: 6px 0 0; }
+#studioSection .ideo-stage-note { display: flex; align-items: center; gap: 2px; margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+#studioSection .ideo-stage-note + .help-pop { margin-top: 4px; }
+#studioSection .ideo-ctrl-cell .mf-label,
+#studioSection .ideo-insp-cell .mf-label,
+#studioSection .ideo-insp-row .mf-label { font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text); }
+#studioSection .studio-status-row { margin: 4px 0 0 !important; }
+#studioSection .studio-status-row:has(#imgStudioStatus:empty) { display: none; }
+#studioSection .quick-settings { gap: 8px; margin: 10px 0 8px; }
+#studioSection .quick-settings { grid-template-columns: minmax(0, 1fr); }
+#studioSection .quick-settings > * { min-width: 0; }
+#studioSection .quick-settings .qs-label { margin-bottom: 5px; gap: 2px 8px; }
+#studioSection .quick-settings .qs-label .qs-name { font-size: 13px !important; font-weight: 700; color: var(--text); text-transform: none; letter-spacing: 0; }
+#studioSection .quick-settings .qs-label .qs-meta { font-size: 13px !important; color: var(--muted); }
+#studioSection .mini-fields { gap: 6px; }
+#studioSection .mini-fields .mf-label { font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text); }
+#studioSection .mini-fields { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); grid-auto-flow: row; }
+#studioSection .mini-fields .mf-cell { min-width: 0; }
+#studioSection .mini-fields .mf-cell > select, #studioSection .mini-fields .mf-cell > input { width: 100%; min-width: 0; box-sizing: border-box; }
+#studioSection .studio-engine-row { min-width: 0; max-width: 100%; }
+#studioSection .studio-engine-row > select { min-width: 0; max-width: 100%; }
+#studioSection .ideo-prompt-label { margin: 0 0 6px; padding: 0 14px; font: 700 13px/1.25 var(--sans); text-transform: none; letter-spacing: 0; color: var(--text); }
+#studioSection details.img-flux3-info { margin: 0; }
+#studioSection details.img-flux3-info[hidden] { display: none; }
+#studioSection details.img-flux3-info > p { margin: 6px 0 0; }
+#studioSection #formActionFooterStudio { padding: 8px var(--v2-col) 10px; }
+#studioSection #formActionFooterStudio .actions > #imgStudioGenBtn { height: 38px; min-height: 38px; }
+#studioSection #formActionFooterStudio .actions > .js-stop-btn { height: 38px; min-height: 38px; }
+
+/* -- Train (#trainSection) -- */
+/* The old h2 + hint pair takes the ph-sec-head look: 13px bold title, one muted line. */
+#trainSection h2 { display: flex; align-items: baseline; white-space: nowrap; gap: 7px; min-width: 0; margin: 0 0 8px; font: 700 13px/1.25 var(--sans) !important; color: var(--text); }
+#trainSection h2 .h2-hint { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 13px !important; font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#trainSection h2 .h2-hint.warn { white-space: normal; color: var(--warning); }
+#trainSection .train-head-row { display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0 0 8px; }
+#trainSection .train-head-row > h2 { flex: 0 1 auto; margin: 0 !important; }
+#trainSection .train-head-row > .help-dot { flex: none; }
+#trainSection .pane-card, #trainSection .composer-card.train-card { padding: 12px 14px; margin-bottom: 10px; }
+#trainSection .train-guidance { margin-bottom: 10px; }
+#trainSection .train-guidance > summary { padding-top: 9px; padding-bottom: 9px; }
+#trainSection .train-drop-empty { padding: 14px 12px; gap: 6px; }
+#trainSection .train-counter-row { gap: 6px; align-items: center; margin-top: 8px; }
+#trainSection .train-counter-row + .help-pop { margin-top: 6px; }
+#trainSection .train-autocaption-row { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; margin-top: 8px; }
+#trainSection .train-autocaption-row > .train-autocaption-btn { flex: 1 1 auto; min-width: 0; }
+#trainSection .train-trigger-row { align-items: center; }
+#trainSection .train-trigger-row + .help-pop { margin-top: 6px; }
+#trainSection .train-voice-empty { padding: 12px; gap: 4px; }
+#trainSection .train-voice-steps .mf-label { display: inline-flex; align-items: center; }
+#trainSection .train-voice-help-pop .train-voice-help { font-size: inherit; color: inherit; }
+#trainSection .train-preset-note.help-pop { margin-top: 6px; }
+#trainSection .train-advanced > summary { font-size: 13px; }
+#trainSection .studio-status-row:has(#trainStatus:empty) { display: none; }
+#trainSection #formActionFooterTrain { padding: 8px var(--v2-col) 10px; }
+#trainSection #formActionFooterTrain .actions > #trainStartBtn,
+#trainSection #formActionFooterTrain .actions > .js-stop-btn { height: 38px; min-height: 38px; }
+
+/* -- Editor: the left column (media pool) only; the viewer and timeline keep their proportions -- */
+body[data-workflow="editor"] #edSectionTab .ed-pool-head { align-items: center; gap: 6px; padding-bottom: 2px; }
+body[data-workflow="editor"] #edSectionTab .ed-pool-head h3 { font: 700 13px/1.25 var(--sans) !important; letter-spacing: 0; text-transform: none; color: var(--text); }
+body[data-workflow="editor"] #edSectionTab .ed-pool-head .ghost-btn { height: 28px; min-height: 28px; padding: 0 10px; font-size: 13px; }
+body[data-workflow="editor"] #edSectionTab .ed-pool-src-label { font-size: 13px; font-weight: 600; color: var(--text); }
+body[data-workflow="editor"] #edSectionTab .ed-pool-tabs .ed-pool-src,
+body[data-workflow="editor"] #edSectionTab .ed-pool-make .sb-input,
+body[data-workflow="editor"] #edSectionTab .ed-pool-search { height: 32px; min-height: 32px; font-size: 13px; }
+body[data-workflow="editor"] #edSectionTab .ed-pool-make .ghost-btn { height: 32px; min-height: 32px; font-size: 13px; }
+body[data-workflow="editor"] #edSectionTab .ed-pool-note { font-size: 13px; }
+body[data-workflow="editor"] #edSectionTab .ed-rt-head { display: flex; align-items: center; gap: 2px; }
+body[data-workflow="editor"] #edSectionTab .ed-rt-title { font: 700 13px/1.25 var(--sans); color: var(--text); }
+body[data-workflow="editor"] #edSectionTab .ed-rt-status { margin-left: auto; }
+body[data-workflow="editor"] #edSectionTab .ed-rt-sub.help-pop { margin: 4px 0 6px; }
+
+/* -- Remote (#remoteSection): one compact head, the explanation behind "?" -- */
+#remoteSection .rm-wrap { padding-top: 16px; }
+#remoteSection .rm-head { gap: 12px; margin-bottom: 14px; padding: 10px 14px; }
+#remoteSection .rm-mark { width: 36px; height: 36px; border-radius: 10px; }
+#remoteSection .rm-mark .ph { width: 18px; height: 18px; }
+#remoteSection .rm-title-row { display: flex; align-items: center; gap: 2px; }
+#remoteSection .rm-head h2 { margin: 0; font-size: 16px !important; font-weight: 700; }
+#remoteSection .rm-head .rm-lede.help-pop { margin: 6px 0 0; max-width: 60ch; font-size: 13px; }
+#remoteSection .rm-card { padding: 14px 16px; }
+#remoteSection .rm-card h3 { margin: 0 0 10px; font: 700 13px/1.25 var(--sans); color: var(--text); }
+#remoteSection .rm-card-head { margin-bottom: 8px; justify-content: flex-start; gap: 2px; }
+#remoteSection .rm-card-head > h3 { margin: 0; }
+#remoteSection .rm-card-head > .rm-count, #remoteSection .rm-card-head > .rm-switch { margin-left: auto; }
+#remoteSection .rm-pro-wait h3 { margin-bottom: 6px; }
+
+/* -- Settings (#settingsModal): each section's explanation sits behind its head's "?" -- */
+#settingsModal .models-head:has(> .settings-intro-dot) > h2 { order: 1; }
+#settingsModal .models-head > .settings-intro-dot { order: 2; margin: 0 auto 0 4px; }
+#settingsModal .models-head:has(> .settings-intro-dot) > .ghost-btn { order: 3; }
+#settingsModal .models-hint.help-pop { margin: 4px 0 10px; }
+#settingsModal .settings-head-row { display: flex; align-items: center; gap: 2px; margin: 0 0 8px; }
+#settingsModal .settings-head-row > h3 { margin: 0 !important; font-size: 13px !important; font-weight: 700; }
+#settingsModal .settings-section > h3 { font-size: 13px !important; font-weight: 700; }
+#settingsModal .settings-head-row + .help-pop { margin: 0 0 8px !important; }
+
+/* ---- 10. Video form, round 3 (feedback 3) -------------------------------- */
+/* Picture slots: Phosphene person / place / thing / frame icons (sprite pi-*), drawn at 1.7 stroke. */
+body[data-workflow="manual"] #genForm .px-slot-empty .ph.pi { width: 22px; height: 22px; stroke-width: 1.7; color: var(--accent-bright, var(--accent)); opacity: .95; }
+body[data-workflow="manual"] #genForm .px-slot-empty .pi-pair { display: inline-flex; gap: 3px; }
+body[data-workflow="manual"] #genForm .px-slot-empty .pi-pair .ph.pi { width: 19px; height: 19px; }
+/* Who's in it: the hint is the heading's tooltip; the three-picture meter sits on the same line. */
+body[data-workflow="manual"] #pxWhoGroup .px-q { display: flex; align-items: center; gap: 6px; min-width: 0; }
+body[data-workflow="manual"] #pxWhoGroup .px-q-hint { display: none; }
+.px-meter { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; }
+.px-meter[hidden] { display: none; }
+.px-meter-cells { display: inline-flex; align-items: center; gap: 3px; }
+.px-meter-label { font: 600 13px/1 var(--sans); color: var(--muted); margin-right: 3px; }
+.px-meter-cell { width: 18px; height: 18px; border-radius: 4px; overflow: hidden; display: inline-block; box-shadow: inset 0 0 0 1px var(--accent-bright, var(--accent)); background: var(--v3-tile, rgba(255,255,255,.04)); }
+.px-meter-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.px-meter-cell.is-free { box-shadow: inset 0 0 0 1px var(--border); background: none; border: 1px dashed transparent; }
+.px-meter-count { font: 500 13px/1 var(--mono); color: var(--muted); margin-left: 4px; }
+/* A character's own pictures: the ones in this shot are lit; one click swaps. */
+.px-pic.is-on { border-color: var(--accent-bright, #7e98ff); }
+.px-pic:not(.is-on) { opacity: .7; }
+.px-pic:not(.is-on):hover { opacity: 1; border-color: var(--text); }
+.px-pic { width: 24px; height: 24px; }
+/* Lines: a short label, the line buttons, a "?" (the how-to). */
+body[data-workflow="manual"] #genForm .px-lines { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+body[data-workflow="manual"] #genForm .px-lines[hidden] { display: none; }
+body[data-workflow="manual"] #genForm .px-lines #pxLinesText { font: 600 13px/1 var(--sans); color: var(--muted); }
+body[data-workflow="manual"] #genForm .px-lines-btns { margin: 0; gap: 5px; }
+body[data-workflow="manual"] #genForm .px-crop-help { font-size: 13px; }
+/* Voice (feedback 4): voices belong to characters. With a character picked the field shows only the
+   one-line "this shot speaks in X" (when a chip menu set another voice); with none, a compact row. */
+.voice-render-field.is-auto > :not(.voice-shot-line) { display: none !important; }
+.voice-render-field.is-auto { margin: 2px 0 0; }
+.voice-shot-line { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 4px 0 8px; border: 1px solid var(--v3-line, var(--border)); border-radius: 7px; color: var(--muted); font: 500 13px/1.2 var(--sans); }
+.voice-shot-line[hidden] { display: none !important; }
+.voice-shot-line .ph { width: 13px; height: 13px; flex: none; }
+.voice-shot-x { display: inline-grid; place-items: center; width: 20px; height: 20px; min-width: 0; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--muted); cursor: pointer; }
+.voice-shot-x:hover { color: var(--text); background: var(--v2-hover); }
+.voice-shot-x .ph { width: 11px; height: 11px; }
+body[data-workflow="manual"] #renderVoiceField .voice-render-row { gap: 6px; }
+body[data-workflow="manual"] #renderVoiceField .voice-render-row select { height: 30px; flex: 0 1 220px; min-width: 0; }
+.voice-lib-btn { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; min-width: 0; padding: 0; border: 1px solid var(--v3-line, var(--border)); border-radius: 7px; background: none; color: var(--muted); cursor: pointer; }
+.voice-lib-btn:hover { color: var(--text); border-color: var(--v3-hover-line, var(--accent)); }
+.voice-lib-btn .ph { width: 14px; height: 14px; }
+/* The voice mark on a character chip: a mic (has a voice) or "no voice yet"; both open the chip's menu. */
+.cv-mark { display: inline-grid; place-items: center; flex: none; width: 18px; height: 18px; margin-left: 2px; border-radius: 50%; color: var(--muted); cursor: pointer; }
+.cv-mark .ph { width: 12px; height: 12px; }
+.cv-mark.is-quiet { cursor: inherit; opacity: .6; }
+.cv-mark[data-cv-char]:hover, .cv-mark[data-cv-char]:focus-visible { color: var(--text); background: var(--v2-hover); outline: none; }
+.cv-mark.is-none { color: color-mix(in srgb, #f0b552 75%, var(--muted)); }
+.cv-menu { position: fixed; z-index: 400; min-width: 210px; max-width: 300px; max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 1px; padding: 6px; border-radius: 10px; background: var(--site-panel, var(--bg-2)); box-shadow: inset 0 0 0 1px var(--site-line, var(--border)), 0 18px 44px -16px rgba(0,0,0,.8); }
+.cv-menu[hidden] { display: none; }
+.cvm-head { padding: 6px 8px 3px; font: 600 13px/1.2 var(--sans); color: var(--muted); }
+.cvm-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 0 8px 0 24px; border: 0; border-radius: 6px; background: none; color: var(--text); font: 500 13px/1.25 var(--sans); text-align: left; cursor: pointer; position: relative; }
+.cvm-item:hover, .cvm-item:focus-visible { background: var(--v2-hover); outline: none; }
+.cvm-item.is-on::before { content: ""; position: absolute; left: 9px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--accent-bright, var(--accent)); }
+.cvm-item.cvm-lib { padding-left: 8px; color: var(--muted); }
+.cvm-sep { height: 1px; margin: 4px 2px; background: var(--v3-rule, var(--border)); }
+.voice-render-row .help-dot { flex: none; align-self: center; }
+/* The step-2 head says only what it is. */
+body[data-workflow="manual"] #sfInputsSub { display: none; }
+/* Help dots that the Video form's paragraphs became sit on the heading line. */
+body[data-workflow="manual"] #genForm h2 > .help-dot, #h3SpeedRow .qs-name > .help-dot { margin-left: 6px; }
+body[data-workflow="manual"] #genForm .help-pop.hint, #h3SpeedRow .help-pop { display: block; margin: 6px 0 8px; font-size: 13px; }
+/* The small pictures sit at the top of the slot, clear of the "Pic 1–2 · Name" tag at the bottom. */
+body[data-workflow="manual"] #genForm .px-slot-pics { top: 5px; left: 5px; right: auto; bottom: auto; }
+.px-meter-cell.is-free { box-shadow: none; border: 1px dashed color-mix(in srgb, var(--muted) 60%, transparent); width: 18px; height: 18px; box-sizing: border-box; }
+/* LTX "Who's in it": one line (the hint is the heading's tooltip); the picked-character card is just
+   its buttons, each explanation behind a "?". */
+body[data-workflow="manual"] #manualCharactersPickerSlot .chars-head-hint { display: none; }
+body[data-workflow="manual"] #manualCharactersPickerSlot .chars-head-label { white-space: nowrap; }
+body[data-workflow="manual"] #charsAppliedNote { padding: 6px 8px; gap: 6px; }
+body[data-workflow="manual"] #charsAppliedNote .chars-piconly-row,
+body[data-workflow="manual"] #charsAppliedNote .chars-lines-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; }
+body[data-workflow="manual"] #charsAppliedNote .chars-lines-label { font: 600 13px/1 var(--sans); color: var(--muted); }
+body[data-workflow="manual"] #charsAppliedNote .chars-line-btns { display: inline-flex; flex-wrap: wrap; gap: 5px; margin: 0; }
+body[data-workflow="manual"] #charsAppliedNote .help-pop { margin: 2px 0 4px; }
+/* Free only: the mode tile's Pro tag sits in the tile's corner, clear of the icon. */
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip[data-mode] > .pro-tag { position: absolute !important; top: 3px !important; right: 3px !important; left: auto !important; bottom: auto !important; margin: 0 !important; transform: none !important; }
+
+/* ==========================================================================
+   LAYOUT v4 — OWNER FEEDBACK 4 (22 Nov 2026)
+   Names, not paragraphs: every option shows its name and one small estimate
+   (details in its tooltip); no empty gaps; Easy mode hides, never changes.
+   ========================================================================== */
+
+/* ---- 1. Quality / Length options: the name and one small estimate -------- */
+body[data-engine="ltx"] #qualityGroup:not([hidden]), body[data-engine="ltx"] #qualityGroupCharacter:not([hidden]),
+#ltxLengthGroup, #h3QualityGroup, #h3LengthGroup {
+  display: flex !important; flex-wrap: wrap; gap: 5px; grid-template-columns: none !important;
+}
+#genForm .quality-strip > .q-chip.pill-quality {
+  flex: 1 1 calc((100% - (var(--q-per-row, 5) - 1) * 5px) / var(--q-per-row, 5) - 1px);
+  min-width: 0 !important; min-height: 0 !important; height: auto !important; padding: 6px 3px 5px !important; gap: 2px !important;
+  display: flex !important; flex-direction: column; align-items: center !important; justify-content: center; text-align: center;
+}
+#genForm .quality-strip > .q-chip.pill-quality .ql-name {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 600 14px/1.15 var(--sans) !important; letter-spacing: 0 !important;
+}
+#genForm .quality-strip > .q-chip.pill-quality .ql-tier {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 !important;
+  font: 400 13px/1.15 var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important;
+  color: var(--muted) !important; opacity: .85;
+}
+#genForm .quality-strip > .q-chip.pill-quality.active .ql-tier { opacity: 1; }
+/* The meta lines beside Quality and Length repeated what the options and the dock line say; a custom
+   frame count (no option lit) still prints itself. */
+#genForm #qualityMeta, #genForm #h3LengthMeta, #genForm #ltxLengthMeta:not(.is-custom) { display: none !important; }
+
+/* ---- 2. Easy / Advanced: the switch, and what Easy hides ----------------- */
+.form-level { margin-left: auto; display: inline-flex; flex: none; gap: 0; padding: 2px; border: 1px solid var(--v3-line, var(--border)); border-radius: 8px; }
+.form-level-btn {
+  height: 24px; min-width: 0; padding: 0 9px; margin: 0; border: 0; border-radius: 6px; background: none; box-shadow: none;
+  color: var(--muted); font: 600 13px/1 var(--sans); cursor: pointer;
+}
+.form-level-btn:hover { color: var(--text); }
+.form-level-btn[aria-pressed="true"] { color: var(--text); background: color-mix(in srgb, var(--accent-bright, #8b7bff) 18%, transparent); }
+#sfStepMake { display: flex; align-items: center; }
+/* Easy hides; it never writes a field (boot.js formLevelSet). Video form only. */
+body.form-easy[data-workflow="manual"] #modeGroup > .mode-chip:not([data-mode="t2v"]):not([data-mode="character"]):not([data-mode="i2v"]):not(.active) { display: none !important; }
+body.form-easy[data-workflow="manual"] #genForm #shotSetupDetails > summary,
+body.form-easy[data-workflow="manual"] #genForm #h3SpeedRow,
+body.form-easy[data-workflow="manual"] #genForm #schedPresetRow,
+body.form-easy[data-workflow="manual"] #genForm #ltxAxes,
+body.form-easy[data-workflow="manual"] #genForm #h3LengthLabel,
+body.form-easy[data-workflow="manual"] #genForm #h3LengthGroup,
+body.form-easy[data-workflow="manual"] #genForm #proSpeedRow,
+body.form-easy[data-workflow="manual"] #genForm #h3PrimaryControls,
+body.form-easy[data-workflow="manual"] #genForm #aspectRow,
+body.form-easy[data-workflow="manual"] #genForm #h3OrientationRow,
+body.form-easy[data-workflow="manual"] #genForm #quickMetricsRow,
+body.form-easy[data-workflow="manual"] #genForm #h3CleanSoundRow,
+body.form-easy[data-workflow="manual"] #genForm > .form-divider,
+body.form-easy[data-workflow="manual"] #genForm #loraPickerVideoSlot,
+body.form-easy[data-workflow="manual"] #genForm #sizingSection,
+body.form-easy[data-workflow="manual"] #genForm #comfyKillRow,
+body.form-easy[data-workflow="manual"] #genForm #avoidRow,
+body.form-easy[data-workflow="manual"] #genForm #h3WindowPromptsRow,
+body.form-easy[data-workflow="manual"] #genForm #h3PromptHelper,
+body.form-easy[data-workflow="manual"] #genForm .composer-tools,
+body.form-easy[data-workflow="manual"] #genForm #charsStrengthRow,
+body.form-easy[data-workflow="manual"] #genForm #charsAppliedNote .chars-inline-strength,
+body.form-easy[data-workflow="manual"] #genForm #charsAppliedNote .chars-split-row,
+body.form-easy[data-workflow="manual"] #genForm #manualCharactersPickerSlot .chars-strip-action { display: none !important; }
+body.form-easy[data-workflow="manual"] #shotSetupDetails > .cz-body { padding-top: 0; }
+.easy-carry { display: flex; align-items: center; gap: 6px; margin: 6px var(--v2-col, 14px) 0; color: var(--muted); font: 400 13px/1.3 var(--sans); }
+.easy-carry[hidden] { display: none; }
+.easy-carry-btn { height: 22px; min-width: 0; padding: 0 7px; border: 1px solid var(--v3-line, var(--border)); border-radius: 6px; background: none; color: var(--text); font: 600 13px/1 var(--sans); cursor: pointer; }
+body:not(.form-easy) .easy-carry { display: none !important; }
+
+/* ---- 3. Shot setup: compact rows, names only (sizes and hints in tooltips) */
+#genForm .cz-label:has(+ .help-pop:empty) > .help-dot { display: none; }
+#genForm .label-hint-pop { margin: 4px 0 6px; }
+#genForm .mf-label .help-dot { vertical-align: 0; }
+/* Speed (H3 Fast / Best / Flex, LTX Tuned / Fast draft), Steps, Orientation: one slim row each. */
+#shotSetupDetails #h3SpeedGroup .pill-btn, #shotSetupDetails #schedPresetGroup .pill-btn,
+#shotSetupDetails #h3StepsRow .pill-btn, #shotSetupDetails #h3OrientationGroup .pill-btn {
+  min-height: 0 !important; height: auto; padding: 6px 6px 5px !important; gap: 1px !important; line-height: 1.15;
+}
+#shotSetupDetails #h3SpeedGroup .pill-btn > span:first-child, #shotSetupDetails #schedPresetGroup .pill-btn > span:first-child { font: 600 14px/1.15 var(--sans) !important; }
+#shotSetupDetails #h3SpeedGroup .pill-btn .sub, #shotSetupDetails #schedPresetGroup .pill-btn .sub {
+  font: 400 13px/1.15 var(--sans) !important; color: var(--muted) !important; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+#shotSetupDetails #h3OrientationGroup .pill-btn .sub { display: none !important; }
+#shotSetupDetails #aspectRow .pill-btn { min-height: 0 !important; }
+#shotSetupDetails #quickMetricsRow .mf-label { text-transform: none !important; letter-spacing: 0 !important; font: 600 13px/1.2 var(--sans) !important; color: var(--text); }
+/* LTX Orientation: the same label style as every other row, and the four shapes fill the row. */
+#shotSetupDetails #aspectRow > span:first-child { font: 600 13px/1.2 var(--sans) !important; text-transform: none !important; letter-spacing: 0 !important; color: var(--text) !important; }
+#shotSetupDetails #aspectRow > #aspectGroup { flex: 1 1 auto; display: flex !important; gap: 4px; }
+#shotSetupDetails #aspectRow > #aspectGroup > .pill-btn { flex: 1 1 0; justify-content: center; font-size: 13px !important; }
+#genForm .easy-carry { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 0; padding: 6px 8px 6px 10px; border: 1px dashed var(--v3-line, var(--border)); border-radius: 8px; }
+#genForm .easy-carry[hidden], body:not(.form-easy) #genForm .easy-carry { display: none !important; }
+#genForm .easy-carry > #easyCarryText { flex: 1 1 auto; min-width: 0; }
+#genForm .easy-carry > .easy-carry-btn { flex: none; width: auto !important; min-width: 0 !important; height: 24px !important; padding: 0 9px !important; }
+aside.form-pane .label-hint-folded { display: none !important; }
+aside.form-pane .cz-label:has(+ .help-pop:empty) > .help-dot,
+aside.form-pane h2:has(+ .help-pop:empty) > .help-dot,
+aside.form-pane .qs-label:has(+ .help-pop:empty) > .help-dot { display: none; }
+aside.form-pane .label-hint-pop { margin: 4px 0 6px; }
+
+/* ---- 4. Other pages: names only, sub-lines in tooltips (tips.js SUB_TIP_SCOPE) */
+#audioModeGroup .mode-chip > .mc-sub, #trainTypeGroup .pill-btn > .sub, #sbEngineGroup .pill-btn .sub, #osCharacterGroup .pill-btn > .sub { display: none !important; }
+#audioModeGroup .mode-chip, #trainTypeGroup .pill-btn, #sbEngineGroup .pill-btn { min-height: 0 !important; padding-top: 8px !important; padding-bottom: 8px !important; }
+#osCharacterGroup .pill-btn { min-height: 0 !important; padding: 7px 10px !important; display: inline-flex !important; flex-direction: row !important; align-items: center; justify-content: center; gap: 4px; }
+#oneshotSectionTab #osLengthGroup .q-chip, #oneshotSectionTab #osQualityGroup .q-chip { min-height: 0 !important; padding: 7px 4px !important; justify-content: center !important; align-items: center !important; text-align: center; }
+#oneshotSectionTab #osQualityGroup .ql-tier { font: 400 13px/1.15 var(--sans) !important; text-transform: none !important; letter-spacing: 0 !important; color: var(--muted) !important; }
+#oneshotSectionTab #osQualityGroup .ql-name, #oneshotSectionTab #osLengthGroup .ql-name { font: 600 14px/1.15 var(--sans) !important; white-space: nowrap; }
+/* Train: the "experimental" mark on Style is a small quiet tag (like the Pro tag), not a yellow block. */
+#trainTypeGroup .experimental-tag { display: inline-flex; align-items: center; height: 15px; padding: 0 4px; margin-left: 5px; border: 1px solid color-mix(in srgb, #ffb450 35%, transparent); border-radius: 4px; background: transparent !important; color: color-mix(in srgb, #ffb450 70%, var(--muted)) !important; font: 600 9.5px/1 var(--sans); /* a mark, not reading text */ letter-spacing: .05em; text-transform: uppercase; vertical-align: 1px; }
+
+/* ---- 5. Video form audit (feedback 4) ------------------------------------ */
+/* The selected option's long note now sits in that option's tooltip. */
+body[data-workflow="manual"] #ltxTierNote, body[data-workflow="manual"] #h3TierNote { display: none !important; }
+/* Upscale, Advanced, Batch and Keyframe options: the name; the grey sub-line is the tooltip. */
+#genForm .cz-body .pill-group:not(#h3SpeedGroup):not(#schedPresetGroup) > .pill-btn > .sub,
+#genForm .kf-toggle-chip > .sub, #genForm .kf-toggle-chip .sub { display: none !important; }
+#genForm .cz-body .pill-group:not(#h3SpeedGroup):not(#schedPresetGroup) > .pill-btn { min-height: 0 !important; padding-top: 7px !important; padding-bottom: 7px !important; }
+#genForm .kf-toggle-label { font: 600 13px/1.2 var(--sans) !important; text-transform: none !important; letter-spacing: 0 !important; color: var(--text) !important; }
+/* The Remix row's label reads like every other label. */
+body[data-workflow="manual"] #remixSubGroup > div:first-child { text-transform: none !important; letter-spacing: 0 !important; font: 600 13px/1.2 var(--sans) !important; color: var(--muted) !important; }
+/* A checkbox's own short hint: plain text, not code type. */
+#genForm label.check .cz-label-hint, #genForm label.check .hint, #genForm .check .mono-hint { font-family: var(--sans) !important; letter-spacing: 0 !important; text-transform: none !important; }
+#controlGenNote details.more-info > summary { color: color-mix(in srgb, var(--warn, #e0a94a) 80%, var(--text)); }
+/* Free only: the "Pro adds" hint is one tiny line (the whole sentence on hover). Pro members never see it. */
+#genForm #proSpeedNote, #genForm #proDraftNote { margin: 4px 0 0; font-size: 13px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .85; }
+/* Easy: the short form keeps Generate at the foot of the column (no empty band under the dock). */
+body.form-easy[data-workflow="manual"] aside.form-pane > #genForm { flex: 1 0 auto; display: flex; flex-direction: column; }
+body.form-easy[data-workflow="manual"] aside.form-pane > #genForm > #formActionFooter { margin-top: auto; }
+/* ...and the spare height goes to the prompt box, not to an empty band. */
+body.form-easy[data-workflow="manual"] aside.form-pane > #genForm > .composer-card { flex: 1 0 auto; display: flex; flex-direction: column; }
+body.form-easy[data-workflow="manual"] aside.form-pane > #genForm > .composer-card > #prompt { flex: 1 0 auto; min-height: 96px; }
+
+/* ---- Feedback 5 (owner, 22 Nov 2026): reliable "?" help ----------------------------------------
+   Hover / focus show the fast tip (short); a click pins the whole text in a floating card that lives in
+   a fixed layer on <body>, so no row, scroller or card can cut it. Explanations never open inline. */
+.phos-tip { max-width: min(340px, calc(100vw - 16px)); width: max-content; text-wrap: pretty; }
+.phos-tip-body { overflow-wrap: anywhere; }
+.phos-tip-more { margin-top: 4px; color: #8b95b2; font-size: 13px; }
+.help-pop:not(.is-floating) { display: none !important; }
+.phos-pop-layer { position: fixed; inset: 0 auto auto 0; width: 0; height: 0; z-index: 10040; }
+.help-pop.is-floating {
+  position: fixed; margin: 0; box-sizing: border-box;
+  width: max-content; max-width: min(360px, calc(100vw - 16px)); overflow: auto;
+  padding: 9px 12px 10px; border: 1px solid rgba(160, 175, 230, 0.22); border-left: 2px solid var(--eng-soft, var(--accent));
+  border-radius: 8px; background: rgba(12, 12, 13, 0.98); color: #c9d2e8;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); font-size: 13px; line-height: 1.5; text-wrap: pretty;
+  white-space: normal; text-align: left; font-weight: 400; text-transform: none; letter-spacing: 0;
+}
+.help-pop.is-floating[hidden] { display: none !important; }
+.help-dot:focus-visible { outline: 2px solid var(--eng-accent, var(--accent-bright)); outline-offset: 1px; }
+
+/* Feedback 5 #3: Seed spans the row like every other Shot setup control (no half-width box leaving a hole). */
+.cz-body > #quickMetricsRow .mini-fields { grid-template-columns: minmax(0, 1fr); }
+.cz-body > #quickMetricsRow .mini-fields input#seed { width: 100%; box-sizing: border-box; }
+
+/* Feedback 5 #4: no label spills out of its button. Labels wrap onto a second line inside the button
+   (the row's buttons grow together), and truncation stays only where a summary mirrors text shown below. */
+.form-level-btn { flex: none; width: auto !important; white-space: nowrap; min-width: max-content; }
+.form-level { flex-shrink: 0; }
+body[data-workflow="manual"] #remixSubGroup .mode-chip {
+  height: auto !important; min-height: 52px; white-space: normal !important; overflow-wrap: anywhere; line-height: 1.15;
+}
+body[data-workflow="manual"] #remixSubGroup .mode-chip .mc-sub,
+body[data-workflow="manual"] #remixSubGroup .mode-chip .sub { display: none !important; }
+#genForm .quality-strip > .q-chip.pill-quality .ql-name {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.12 !important;
+}
+.form-action-footer .dock-line .qchip-derived { white-space: normal; overflow: visible; text-overflow: clip; }
+
+/* Feedback 5 #5: Who's in it + Where = ONE row of equal slots (3 people/things + 1 place), bigger pictures.
+   The slots that show share the row evenly, so a Free row (one face) or Text mode never leaves a hole. */
+#pxSlotsRow { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); grid-template-columns: none; gap: 7px; }
+body[data-workflow="manual"] #genForm #pxSlotsRow .px-slot { min-height: 0; height: 118px; }
+#pxSlotsRow .px-slot .px-slot-img { width: 100%; height: 100%; object-fit: cover; object-position: center 22%; }
+#pxSlotsRow .px-slot .px-slot-tag { max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pxSlotsRow .px-slot-empty { font-size: 13px; line-height: 1.2; }
+#pxSlotsRow .px-slot-empty .ph { width: 20px !important; height: 20px !important; }
+#pxWhoNote, #pxStartNote { display: none !important; }
+
+/* Feedback 5 #6: the prompt box reads as a prompt box: its own border and a darker well, a comfortable
+   height, and it never shrinks away when characters or pictures are picked. */
+body[data-workflow="manual"] #genForm .composer-card > textarea.composer-prompt {
+  width: calc(100% - 20px); margin: 2px 10px 8px; min-height: 132px; padding: 10px 12px 11px;
+  border: 1px solid var(--ph-field-line, rgba(255, 255, 255, 0.14)) !important; border-radius: 8px;
+  background: var(--ph-field, rgba(0, 0, 0, 0.32)) !important; box-sizing: border-box;
+  font-size: 14.5px !important; line-height: 1.45; resize: vertical;
+}
+body[data-workflow="manual"] #genForm .composer-card > textarea.composer-prompt:hover { border-color: rgba(255, 255, 255, 0.22) !important; }
+body[data-workflow="manual"] #genForm .composer-card > textarea.composer-prompt:focus {
+  border-color: var(--accent-bright, #8b7bff) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-bright, #8b7bff) 18%, transparent) !important;
+}
+body.form-easy[data-workflow="manual"] aside.form-pane > #genForm > .composer-card > #prompt { min-height: 132px; }
+
+/* Feedback 5 #7 (owner, 22 Nov 2026): "the background grey is too light / disconnected". ONE surface
+   token for every card and panel on every page and window: the form's cards, the stage panel, modals and
+   the models window. A little darker than the old card grey, the same dark the stage already used. */
+:root { --ph-surface: #111113; --ph-field: rgba(0, 0, 0, 0.30); --ph-field-line: rgba(255, 255, 255, 0.14); }
+html[data-theme="light"] { --ph-surface: #ffffff; --ph-field: #ffffff; --ph-field-line: #d6d3ea; }
+html:not([data-theme="light"]) .form-pane .composer-card,
+html:not([data-theme="light"]) main.layout > .stage-pane,
+html:not([data-theme="light"]) .modal,
+html:not([data-theme="light"]) .models-modal .models-card { background: var(--ph-surface); }
+
+/* Feedback 5 #8: ICON SLOTS. Every Studio icon is one file: webapp/icons/<name>.svg (dark theme) and
+   webapp/icons/light/<name>.svg (light theme), made from webapp/icons/src/<name>.svg by
+   layout-build/scripts/swap_icons.py; the names are in webapp/icons/README.md. Swapping the set = run
+   that script on the new files. Shown as images, so the spectrum accent keeps its colours; the state
+   (hover, picked, unavailable) shows in the icon's strength, the tile's edge and its fill. */
+body .form-pane > #modeGroup .mode-chip[data-mode="t2v"] { --mi: url("../icons/text.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="character"] { --mi: url("../icons/character.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="i2v"] { --mi: url("../icons/image.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="keyframe"]:not([data-kf-default]) { --mi: url("../icons/startend.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-kf-default="multi"] { --mi: url("../icons/keyframes.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="extend"] { --mi: url("../icons/extend.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="v2a"] { --mi: url("../icons/sound.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-lipsync] { --mi: url("../icons/lipsync.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="revoice"] { --mi: url("../icons/revoice.svg"); }
+body .form-pane > #modeGroup .mode-chip[data-mode="remix"] { --mi: url("../icons/remix.svg"); }
+body #remixSubGroup .mode-chip[data-remix="ingredients"] { --mi: url("../icons/ingredients.svg"); }
+body #remixSubGroup .mode-chip[data-remix="control"] { --mi: url("../icons/motion.svg"); }
+body #remixSubGroup .mode-chip[data-remix="restore"] { --mi: url("../icons/colorize.svg"); }
+body #remixSubGroup .mode-chip[data-remix="upscale"] { --mi: url("../icons/upscale.svg"); }
+[data-icon="person"], .pi-host-person { --pi: url("../icons/person.svg"); }
+[data-icon="place"], .pi-host-place { --pi: url("../icons/place.svg"); }
+[data-icon="thing"], .pi-host-thing { --pi: url("../icons/thing.svg"); }
+[data-icon="frame"], .pi-host-frame { --pi: url("../icons/frame.svg"); }
+[data-icon="voice"], .pi-host-voice { --pi: url("../icons/voice.svg"); }
+[data-icon="novoice"], .pi-host-novoice { --pi: url("../icons/novoice.svg"); }
+[data-icon="more"], .pi-host-more { --pi: url("../icons/more.svg"); }
+[data-icon="lora"], .pi-host-lora { --pi: url("../icons/lora.svg"); }
+[data-icon="upscale"], .pi-host-upscale { --pi: url("../icons/upscale.svg"); }
+[data-icon="batch"], .pi-host-batch { --pi: url("../icons/batch.svg"); }
+[data-icon="prompt"], .pi-host-prompt { --pi: url("../icons/prompt.svg"); }
+[data-icon="seed"], .pi-host-seed { --pi: url("../icons/seed.svg"); }
+[data-icon="help"], .pi-host-help { --pi: url("../icons/help.svg"); }
+[data-icon="queue"], .pi-host-queue { --pi: url("../icons/queue.svg"); }
+[data-icon="generate"], .pi-host-generate { --pi: url("../icons/generate.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-mode="t2v"] { --mi: url("../icons/light/text.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-mode="character"] { --mi: url("../icons/light/character.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-mode="i2v"] { --mi: url("../icons/light/image.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-mode="keyframe"]:not([data-kf-default]) { --mi: url("../icons/light/startend.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-kf-default="multi"] { --mi: url("../icons/light/keyframes.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-mode="extend"] { --mi: url("../icons/light/extend.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-mode="v2a"] { --mi: url("../icons/light/sound.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-lipsync] { --mi: url("../icons/light/lipsync.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-mode="revoice"] { --mi: url("../icons/light/revoice.svg"); }
+html[data-theme="light"] body .form-pane > #modeGroup .mode-chip[data-mode="remix"] { --mi: url("../icons/light/remix.svg"); }
+html[data-theme="light"] body #remixSubGroup .mode-chip[data-remix="ingredients"] { --mi: url("../icons/light/ingredients.svg"); }
+html[data-theme="light"] body #remixSubGroup .mode-chip[data-remix="control"] { --mi: url("../icons/light/motion.svg"); }
+html[data-theme="light"] body #remixSubGroup .mode-chip[data-remix="restore"] { --mi: url("../icons/light/colorize.svg"); }
+html[data-theme="light"] body #remixSubGroup .mode-chip[data-remix="upscale"] { --mi: url("../icons/light/upscale.svg"); }
+html[data-theme="light"] [data-icon="person"], html[data-theme="light"] .pi-host-person { --pi: url("../icons/light/person.svg"); }
+html[data-theme="light"] [data-icon="place"], html[data-theme="light"] .pi-host-place { --pi: url("../icons/light/place.svg"); }
+html[data-theme="light"] [data-icon="thing"], html[data-theme="light"] .pi-host-thing { --pi: url("../icons/light/thing.svg"); }
+html[data-theme="light"] [data-icon="frame"], html[data-theme="light"] .pi-host-frame { --pi: url("../icons/light/frame.svg"); }
+html[data-theme="light"] [data-icon="voice"], html[data-theme="light"] .pi-host-voice { --pi: url("../icons/light/voice.svg"); }
+html[data-theme="light"] [data-icon="novoice"], html[data-theme="light"] .pi-host-novoice { --pi: url("../icons/light/novoice.svg"); }
+html[data-theme="light"] [data-icon="more"], html[data-theme="light"] .pi-host-more { --pi: url("../icons/light/more.svg"); }
+html[data-theme="light"] [data-icon="lora"], html[data-theme="light"] .pi-host-lora { --pi: url("../icons/light/lora.svg"); }
+html[data-theme="light"] [data-icon="upscale"], html[data-theme="light"] .pi-host-upscale { --pi: url("../icons/light/upscale.svg"); }
+html[data-theme="light"] [data-icon="batch"], html[data-theme="light"] .pi-host-batch { --pi: url("../icons/light/batch.svg"); }
+html[data-theme="light"] [data-icon="prompt"], html[data-theme="light"] .pi-host-prompt { --pi: url("../icons/light/prompt.svg"); }
+html[data-theme="light"] [data-icon="seed"], html[data-theme="light"] .pi-host-seed { --pi: url("../icons/light/seed.svg"); }
+html[data-theme="light"] [data-icon="help"], html[data-theme="light"] .pi-host-help { --pi: url("../icons/light/help.svg"); }
+html[data-theme="light"] [data-icon="queue"], html[data-theme="light"] .pi-host-queue { --pi: url("../icons/light/queue.svg"); }
+html[data-theme="light"] [data-icon="generate"], html[data-theme="light"] .pi-host-generate { --pi: url("../icons/light/generate.svg"); }
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip::before,
+body[data-workflow="manual"] #remixSubGroup .mode-chip::before,
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip.active::before,
+body[data-workflow="manual"] #remixSubGroup .mode-chip.active::before {
+  background: var(--mi) center / contain no-repeat !important; -webkit-mask: none !important; mask: none !important;
+  width: 22px !important; height: 22px !important; opacity: .72;
+}
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip:hover::before,
+body[data-workflow="manual"] #remixSubGroup .mode-chip:hover::before { opacity: .92; }
+body[data-workflow="manual"] .form-pane > #modeGroup .mode-chip.active::before,
+body[data-workflow="manual"] #remixSubGroup .mode-chip.active::before { opacity: 1; }
+.pi { display: inline-block; flex: none; width: 22px; height: 22px; background: var(--pi) center / contain no-repeat; vertical-align: middle; }
+body[data-workflow="manual"] #genForm .px-slot-empty .pi { width: 24px; height: 24px; opacity: .9; }
+body[data-workflow="manual"] #genForm .px-slot-empty .pi-pair { display: inline-flex; gap: 3px; }
+body[data-workflow="manual"] #genForm .px-slot-empty .pi-pair .pi { width: 20px; height: 20px; }
+.cv-mark .pi { width: 13px; height: 13px; }
+.cv-mark.is-none .pi { opacity: .95; }
+/* More (the dock), and the folded sections LoRAs, Upscale and Batch: an icon before the name. */
+.dock-more-btn > svg.ph { display: none; }
+.dock-more-btn::before { content: ""; width: 16px; height: 16px; flex: none; background: url("../icons/more.svg") center / contain no-repeat; }
+html[data-theme="light"] .dock-more-btn::before { background-image: url("../icons/light/more.svg"); }
+#lorasDetails > summary .loras-title::before, #finishDetails > summary .cz-title::before, #batchDetails > summary .cz-title::before {
+  content: ""; display: inline-block; width: 16px; height: 16px; margin: 0 6px -3px 0; background: var(--pi) center / contain no-repeat; opacity: .85;
+}
+#lorasDetails > summary .loras-title::before { --pi: url("../icons/lora.svg"); }
+#finishDetails > summary .cz-title::before { --pi: url("../icons/upscale.svg"); }
+#batchDetails > summary .cz-title::before { --pi: url("../icons/batch.svg"); }
+html[data-theme="light"] #lorasDetails > summary .loras-title::before { --pi: url("../icons/light/lora.svg"); }
+html[data-theme="light"] #finishDetails > summary .cz-title::before { --pi: url("../icons/light/upscale.svg"); }
+html[data-theme="light"] #batchDetails > summary .cz-title::before { --pi: url("../icons/light/batch.svg"); }
+/* A picture's tag ("Pic 1 · Bizarro") wraps inside the bigger slot instead of being cut. */
+#pxSlotsRow .px-slot .px-slot-tag { white-space: normal; text-overflow: clip; line-height: 1.15; overflow-wrap: anywhere; border-radius: 7px; padding: 2px 6px; }
+#lorasDetails > summary .loras-title, #finishDetails > summary .cz-title, #batchDetails > summary .cz-title { display: inline-flex !important; flex-direction: row !important; align-items: center; gap: 6px; white-space: nowrap; }
+#lorasDetails > summary .loras-title::before, #finishDetails > summary .cz-title::before, #batchDetails > summary .cz-title::before { margin: 0; }
+/* No gaps (feedback 4/5 rule): One Shot's cast options share their rows, so a third name never sits alone. */
+#oneshotSectionTab #osCharacterGroup { display: flex !important; flex-wrap: wrap; gap: 5px; grid-template-columns: none !important; }
+#oneshotSectionTab #osCharacterGroup > .pill-btn { flex: 1 1 auto; min-width: 0; width: auto; }
+
+/* Feedback 6 #1 + #2 (22 Nov 2026): Start & end and Keyframes are ONE grid of equal picture slots.
+   Start & end: two slots side by side with a swap button between them. Keyframes: 3 per row, the
+   time under each slot, a remove button on every beat, drag a picture onto another frame to swap,
+   and an add tile that fills whatever the last row has left (no holes). Explanations are tooltips. */
+#kfToggleRow, #kfCountRow, #kfTimingRow { display: none !important; }
+#keyframeSection .kf-head h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
+#keyframeSection .kf-title-multi { display: none; }
+#keyframeSection.kf-multi .kf-title-multi { display: inline; }
+#keyframeSection.kf-multi .kf-title-pair { display: none; }
+#keyframeSection .kf-count { color: var(--muted); font-weight: 500; }
+#keyframeSection .kf-count:empty { display: none; }
+.kf-grid { position: relative; display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.kf-grid.kf-multi { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kf-dyn { display: contents; }
+.kf-slot { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kf-slot .picker { margin: 0; }
+.kf-slot .picker-recent { display: none !important; }
+#genForm .kf-slot .picker-drop, .kf-slot .picker-drop { min-height: 0 !important; height: auto; aspect-ratio: 4 / 3; border-radius: 10px; }
+.kf-grid.kf-multi .kf-slot .picker-drop { aspect-ratio: 16 / 11; }
+.kf-slot .picker-drop.has-image { cursor: grab; }
+.kf-slot .picker-drop.has-image:active { cursor: grabbing; }
+.kf-slot .picker-preview { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; object-fit: contain; border-radius: 0; background: #000; }
+.kf-slot .picker-empty { padding: 22px 6px 6px; }
+.kf-slot .picker-icon { margin-bottom: 2px; }
+.kf-slot .picker-icon .ph { width: 22px; height: 22px; }
+.kf-slot .picker-cta { margin: 0; font-size: 13px; color: var(--muted); }
+.kf-tag {
+  position: absolute; left: 5px; top: 5px; z-index: 2; max-width: calc(100% - 40px); pointer-events: none;
+  padding: 2px 7px; border-radius: 7px; background: rgba(0,0,0,0.72); color: #fff; font-size: 13px; font-weight: 600;
+  line-height: 1.15; overflow-wrap: anywhere;
+}
+.kf-tag .kf-opt { font-weight: 400; opacity: .8; }
+.kf-slot .picker-clear { top: 5px; right: 5px; width: 26px; height: 26px; z-index: 3; }
+.kf-time { display: flex; align-items: center; gap: 4px; height: 30px; font-size: 13px; color: var(--muted); }
+.kf-time-fixed { padding: 0 2px; font-variant-numeric: tabular-nums; }
+#genForm .kf-time input[type="number"] { flex: 1 1 auto; width: auto; min-width: 0; height: 28px; padding: 2px 6px; font-size: 13px; }
+.kf-time-unit { flex: none; }
+.kf-remove {
+  flex: none; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px; border: 1px solid var(--border, #272728); background: transparent; color: var(--muted); cursor: pointer;
+}
+.kf-remove:hover { color: #ff8a8a; border-color: rgba(220,80,80,.6); }
+.kf-remove .ph { width: 14px; height: 14px; }
+.kf-grid[data-kf-n="3"] .kf-remove { display: none; }
+.kf-add { display: none; }
+.kf-grid.kf-multi .kf-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; align-self: stretch;
+  min-height: 0; margin: 0 0 34px; padding: 6px; width: auto;
+  border: 1.5px dashed var(--border, #272728); border-radius: 10px; background: transparent;
+  color: var(--accent-bright, #7e98ff); font: inherit; font-size: 13px; cursor: pointer;
+}
+.kf-grid.kf-multi .kf-add.is-bar { flex-direction: row; margin: 0; height: 38px; }
+.kf-grid.kf-multi .kf-add:hover:not(:disabled) { border-color: var(--accent, #5a7cff); background: rgba(90,124,255,0.06); }
+.kf-add .ph { width: 18px; height: 18px; }
+.kf-add .kf-add-max { display: none; }
+.kf-add.is-max { color: var(--muted) !important; cursor: default !important; opacity: .7; }
+.kf-add.is-max .ph, .kf-add.is-max .kf-add-txt { display: none; }
+.kf-add.is-max .kf-add-max { display: inline; }
+.kf-swap {
+  position: absolute; left: 50%; top: calc((100% - 34px) / 2); transform: translate(-50%, -50%); z-index: 4;
+  width: 32px; height: 32px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border, #272728); background: var(--ph-surface, #111); color: var(--fg, #d8e0ee); cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.45);
+}
+.kf-swap:hover { border-color: var(--accent-bright, #7e98ff); color: var(--accent-bright, #7e98ff); }
+.kf-swap .ph { width: 16px; height: 16px; }
+.kf-grid.kf-multi .kf-swap { display: none; }
+.kf-recent { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }
+.kf-recent-label { flex: none; font-size: 13px; color: var(--muted); cursor: help; }
+.kf-recent-strip { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding: 4px 2px; scrollbar-width: thin; }
+.kf-recent-strip .picker-recent-thumb { width: 44px; height: 44px; }
+.kf-seg { margin-top: 6px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.kf-seg:empty { display: none; }
+
+/* Feedback 6 #3: one compact "recent clips" picker for every mode that starts from a clip (Extend,
+   Add sound, Colorize, Upscale & Face Fix, Motion Control, Re-voice): a strip of the latest videos
+   (Outputs' poster frames, small), "Browse…" at its end, the path box under it for pasting. */
+.clip-pick-select { display: none !important; }
+.clip-pick { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 8px; min-width: 0; border-radius: 10px; }
+.clip-pick.dragover { outline: 2px dashed var(--accent-bright, #7e98ff); outline-offset: 3px; }
+.clip-pick-row { display: flex; align-items: stretch; gap: 6px; min-width: 0; }
+.clip-pick-strip { flex: 1 1 auto; display: flex; gap: 6px; min-width: 0; overflow-x: auto; overflow-y: hidden; padding: 2px; scrollbar-width: thin; }
+.clip-pick-strip[hidden] { display: none; }
+.clip-pick-strip::-webkit-scrollbar { height: 6px; }
+.clip-pick-strip::-webkit-scrollbar-thumb { background: var(--border, #272728); border-radius: 3px; }
+.clip-pick-thumb {
+  flex: 0 0 auto; width: 76px; height: 43px; padding: 0; margin: 0; overflow: hidden; position: relative;
+  border-radius: 6px; border: 2px solid transparent; background: rgba(255,255,255,0.04); cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.clip-pick-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.clip-pick-thumb:hover { border-color: var(--accent, #5a7cff); transform: translateY(-1px); }
+.clip-pick-thumb:focus-visible { outline: 2px solid var(--accent-bright, #7e98ff); outline-offset: 1px; }
+.clip-pick-thumb.selected { border-color: var(--accent-bright, #7e98ff); box-shadow: 0 0 0 2px rgba(126,152,255,0.25); }
+.clip-pick-browse {
+  flex: 0 0 auto; width: auto; min-width: 84px; height: 47px; margin: 0; padding: 0 12px; white-space: nowrap;
+  border-radius: 8px; border: 1.5px dashed var(--border, #272728); background: transparent;
+  color: var(--accent-bright, #7e98ff); font: inherit; font-size: 13px; cursor: pointer;
+}
+.clip-pick-strip[hidden] + .clip-pick-browse { flex: 1 1 auto; }
+.clip-pick-browse:hover:not(:disabled) { border-color: var(--accent, #5a7cff); background: rgba(90,124,255,0.06); }
+.clip-pick-browse:disabled { opacity: .6; cursor: progress; }
+#genForm .clip-pick .clip-pick-path { margin: 0; height: 34px; padding: 4px 10px; font-size: 13px; }
+/* Re-voice: the big drop label and its "Choose another file" are the picker now. */
+#revoiceSection #revoiceDrop { display: none !important; }
+#revoiceSection .revoice-source-row .ghost-btn { display: none; }
+#revoiceSection .clip-pick { margin-bottom: 10px; }
+/* Extend's Quality row when only Q8 Draft shows (Q8 Pro is for roomy Macs): one full-width pill, no hole. */
+#extendModeGroup:has(> .pill-btn[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.kf-slot .picker-drop:focus-visible, .kf-recent-strip .picker-recent-thumb:focus-visible { outline: 2px solid var(--accent-bright, #7e98ff); outline-offset: 2px; }
+.kf-slot .picker-clear { background: rgba(0,0,0,0.62) !important; color: #fff !important; border-color: rgba(255,255,255,0.35) !important; }
+/* Layout r6 sweep: the More menu's items fill the menu, and the "Also run Upscale & Face Fix" line wraps
+   inside it instead of running past the form's edge. */
+.form-action-footer details.dock-more .dock-menu { align-items: stretch; }
+.form-action-footer details.dock-more .dock-menu > * { max-width: 100%; box-sizing: border-box; }
+body[data-workflow="manual"] .form-pane .form-action-footer .dock-menu .h3-facefix-footer {
+  width: auto; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+}
+
+/* Rail icons use the round-5 image mechanism to preserve spectrum accents.
+   Keep the existing SVG boxes so icon sizes and rail geometry stay unchanged. */
+.tool-rail [data-workflow="manual"] > svg { background: url("../icons/left/video.svg") center / contain no-repeat; }
+.tool-rail [data-workflow="oneshot"] > svg { background: url("../icons/left/one-shot.svg") center / contain no-repeat; }
+.tool-rail [data-workflow="studio"] > svg { background: url("../icons/left/images.svg") center / contain no-repeat; }
+.tool-rail [data-workflow="storyboard"] > svg { background: url("../icons/left/storyboard.svg") center / contain no-repeat; }
+.tool-rail [data-workflow="editor"] > svg { background: url("../icons/left/editor.svg") center / contain no-repeat; }
+.tool-rail [data-workflow="audio"] > svg { background: url("../icons/left/audio.svg") center / contain no-repeat; }
+.tool-rail [data-workflow="train"] > svg { background: url("../icons/left/train-character.svg") center / contain no-repeat; }
+.tool-rail [data-workflow="remote"] > svg { background: url("../icons/left/remote-control.svg") center / contain no-repeat; }
+.tool-rail [onclick="voicesOpen()"] > svg { background: url("../icons/left/voices.svg") center / contain no-repeat; }
+.tool-rail #docsBtn > svg { background: url("../icons/left/docs.svg") center / contain no-repeat; }
+.tool-rail #settingsBtn > svg { background: url("../icons/left/settings.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [data-workflow="manual"] > svg { background: url("../icons/left/light/video.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [data-workflow="oneshot"] > svg { background: url("../icons/left/light/one-shot.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [data-workflow="studio"] > svg { background: url("../icons/left/light/images.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [data-workflow="storyboard"] > svg { background: url("../icons/left/light/storyboard.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [data-workflow="editor"] > svg { background: url("../icons/left/light/editor.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [data-workflow="audio"] > svg { background: url("../icons/left/light/audio.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [data-workflow="train"] > svg { background: url("../icons/left/light/train-character.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [data-workflow="remote"] > svg { background: url("../icons/left/light/remote-control.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail [onclick="voicesOpen()"] > svg { background: url("../icons/left/light/voices.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail #docsBtn > svg { background: url("../icons/left/light/docs.svg") center / contain no-repeat; }
+html[data-theme="light"] .tool-rail #settingsBtn > svg { background: url("../icons/left/light/settings.svg") center / contain no-repeat; }
+.tool-rail .workflow-tabs button > svg > *, .tool-rail .rail-foot button > svg > * { visibility: hidden; }
+/* 5.0.81's expired China yearly licence link stays a readable link, not the small Pro badge the layout's global .pro-tag rule draws (5.0.82 review). */
+body .pro-tag.pro-renew-tag { height: auto; font: 600 var(--fs-2xs)/1.2 var(--sans); text-transform: none; padding: 2px 7px; }

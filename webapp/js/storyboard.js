@@ -803,6 +803,8 @@ function sbTrackInput() {
       ? TP('storyboard.music_video_one_shot_per_bars', Number(bars), {one: 'music video — one shot per {count} bar', other: 'music video — one shot per {count} bars'}, {count: bars})
         + ' on the downbeat; the track replaces the clips\' own sound and sets the shot count'
       : T('storyboard.optional_a_track_makes_it', 'optional — a track makes it a music video cut to the beat');
+    // Feedback 3: the line is one ellipsised row now; the whole sentence rides as its tooltip.
+    meta.title = meta.textContent;
   }
   if (row) row.classList.toggle('is-standing-down', !!path);
 }

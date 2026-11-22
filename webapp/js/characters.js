@@ -1865,6 +1865,9 @@ function trainUpdatePresetNote() {
   if (!el) return;
   const profile = TRAIN.trainProfile || {};
   const compact = !!profile.compact;
+  // Feedback 3 folded this note behind a "?"; on a compact-profile Mac it is a warning the user must
+  // see before a long run, so it stays open there.
+  if (compact) el.hidden = false;
   if (TRAIN.trainType === 'style') {
     el.textContent = compact
       ? T('characters.this_mac_trains_on_the', 'This Mac trains on the compact profile (rank 4–8, 384–448px, capped steps), so a style adapter here will be a light touch. No style preset has been graded.')
@@ -4652,24 +4655,39 @@ function applyExtendPillPrices() {
 function updatePromptPlaceholder() {
   const prompt = document.getElementById('prompt');
   if (!prompt) return;
-  const base = T('characters.describe_the_scene_action_and', 'Describe the scene, action and camera. Include dialogue and sound cues — they are generated with the video.');
-  const keyframeTwo = T('characters.describe_the_full_first_to', 'Describe the full first-to-last transition in one prompt. Include motion, camera, mood, and audio cues; the start/end images anchor the visual endpoints.');
-  const keyframeMulti = T('characters.one_prompt_controls_the_whole', 'One prompt controls the whole {_kfMode}-keyframe shot; the Beat at(s) controls define segment timing. Write one continuous action with the beats described in order, plus audio cues.', {_kfMode: window._kfMode});
-  if (currentMode === 'keyframe') {
-    prompt.placeholder = window._kfMode >= 3 ? keyframeMulti : keyframeTwo;
+  // Feedback 4 (owner, 22 Nov 2026): a short placeholder; the full advice for this mode sits behind
+  // the Prompt "?" (#promptHelp), always ending with how spoken lines go in.
+  const h3 = document.body.dataset.engine === 'h3';
+  const lines = T('characters.prompt_lines_help', 'Spoken lines go on their own line, with who says it first, like Bizarro: Did you hear that?');
+  let short = T('characters.ph_shot', 'Describe the shot: action, camera, sound');
+  let help = h3
+    ? T('characters.help_shot_h3', 'Write the scene, the camera and the sound. The sound is made with the video.')
+    : T('characters.help_shot_ltx', 'Write the scene, the action and the camera, plus any sound. The sound is made with the video.');
+  if (currentMode === 'keyframe' && window._kfMode >= 3) {
+    short = T('characters.ph_keyframes', 'One action, beat by beat, in order');
+    help = T('characters.one_prompt_controls_the_whole', 'One prompt controls the whole {_kfMode}-keyframe shot; the Beat at(s) controls define segment timing. Write one continuous action with the beats described in order, plus audio cues.', {_kfMode: window._kfMode});
+  } else if (currentMode === 'keyframe') {
+    short = T('characters.ph_start_end', 'What happens from the first picture to the last');
+    help = T('characters.describe_the_full_first_to', 'Describe the full first-to-last transition in one prompt. Include motion, camera, mood, and audio cues; the start/end images anchor the visual endpoints.');
   } else if (currentMode === 'i2v') {
-    prompt.placeholder = T('characters.describe_how_the_reference_image', 'Describe how the reference image should move. Include dialogue and sound cues — they are generated with the video.');
+    short = T('characters.ph_image', 'How the picture moves, plus sound');
+    help = T('characters.describe_how_the_reference_image', 'Describe how the reference image should move. Include dialogue and sound cues — they are generated with the video.');
   } else if (currentMode === 'ingredients') {
-    prompt.placeholder = T('characters.describe_what_s_in_the', "Describe WHAT'S in the reference sheet — each character, prop, and the location. e.g. a friendly cartoon hedgehog with rounded chestnut fur; a green coiled garden hose; the bright interior of a 'Greenfield' garden store. (The Action field above describes the shot itself.)");
+    short = T('characters.ph_ingredients', "What's in the sheet: who, what, where");
+    help = T('characters.describe_what_s_in_the', "Describe WHAT'S in the reference sheet — each character, prop, and the location. e.g. a friendly cartoon hedgehog with rounded chestnut fur; a green coiled garden hose; the bright interior of a 'Greenfield' garden store. (The Action field above describes the shot itself.)");
   } else if (currentMode === 'v2a') {
-    prompt.placeholder = T('characters.describe_the_sound_this_clip', 'Describe the sound this clip should have — e.g. a busy kitchen, a pan sizzling, a knife on a board, two people murmuring off-screen. The picture stays exactly as it is.');
-  } else if (currentMode === 'extend' && document.body.dataset.engine === 'h3') {
-    prompt.placeholder = T('characters.what_happens_next_the_action', 'What happens next — the action, the camera, and the sound. Hailuo H3 carries on from the last 17 frames and their sound.');
+    short = T('characters.ph_sound', 'The sound this clip should have');
+    help = T('characters.describe_the_sound_this_clip', 'Describe the sound this clip should have — e.g. a busy kitchen, a pan sizzling, a knife on a board, two people murmuring off-screen. The picture stays exactly as it is.');
+  } else if (currentMode === 'extend' && h3) {
+    short = T('characters.ph_next', 'What happens next');
+    help = T('characters.what_happens_next_the_action', 'What happens next — the action, the camera, and the sound. Hailuo H3 carries on from the last 17 frames and their sound.');
   } else if (currentMode === 'control') {
-    prompt.placeholder = T('characters.describe_the_new_subject_scene', "Describe the NEW subject/scene to paint onto the control clip's motion and structure — plus sound cues. e.g. a red origami crane unfolding on a black table · soft paper rustle. The control video drives the composition; this prompt swaps what's in it.");
-  } else {
-    prompt.placeholder = base;
+    short = T('characters.ph_control', 'The new subject to paint onto the motion');
+    help = T('characters.describe_the_new_subject_scene', "Describe the NEW subject/scene to paint onto the control clip's motion and structure — plus sound cues. e.g. a red origami crane unfolding on a black table · soft paper rustle. The control video drives the composition; this prompt swaps what's in it.");
   }
+  prompt.placeholder = short;
+  const pop = document.getElementById('promptHelp');
+  if (pop) pop.textContent = currentMode === 'v2a' ? help : help + ' ' + lines;
 }
 
 // Mode chip click — keyframe has two visible chips backed by one backend
@@ -5130,28 +5148,251 @@ function voicesJobLabel(mode) {
 }
 Object.assign(globalThis, {voicesJobLabel});
 
+function voicesLookup(choice, charId) {
+  const c = String(choice || 'inherit').trim();
+  if (!c || c === 'default') return null;
+  let targetId = c;
+  if (c === 'inherit') {
+    const cid = String(charId || '').trim();
+    if (!cid) return null;
+    const assigned = (voicesData.assignments || {})[cid];
+    if (assigned) targetId = assigned;
+    else targetId = 'character:' + cid;
+  }
+  const lib = (voicesData.voices || []).find(v => v.id === targetId);
+  if (lib) {
+    return {
+      id: lib.id,
+      name: lib.name || lib.id,
+      ready: lib.training === 'ready',
+      hasSample: Number(lib.seconds || 0) > 0 && lib.cleaning !== 'failed',
+      isCharacterAdapter: false,
+    };
+  }
+  const cv = (voicesData.character_voices || []).find(v => v.id === targetId);
+  if (cv) {
+    return {
+      id: cv.id,
+      name: cv.name || cv.id,
+      ready: true,
+      hasSample: !!cv.has_sample,
+      isCharacterAdapter: true,
+    };
+  }
+  return null;
+}
+
 // The Voice picker of a new render (and One Shot) shows once there is something to pick, or when a
 // replayed render carries a voice choice.
 function voicesSyncRenderField() {
   const any = voicesPickList().length > 0;
-  // Without a character, "from the character" and "the model's own voice" are the same choice:
-  // show it once, named for what it does.
-  const character = !!document.getElementById('characterIdInput')?.value
+  const pxChars = (typeof globalThis.picturesPickedChars === 'function') ? globalThis.picturesPickedChars() : [];
+  const manualIds = (typeof globalThis.selectedManualCharacterIds === 'function')
+    ? globalThis.selectedManualCharacterIds()
+    : (document.getElementById('characterIdInput')?.value ? [document.getElementById('characterIdInput').value] : []);
+  const allChars = Array.isArray(globalThis._manualCharacters) ? globalThis._manualCharacters : [];
+  const activeChars = pxChars.length
+    ? pxChars
+    : manualIds.map(id => allChars.find(c => c && c.id === id)).filter(Boolean);
+  const voicedChars = activeChars.filter(c => c && c.has_voice);
+  const flexOn = typeof globalThis.h3FlexPickedAny === 'function' && globalThis.h3FlexPickedAny();
+  const character = activeChars.length > 0
     || (typeof currentMode !== 'undefined' && currentMode === 'character');
   for (const [field, picker] of [['renderVoiceField', 'renderVoice'], ['osVoiceField', 'osVoice']]) {
     const el = document.getElementById(field);
     const select = document.getElementById(picker);
     const value = select?.value || 'inherit';
-    if (el) el.hidden = !any && value === 'inherit';
+    if (el) el.hidden = !any && !(picker === 'renderVoice' && voicedChars.length) && value === 'inherit';
     if (!select) continue;
-    const withCharacter = picker === 'osVoice' || character;
+    const osChar = picker === 'osVoice' && typeof globalThis.osCharacterId === 'function' ? globalThis.osCharacterId() : '';
+    // Feedback 4: "From the character" only reads true once a character is actually picked.
+    const withCharacter = picker === 'osVoice' ? !!osChar : activeChars.length > 0;
+    // One Shot (feedback 4): with a character picked, its voice simply comes along; the row only
+    // shows when this shot uses another voice (set from the character's mark).
+    if (picker === 'osVoice' && el) el.hidden = !any || (!!osChar && value === 'inherit');
     const inherit = select.querySelector('option[value="inherit"]');
     const model = select.querySelector('option[value="default"]');
-    if (inherit) inherit.textContent = withCharacter ? T('voices.dynamic_from_character', 'From the character') : T('voices.no_saved_voice', 'No saved voice');
+    if (inherit) {
+      if (picker === 'renderVoice' && voicedChars.length === 1) {
+        inherit.textContent = T('voices.char_one_voice', '{name} (from character)', {name: voicedChars[0].name || voicedChars[0].id});
+      } else if (picker === 'renderVoice' && voicedChars.length > 1) {
+        inherit.textContent = T('voices.char_many_voices', '{names} (from characters)', {names: voicedChars.map(c => c.name || c.id).join(' & ')});
+      } else {
+        inherit.textContent = withCharacter ? T('voices.dynamic_from_character', 'From the character') : T('voices.model_voice_short', "The model's voice");
+      }
+    }
     if (model) model.hidden = !withCharacter && value !== 'default';
+    if (picker === 'renderVoice') {
+      const voiceActive = value !== 'default' && (value !== 'inherit' || voicedChars.length > 0);
+      const methodRow = document.getElementById('renderVoiceMethodRow');
+      const hintEl = document.getElementById('renderVoiceHint');
+      if (methodRow) methodRow.hidden = !voiceActive || voicedChars.length > 1 || flexOn;
+      // Feedback 3: the how-to is a "?" next to the row, never a paragraph under it.
+      const hintDot = document.getElementById('renderVoiceHintDot');
+      const hintOff = !voiceActive || (document.body.classList.contains('px-on') && voicedChars.length > 0);
+      if (hintDot) hintDot.hidden = hintOff;
+      if (hintEl && hintOff) hintEl.hidden = true;
+      // Voices belong to characters (owner, 22 Nov 2026, feedback 4): with a character picked there is
+      // no voice picker here. Each chip carries its voice (voiceMarkHtml); the field only shows a
+      // one-line "this shot speaks in X" when a chip's menu (or a replayed job) set another voice.
+      if (el) {
+        const withChars = activeChars.length > 0;
+        el.classList.toggle('is-auto', withChars);
+        const line = document.getElementById('renderVoiceShotLine');
+        const shotVoice = withChars && value !== 'inherit';
+        if (line) {
+          line.hidden = !shotVoice;
+          const txt = document.getElementById('renderVoiceShotText');
+          if (txt && shotVoice) {
+            txt.textContent = value === 'default'
+              ? T('voices.shot_model_voice', "This shot: the model's own voice")
+              : (activeChars.length > 1
+                ? T('voices.shot_voice_rest', 'Lines without their own voice speak in {name}', {name: (voicesLookup(value) || {}).name || value})
+                : T('voices.shot_voice', 'This shot speaks in {name}', {name: (voicesLookup(value) || {}).name || value}));
+          }
+        }
+        if (withChars && !shotVoice) el.hidden = true;
+      }
+      if (voicedChars.length > 1 || flexOn) {
+        const mp = document.getElementById('renderVoiceMethod');
+        if (mp && mp.value === 'h3_reference') mp.value = 'voice_pass';
+      }
+    }
   }
 }
-Object.assign(globalThis, {voicesSyncRenderField});
+function voicesShotReset() {
+  const select = document.getElementById('renderVoice');
+  if (select) select.value = 'inherit';
+  voicesSyncRenderField();
+}
+
+// ---- A character's voice, on its own chip (feedback 4) ----------------------------------------
+// The mark every character chip carries once picked: a mic when the character has a voice, a small
+// "no voice yet" mark when it does not. Both open one small menu (charVoiceMenuOpen).
+function voiceAssignedName(c) {
+  const id = (voicesData.assignments || {})[c.id];
+  const v = id ? voicesLookup(id) : null;
+  if (v) return v.name;
+  const own = (voicesData.character_voices || []).find(x => x.id === 'character:' + c.id);
+  return own ? (own.name || c.name || c.id) : '';
+}
+function voiceMarkHtml(c, active, target) {
+  if (!c) return '';
+  const tgt = target ? ` data-cv-target="${charactersEscapeAttr(target)}"` : '';
+  const name = c.name || c.id;
+  const id = charactersEscapeAttr(c.id);
+  if (c.has_voice) {
+    const vn = voiceAssignedName(c);
+    const tip = vn ? T('voices.mark_speaks_in', '{name} speaks in {voice} · click for this shot\'s voice', {name, voice: vn})
+      : T('voices.mark_own_voice', '{name} speaks in their own voice · click for this shot\'s voice', {name});
+    return active
+      ? `<span class="cv-mark is-voiced" data-cv-char="${id}"${tgt} role="button" tabindex="0" title="${charactersEscapeAttr(tip)}" aria-label="${charactersEscapeAttr(tip)}"><span class="pi" data-icon="voice" aria-hidden="true"></span></span>`
+      : `<span class="cv-mark is-voiced is-quiet" title="${charactersEscapeAttr(tip)}"><span class="pi" data-icon="voice" aria-hidden="true"></span></span>`;
+  }
+  if (!active) return '';
+  const tip = T('voices.mark_no_voice', 'No voice yet: the model voices {name}. Click to add a voice.', {name});
+  return `<span class="cv-mark is-none" data-cv-char="${id}"${tgt} role="button" tabindex="0" title="${charactersEscapeAttr(tip)}" aria-label="${charactersEscapeAttr(tip)}"><span class="pi" data-icon="novoice" aria-hidden="true"></span></span>`;
+}
+function _cvChar(id) {
+  return (Array.isArray(globalThis._manualCharacters) ? globalThis._manualCharacters : []).find(c => c && c.id === id) || null;
+}
+function charVoiceMenuClose() {
+  const menu = document.getElementById('charVoiceMenu');
+  if (menu) { menu.hidden = true; menu.innerHTML = ''; delete menu.dataset.char; }
+}
+function charVoiceMenuOpen(id, anchor) {
+  const menu = document.getElementById('charVoiceMenu');
+  const c = _cvChar(id) || (anchor && anchor.dataset.cvTarget === 'osVoice' ? { id, name: (anchor.closest('[data-os-character]')?.textContent || id).trim(), has_voice: anchor.classList.contains('is-voiced') } : null);
+  const target = (anchor && anchor.dataset.cvTarget) || 'renderVoice';
+  if (!menu || !c) return;
+  if (!menu.hidden && menu.dataset.char === id) { charVoiceMenuClose(); return; }
+  const name = c.name || c.id;
+  const esc = charactersEscapeHtml, attr = charactersEscapeAttr;
+  const item = (act, val, label, on) => `<button type="button" class="cvm-item${on ? ' is-on' : ''}" role="menuitemradio" aria-checked="${on ? 'true' : 'false'}" data-cvm="${act}" data-cvm-val="${attr(val)}">${esc(label)}</button>`;
+  const rows = [];
+  // This shot's voice, for every character (Codex r4-1 #2/#3): their own (or the model's, when they
+  // have none), any saved voice, or the model's own. A Load Params that carried a voice for a
+  // character without one stays visible and changeable here.
+  const shot = document.getElementById(target)?.value || 'inherit';
+  const own = c.has_voice ? voiceAssignedName(c) : '';
+  rows.push(`<div class="cvm-head">${esc(c.has_voice ? T('voices.menu_shot_head', "This shot's voice") : T('voices.menu_add_head', '{name} has no voice yet', {name}))}</div>`);
+  rows.push(item('shot', 'inherit', c.has_voice
+    ? (own ? T('voices.menu_own_named', 'Their own ({voice})', {voice: own}) : T('voices.menu_own', 'Their own voice'))
+    : T('voices.menu_model', 'Let the model voice them'), shot === 'inherit'));
+  for (const v of voicesPickList()) {
+    // Still-training voices stay offered, as in the old picker: H3 References needs only the sample.
+    if (own && v.label === own) continue;
+    rows.push(item('shot', v.id, c.has_voice ? v.label : T('voices.menu_this_shot', '{voice}, this shot', {voice: v.label}), shot === v.id));
+  }
+  if (c.has_voice || shot === 'default') rows.push(item('shot', 'default', T('voices.model_voice', 'The model’s own voice'), shot === 'default'));
+  const method = document.getElementById('renderVoiceMethod');
+  const methodRow = document.getElementById('renderVoiceMethodRow');
+  if (target === 'renderVoice' && method && methodRow && !methodRow.hidden && currentEngine() === 'h3') {
+    rows.push(`<div class="cvm-head">${esc(T('voices.menu_how_head', 'How the voice goes in'))}</div>`);
+    for (const o of method.options) rows.push(item('method', o.value, o.textContent, method.value === o.value));
+  }
+  if (!c.has_voice) {
+    const lib = (voicesData.voices || []).filter(v => v.training === 'ready');
+    if (lib.length) rows.push(`<div class="cvm-head">${esc(T('voices.menu_keep_head', 'Give them a voice for good'))}</div>`);
+    for (const v of lib) rows.push(item('assign', v.id, T('voices.menu_use', 'Give them {voice}', {voice: voicesLabel(v)}), false));
+  }
+  rows.push(`<div class="cvm-sep"></div>`);
+  rows.push(`<button type="button" class="cvm-item cvm-lib" data-cvm="library" data-cvm-val="">${esc(c.has_voice ? T('voices.menu_library', 'Your voices…') : T('voices.menu_new', 'Add a new voice…'))}</button>`);
+  menu.innerHTML = rows.join('');
+  menu.dataset.char = id;
+  menu.dataset.target = target;
+  menu.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + 'px';
+  const below = r.bottom + 6;
+  let top = below + h > window.innerHeight - 8 ? r.top - h - 6 : below;
+  top = Math.max(8, Math.min(top, window.innerHeight - h - 8));   // a long library scrolls inside (CSS max-height)
+  menu.style.top = top + 'px';
+  menu.querySelector('.cvm-item')?.focus();
+}
+async function _cvmPick(btn) {
+  const menu = document.getElementById('charVoiceMenu');
+  const id = menu?.dataset.char;
+  const act = btn.dataset.cvm, val = btn.dataset.cvmVal;
+  if (act === 'shot') {
+    const sel = document.getElementById(menu?.dataset.target || 'renderVoice');
+    if (sel) { if (![...sel.options].some(o => o.value === val)) sel.innerHTML = voicesOptions(val); sel.value = val; }
+    voicesSyncRenderField();
+  } else if (act === 'method') {
+    const m = document.getElementById('renderVoiceMethod');
+    if (m) { m.value = val; m.dispatchEvent(new Event('change', {bubbles: true})); }
+    voicesSyncRenderField();
+  } else if (act === 'assign' && id) {
+    try {
+      const response = await fetch('/voices/assign', {method: 'POST', body: new URLSearchParams({character_id: id, voice_id: val})});
+      const data = await response.json(); if (!response.ok) throw new Error(data.error);
+      voicesData.assignments[id] = val;
+      if (typeof refreshManualCharacters === 'function') await refreshManualCharacters();
+      await voicesRefresh();
+    } catch (e) { if (typeof phosToast === 'function') phosToast(e.message, { kind: 'danger' }); else alert(e.message); }
+  } else if (act === 'library') {
+    charVoiceMenuClose();
+    voicesOpen();
+    return;
+  }
+  charVoiceMenuClose();
+}
+// Capture phase: the mark sits inside the chip's own button, so it must answer before the chip's
+// click (which would pick or unpick the character).
+document.addEventListener('click', e => {
+  const mark = e.target.closest && e.target.closest('[data-cv-char]');
+  if (mark) { e.preventDefault(); e.stopPropagation(); charVoiceMenuOpen(mark.dataset.cvChar, mark); return; }
+  const pick = e.target.closest && e.target.closest('#charVoiceMenu [data-cvm]');
+  if (pick) { e.preventDefault(); _cvmPick(pick); return; }
+  if (!(e.target.closest && e.target.closest('#charVoiceMenu'))) charVoiceMenuClose();
+}, true);
+document.addEventListener('keydown', e => {
+  const mark = e.target.closest && e.target.closest('[data-cv-char]');
+  if (mark && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); charVoiceMenuOpen(mark.dataset.cvChar, mark); return; }
+  if (e.key === 'Escape' && !document.getElementById('charVoiceMenu')?.hidden) { e.stopPropagation(); charVoiceMenuClose(); }
+}, true);
+Object.assign(globalThis, {voicesSyncRenderField, voicesLookup, voicesShotReset, voiceMarkHtml, charVoiceMenuOpen, charVoiceMenuClose});
 
 let newCharacterInvoker = null;
 async function newCharacterOpen() {
@@ -5216,6 +5457,11 @@ Object.assign(globalThis, {newCharacterOpen, newCharacterClose, newCharacterSave
 let characterReferenceSnapshot = null;
 function characterSyncReferences() {
   _renderCharsAppliedNote();
+  // On Hailuo H3 the Pictures area owns the picture fields (characters join Who's in it there).
+  if (typeof picturesActive === 'function' && picturesActive()) {
+    if (typeof voicesSyncRenderField === "function") voicesSyncRenderField();
+    return;
+  }
   const keys = ['h3_reference', 'h3_reference2', 'h3_reference3'];
   const sw = document.getElementById('h3_refs');
   if (!sw) return;

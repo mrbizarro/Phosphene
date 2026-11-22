@@ -213,7 +213,8 @@ function imgStudioWireRefSlots() {
   });
 }
 
-const _STUDIO_REF_TAGS = [T('stage.primary', 'Primary'), 'Multi-ref', 'Multi-ref'];
+// Feedback 4 (owner, 22 Nov 2026): plain names, the same as H3-Image's slots ("Primary" / "Multi-ref" said nothing).
+const _STUDIO_REF_TAGS = [T('stage.picture_1', 'Picture 1'), T('stage.picture_2', 'Picture 2'), T('stage.picture_3', 'Picture 3')];
 
 // ---- MiniMax-H3-Image edit (5.0.19) ----------------------------------------------------------
 // The model edits Picture 1 by instruction and can take more pictures in the same edit ("Picture 2",

@@ -79,6 +79,16 @@ def get_character_preview(h, parsed) -> None:
     except ValueError:
         h.send_error(404); return
     sample = P._character_dataset_image(cid)
+    # ?n=<index>: one of a picture character's saved pictures (the shot form's Pictures area lets
+    # the user choose which one fills a slot). Same containment check below.
+    try:
+        n = int((parse_qs(parsed.query).get("n") or ["0"])[0])
+    except ValueError:
+        n = 0
+    if n > 0:
+        rec = next((c for c in P.list_characters() if c.get("id") == cid), None)
+        pics = (rec or {}).get("pictures") or []
+        sample = P.Path(pics[n]) if n < len(pics) else None
     if not sample or not sample.is_file():
         h.send_error(404); return
     # Defense in depth: confirm the resolved file lives under one of

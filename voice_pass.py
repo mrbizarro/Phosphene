@@ -8,29 +8,79 @@ import json
 import math
 import re
 import subprocess
+import unicodedata
 
 SR = 44100
 
 
 _QUOTED = re.compile(r'["\u201c]([^"\u201d\n]{1,300})["\u201d]')
+_LTX_AUDIO_CUE = "\nAudio: clear natural spoken dialogue in a quiet room, no music."
+_SAYS_LINE = re.compile(r'^(\s*)([^\s:\n<>"\u201c\u201d][^\n:<>"\u201c\u201d]{0,60}?)\s+says(?:\s+clearly)?\s*:\s*["\u201c](.+?)["\u201d]\s*$', re.I)
+_COLON_LINE = re.compile(r'^(\s*)([^\s:\n<>"\u201c\u201d][^\n:<>"\u201c\u201d]{0,60}?)\s*:\s*(.+?)\s*$')
+_NON_SPEAKER_KEYS = frozenset({
+    "integrated_multimodal_description", "overall_soundscape", "non_diegetic_music",
+    "audio", "sound", "soundscape", "music", "scene", "camera", "lighting", "light",
+    "style", "summary", "high_level_description", "style_description",
+    "compositional_deconstruction", "note", "notes", "avoid", "negative",
+    "negative_prompt", "location", "setting", "action", "shot", "time", "timestamp",
+    "sfx", "ambience", "ambient", "voiceover_off", "http", "https",
+})
+
+
+def _norm_key(val: str) -> str:
+    return unicodedata.normalize("NFC", str(val or "")).strip().casefold()
+
+
+def _is_word_or_mark(ch: str) -> bool:
+    return ch.isalnum() or unicodedata.category(ch).startswith(("L", "M", "N"))
+
+
+def _is_speaker_label(who: str, known: dict[str, str]) -> bool:
+    s = str(who or "").strip()
+    if not s:
+        return False
+    cf = _norm_key(s)
+    if cf in known:
+        return True
+    if "_" in s or "." in s or cf in _NON_SPEAKER_KEYS:
+        return False
+    if re.fullmatch(r"(?:shot|beat|window|part|act|scene|frame|take|clip|step)\s*\d+", s, re.I):
+        return False
+    tokens = s.split()
+    if not (1 <= len(tokens) <= 3):
+        return False
+    if not all(all(_is_word_or_mark(ch) or ch in "'-" for ch in tok) for tok in tokens):
+        return False
+    first = unicodedata.normalize("NFC", s)[0]
+    if not (first.isupper() or (unicodedata.category(first).startswith("L") and not first.islower())):
+        return False
+    return not any(_norm_key(tok) in _NON_SPEAKER_KEYS for tok in tokens)
 
 
 def plain_dialogue(prompt, names, default_speaker="", language="English"):
     """Turn lines written in plain words into the H3 dialogue format, so nobody has to type tags.
 
-    `Bizarro: Did you hear that?` becomes `Bizarro: <d>[English] Did you hear that?</d>` when Bizarro is a
-    saved character's name or trigger (other `word:` lines, like `overall_soundscape:`, are left alone). With no
-    such line and one character picked (`default_speaker`), a quoted line is that character's. A prompt that
-    already has <d> tags is returned unchanged: the user wrote the format themselves.
+    `Bizarro: Did you hear that?` (or `Speaker: Hello there.`) becomes
+    `Bizarro: <d>[English] Did you hear that?</d>`, while structural `key:` lines like
+    `overall_soundscape:` or `Audio:` are left alone. Also accepts LTX-expanded
+    `Name says clearly: "words"` lines so replayed recipes round-trip cleanly.
     """
     if not prompt or re.search(r'<d>', prompt, re.I):
         return prompt
-    known = {str(n).strip().casefold(): str(n).strip() for n in names if str(n or "").strip()}
+    cleaned = prompt[:-len(_LTX_AUDIO_CUE)] if prompt.endswith(_LTX_AUDIO_CUE) else prompt
+    known = {_norm_key(n): str(n).strip() for n in names if str(n or "").strip()}
     tag = f"[{language}] " if language else ""
     out, hit = [], False
-    for line in prompt.split("\n"):
-        m = re.match(r'^(\s*)([\w][\w .\'-]{0,60}?)\s*:\s*(.+?)\s*$', line)
-        if m and m.group(2).strip().casefold() in known:
+    for line in cleaned.split("\n"):
+        ms = _SAYS_LINE.match(line)
+        if ms and _is_speaker_label(ms.group(2), known):
+            text = ms.group(3).strip()
+            if text:
+                out.append(f"{ms.group(1)}{ms.group(2).strip()}: <d>{tag}{text}</d>")
+                hit = True
+                continue
+        m = _COLON_LINE.match(line)
+        if m and _is_speaker_label(m.group(2), known):
             text = m.group(3).strip().strip('"\u201c\u201d').strip()
             if text:
                 out.append(f"{m.group(1)}{m.group(2).strip()}: <d>{tag}{text}</d>")
@@ -47,17 +97,93 @@ def plain_dialogue(prompt, names, default_speaker="", language="English"):
     return prompt
 
 
+def ltx_plain_dialogue(prompt, names):
+    """Turn `Speaker: line` rows into natural LTX spoken prose without `<d>` tags.
+
+    LTX's Gemma text encoder voices quoted speech cleanly when written as
+    `Speaker says clearly: "words"` with a clear spoken-dialogue audio cue, allowing
+    `voice_pass` to align each speaker's words after the base render.
+    """
+    if not prompt:
+        return prompt
+    known = {_norm_key(n): str(n).strip() for n in names if str(n or "").strip()}
+    out, hit = [], False
+    for line in prompt.split("\n"):
+        ms = _SAYS_LINE.match(line)
+        if ms and _is_speaker_label(ms.group(2), known):
+            out.append(line)
+            hit = True
+            continue
+        m = _COLON_LINE.match(line)
+        if m and _is_speaker_label(m.group(2), known):
+            who = m.group(2).strip()
+            text = m.group(3).strip().strip('"\u201c\u201d').strip()
+            if text:
+                out.append(f'{m.group(1)}{who} says clearly: "{text}"')
+                hit = True
+                continue
+        out.append(line)
+    joined = "\n".join(out)
+    if hit and "audio:" not in joined.lower():
+        joined = joined.rstrip() + _LTX_AUDIO_CUE
+    return joined
+
+
+def untag_dialogue(prompt: str) -> tuple[str, str]:
+    """Convert engine-formatted `<d>[Lang] ...</d>` or `Name says clearly: "..."` back to plain authoring text."""
+    if not prompt:
+        return "", ""
+    s = str(prompt)
+    if s.endswith(_LTX_AUDIO_CUE):
+        s = s[:-len(_LTX_AUDIO_CUE)]
+    lang_found = ""
+
+    def _sub_named_tag(m):
+        nonlocal lang_found
+        if m.group(3) and not lang_found:
+            lang_found = m.group(3).strip()
+        txt = " ".join((m.group(4) or "").split())
+        return f"{m.group(1)}{m.group(2).strip()}: {txt}"
+
+    s = re.sub(
+        r'(^|\n)([ \t]*[^\s:\n<>"\u201c\u201d][^\n:<>"\u201c\u201d]{0,60}?)\s*:\s*<d>\s*(?:\[([^\]]+)\])?\s*(.*?)</d>',
+        _sub_named_tag,
+        s,
+        flags=re.S | re.I,
+    )
+
+    def _sub_bare_tag(m):
+        nonlocal lang_found
+        if m.group(1) and not lang_found:
+            lang_found = m.group(1).strip()
+        txt = " ".join((m.group(2) or "").split())
+        return f'"{txt}"'
+
+    s = re.sub(r'<d>\s*(?:\[([^\]]+)\])?\s*(.*?)</d>', _sub_bare_tag, s, flags=re.S | re.I)
+    lines = []
+    for line in s.split("\n"):
+        ms = _SAYS_LINE.match(line)
+        if ms:
+            lines.append(f"{ms.group(1)}{ms.group(2).strip()}: {ms.group(3).strip()}")
+        else:
+            lines.append(line)
+    return "\n".join(lines), lang_found
+
+
 def dialogue_phrases(prompt):
     phrases = []
     previous = 0
     for match in re.finditer(r'<d>\s*(?:\[([^\]]+)\])?\s*(.*?)</d>', prompt, re.S | re.I):
         prefix = prompt[previous:match.start()]
-        speaker = re.search(r'(?:^|[\n.!?])\s*([\w][\w -]{0,80}?)\s*:\s*$', prefix, re.I)
-        if speaker and re.search(r'\b(says|asks|replies)$', speaker[1], re.I):
-            speaker = None
+        speaker = re.search(r'(?:^|[\n.!?])\s*([^\s:\n.!?<>"\u201c\u201d][^\n.!?<>"\u201c\u201d:]{0,80}?)\s*:\s*$', prefix, re.I)
+        if speaker:
+            cand = speaker[1].strip()
+            if (re.search(r'\b(says|asks|replies)$', cand, re.I)
+                    or not all(_is_word_or_mark(ch) or ch in " '-_." for ch in cand)):
+                speaker = None
         text = ' '.join(match[2].split())
         if text:
-            phrases.append({'speaker': speaker[1] if speaker else '', 'text': text, 'language': match[1] or ''})
+            phrases.append({'speaker': speaker[1].strip() if speaker else '', 'text': text, 'language': match[1] or ''})
         previous = match.end()
     return phrases
 
@@ -354,6 +480,28 @@ def run(P, job, target=None):
                     'takes': [], 'not_the_voice': 0}
     takes = max(1, min(6, int(target.takes))) if target is not None else 4
     import voice_identity as vi
+    try:
+        from voices import VoiceLibrary, speaker_text
+        _vlib = VoiceLibrary(P.STATE_DIR)
+    except Exception:
+        _vlib = None
+    # Enrich each phrase's voice metadata (speaker description, sample_path, pitch identity)
+    # from VoiceLibrary when sidecar/job params carried only id/name/trigger/adapter_path.
+    for i in lines:
+        voice = phrases[i]['voice']
+        vid = str(voice.get('id') or '')
+        if _vlib is not None and vid and not vid.startswith('character:'):
+            if not voice.get('speaker') or not voice.get('sample_path'):
+                try:
+                    rec = _vlib.get(vid)
+                    rec.update(_vlib.identity(vid))
+                    voice.setdefault('sample_path', str(_vlib.sample(vid)))
+                    if not voice.get('speaker'):
+                        voice['speaker'] = speaker_text(rec)
+                    if not voice.get('identity') and rec.get('identity'):
+                        voice['identity'] = rec['identity']
+                except Exception:
+                    pass
     # Each voice's own reference: the pitch of its cleaned sample (and, when the
     # Speech pack is installed, its speaker fingerprint, taken with the first takes).
     references = {}

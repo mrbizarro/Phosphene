@@ -2,6 +2,15 @@
 
 The Video tab turns a prompt — and, if you like, an image or a clip — into a video with sound. Pick the model in **Model**, the first row of the column (it decides which modes and settings are on offer below it), then a mode, write the prompt, choose Quality and Length, press **Generate** ([[sc:prompt.generate]] from the prompt box).
 
+## Easy mode and Advanced {#easy}
+
+The form reads top to bottom in four steps: **Make** (the mode), **What goes in** (characters, pictures, a place or a clip), **Prompt**, and **How it looks** (quality, length and the rest). The **Easy | Advanced** switch at the top right of the form chooses how much of it you see.
+
+- **Easy mode** keeps what to make, what goes in, the prompt, one Quality choice and **Generate**.
+- **Advanced** shows every setting.
+
+Switching only hides controls. Nothing you set in Advanced changes, and if something from Advanced is still on (LoRAs, Avoid, Upscale & Face Fix, Fast draft, prompts per window), one line under the form says so, with a **Show** button. Everyone starts on Advanced, and the Studio remembers your choice. Hover any control, or click its **?**, for a short explanation.
+
 ## Modes {#modes}
 
 The chips across the top of the form. Each one says what it takes.
@@ -142,13 +151,13 @@ Image mode works on H3 — the picture is the first frame. The **Orientation** r
 
 After the render, the clip can be resized without cropping.
 
-**On Hailuo H3** (under **After the render** → **Upscale**):
+**On Hailuo H3** (under **Upscale**):
 
 - **Native** — as rendered.
 - **720p fit** / **1080p fit** — scaled to fill the frame. A canvas close to 16:9 (H3 Draft and Standard, LTX Standard) loses a few pixels at the edges instead of getting black bars; one far from it (square, portrait into landscape) is still padded. 720p fit is the default.
 Below the sizes, **Also run Upscale & Face Fix after the draft** is optional and off by default. When it is ticked, the draft ships as rendered and a second job re-renders it at twice the size with LTX-2.5, keeping the face and the sound; the fixed clip lands next to the draft. It needs the 0.3 GB Upscale adapter, downloaded from the Models window, and takes about the draft's time again.
 
-**On LTX** (under **After the render** → **Export**): **720p fit** (default), **Native**, or **2×**. When it is not Native, **Method** chooses **Fast** (instant) or **Sharp** (a sharper upscaler, +30–90 s).
+**On LTX** (under **Upscale** → **Export**): **720p fit** (default), **Native**, or **2×**. When it is not Native, **Method** chooses **Fast** (instant) or **Sharp** (a sharper upscaler, +30–90 s).
 
 Any finished clip can also go through [Upscale & Face Fix](#docs/remix/upscale-face-fix) later — one click over the player, in its action overlay.
 
@@ -168,6 +177,6 @@ The new file lands next to the original in Outputs, with the original sound.
 - **LoRAs** — the add-ons picker. See [LoRAs](#docs/loras).
 - **Orientation** (LTX) — 16:9, 9:16, 1:1 or 4:5.
 - **Advanced** — width × height, duration and frames.
-- **After the render** — Export/Upscale, and **Open file when done**.
+- **Upscale** — Export size, Upscale & Face Fix, and **Open file when done**.
 - **⊞ Batch** — paste many prompts and queue them all.
 - **Hide** (the eye icon on the player toolbar) — removes a clip from the gallery, with an **Undo** in the toast. The **Hidden (N)** chip in the Outputs filter row shows everything hidden, so a clip hidden by mistake is one click away.

@@ -633,7 +633,38 @@ async function stopEarly() {
 // NO TRI-STATE. A checkbox that is checked is checked; the ` · auto` suffix
 // says who checked it, and one click removes the suffix permanently for the
 // session. That is the whole disclosure.
-globalThis.SPEECH = /(^|\s)says\b|<d>|["“](?=[^"”]{3,})/i;
+globalThis.SPEECH = /(?:^|\s)[Ss][Aa][Yy][Ss]\b|<[Dd]>|["“](?=[^"”]{3,})|^(?![ \t]*(?:(?:[Aa][Uu][Dd][Ii][Oo]|[Ss][Oo][Uu][Nn][Dd](?:[Ss][Cc][Aa][Pp][Ee])?|[Mm][Uu][Ss][Ii][Cc]|[Ss][Cc][Ee][Nn][Ee]|[Cc][Aa][Mm][Ee][Rr][Aa]|[Ll][Ii][Gg][Hh][Tt](?:[Ii][Nn][Gg])?|[Ss][Tt][Yy][Ll][Ee]|[Ss][Uu][Mm][Mm][Aa][Rr][Yy]|[Nn][Oo][Tt][Ee][Ss]?|[Aa][Vv][Oo][Ii][Dd]|[Nn][Ee][Gg][Aa][Tt][Ii][Vv][Ee]|[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]|[Ss][Ee][Tt][Tt][Ii][Nn][Gg]|[Aa][Cc][Tt][Ii][Oo][Nn]|[Tt][Ii][Mm][Ee](?:[Ss][Tt][Aa][Mm][Pp])?|[Ss][Ff][Xx]|[Aa][Mm][Bb][Ii][Ee][Nn](?:[Cc][Ee]|[Tt])|[Hh][Tt][Tt][Pp][Ss]?)|(?:[Ss][Hh][Oo][Tt]|[Bb][Ee][Aa][Tt]|[Ww][Ii][Nn][Dd][Oo][Ww]|[Pp][Aa][Rr][Tt]|[Aa][Cc][Tt]|[Ss][Cc][Ee][Nn][Ee]|[Ff][Rr][Aa][Mm][Ee]|[Tt][Aa][Kk][Ee]|[Cc][Ll][Ii][Pp]|[Ss][Tt][Ee][Pp])\s*\d+)\s*:)[ \t]*(?![\p{Ll}])\p{L}[\p{L}\p{M}0-9'-]*(?:[ \t]+[\p{L}\p{M}0-9'-]+){0,2}\s*:\s*\S/mu;
+
+function promptHasSpeech(prompt) {
+  const s = String(prompt || '');
+  if (!s) return false;
+  if (SPEECH.test(s)) return true;
+  const known = new Set();
+  const addName = (v) => {
+    const clean = String(v || '').normalize('NFC').trim().toLowerCase();
+    if (clean) known.add(clean);
+    const stripped = clean.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    if (stripped) known.add(stripped);
+  };
+  for (const c of (Array.isArray(globalThis._manualCharacters) ? globalThis._manualCharacters : [])) {
+    if (c) { addName(c.name); addName(c.trigger); }
+  }
+  const vd = globalThis.voicesData || {};
+  for (const v of (Array.isArray(vd.voices) ? vd.voices : [])) {
+    if (v) { addName(v.name); addName(v.trigger); }
+  }
+  for (const v of (Array.isArray(vd.character_voices) ? vd.character_voices : [])) {
+    if (v) { addName(v.name); addName(v.trigger); }
+  }
+  if (!known.size) return false;
+  for (const line of s.split('\n')) {
+    const m = line.match(/^\s*([\p{L}\p{N}_][\p{L}\p{M}\p{N}_ .'-]{0,60}?)\s*:\s*\S/u);
+    if (m && known.has(m[1].normalize('NFC').trim().toLowerCase())) return true;
+  }
+  return false;
+}
+globalThis.promptHasSpeech = promptHasSpeech;
+
 let _noVoiceTouched = false;
 function markNoVoiceTouched() {
   _noVoiceTouched = true;
@@ -651,7 +682,7 @@ function refreshNoVoiceAuto() {
   const lbl = document.getElementById('noVoiceLabel');
   if (!cb || !pill || !lbl || pill.hidden) return;
   const prompt = (document.getElementById('prompt') || {}).value || '';
-  const hasSpeech = SPEECH.test(prompt);
+  const hasSpeech = promptHasSpeech(prompt);
   cb.checked = !hasSpeech;
   lbl.textContent = hasSpeech ? T('preview.no_voice', 'No voice') : T('preview.no_voice_auto', 'No voice · auto');
   pill.title = T('preview.skip_the_character_s_voice', "Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish.")
@@ -876,68 +907,125 @@ async function _charactersManageDelete(cid, btn) {
 // trigger into the prompt (Load Params restores the prompt verbatim from
 // the sidecar, which already carries it). Click handlers decide toggle
 // semantics; hydrators call this directly.
-function applyCharacterSelection(id, opts) {
+function applyCharacterSelections(ids, opts) {
   opts = opts || {};
-  _selectedCharacterId = id || '';
-  const inp = document.getElementById('characterIdInput');
-  if (inp) inp.value = _selectedCharacterId;
-  // Trigger injection is CLICK behaviour, not hydration behaviour.
-  if (_selectedCharacterId && opts.injectTrigger) {
-    const c = _manualCharacters.find(x => x.id === _selectedCharacterId);
-    if (c && c.trigger && typeof appendTriggerToPrompt === 'function') {
+  const clean = (Array.isArray(ids) ? ids : []).map(x => String(x || '').trim()).filter(Boolean);
+  if (clean.length && typeof picturesTakeCharacter === 'function' && globalThis.picturesActive && globalThis.picturesActive()) {
+    clean.forEach(cid => picturesTakeCharacter(cid));
+    return;
+  }
+  globalThis._selectedCharacterIds = clean;
+  if (typeof globalThis._syncCharacterHiddenInputs === 'function') {
+    globalThis._syncCharacterHiddenInputs();
+  } else {
+    _selectedCharacterId = clean[0] || '';
+    const inp = document.getElementById('characterIdInput');
+    if (inp) inp.value = _selectedCharacterId;
+  }
+  if (clean.length && opts.injectTrigger) {
+    const addedId = opts.addedId || clean[clean.length - 1];
+    const c = _manualCharacters.find(x => x.id === addedId);
+    if (c && c.face_lora_path && c.trigger && typeof appendTriggerToPrompt === 'function') {
       try { appendTriggerToPrompt(c.trigger); } catch (_) {}
     }
   }
   _renderManualCharactersList();
   characterSyncReferences();
-  // Swap quality strips: when a character is active, the Q4 distilled
-  // tiers (Quick / Balanced / Standard) don't match the dev-trained
-  // LoRA and produce a soft, generic-Trump-ish render. Only the Q8 HQ
-  // path lines up. Hide the default 4-chip strip + reveal the 2-chip
-  // character-only strip (Q8 Draft / Q8 Pro). When the character is
-  // deselected, restore the default and revert to Balanced. Called
-  // here AND after refreshManualCharacters() boot so the visibility
-  // state is correct even on first paint.
+  _applyCharacterQualityStripVisibility();
+  if (typeof globalThis.voicesSyncRenderField === 'function') {
+    try { globalThis.voicesSyncRenderField(); } catch (_) {}
+  }
+}
+
+function applyCharacterSelection(id, opts) {
+  opts = opts || {};
+  if (id && typeof picturesTakeCharacter === 'function' && picturesTakeCharacter(id)) return;
+  if (typeof applyCharacterSelections === 'function') {
+    applyCharacterSelections(id ? [id] : [], Object.assign({}, opts, { addedId: id }));
+    return;
+  }
+  _selectedCharacterId = id || '';
+  const inp = document.getElementById('characterIdInput');
+  if (inp) inp.value = _selectedCharacterId;
+  _renderManualCharactersList();
+  characterSyncReferences();
   _applyCharacterQualityStripVisibility();
 }
 
 function selectManualCharacter(id) {
-  // Click-to-toggle: clicking the currently-active avatar deselects it
-  // (2026-05-18 round 3 — the explicit "None" chip is gone; this is
-  // how the user clears a selection now). Passing id === '' also
-  // deselects, kept for callsites that always want to clear. The actual
-  // state change + cascade live in applyCharacterSelection.
-  const next = (id === _selectedCharacterId) ? '' : (id || '');
-  applyCharacterSelection(next, { injectTrigger: true });
+  if (!id) {
+    applyCharacterSelections([], {});
+    return;
+  }
+  if (typeof picturesTakeCharacter === 'function' && globalThis.picturesActive && globalThis.picturesActive()) {
+    picturesTakeCharacter(id);
+    return;
+  }
+  const cur = (typeof globalThis.selectedManualCharacterIds === 'function')
+    ? globalThis.selectedManualCharacterIds()
+    : (_selectedCharacterId ? [_selectedCharacterId] : []);
+  const idx = cur.indexOf(id);
+  let next;
+  let inject = false;
+  if (idx !== -1) {
+    next = cur.filter(x => x !== id);
+  } else {
+    next = [...cur, id];
+    inject = true;
+  }
+  applyCharacterSelections(next, { injectTrigger: inject, addedId: id });
+}
+
+function startFromCharacterPicture(id) {
+  const c = (_manualCharacters || []).find(x => x.id === id);
+  if (!c || !Array.isArray(c.pictures) || !c.pictures.length) return;
+  const savedIds = (typeof globalThis.selectedManualCharacterIds === 'function')
+    ? globalThis.selectedManualCharacterIds()
+    : (id ? [id] : []);
+  if (typeof setMode === 'function' && currentMode !== 'i2v') setMode('i2v');
+  if (typeof pickerSetImage === 'function') pickerSetImage('image', c.pictures[0]);
+  if (savedIds.length) applyCharacterSelections(savedIds, { injectTrigger: false });
+  if (typeof phosToast === 'function') {
+    phosToast(T('characters.started_from_pic', "Starting from {name}'s picture.", {name: c.name || c.id}), { kind: 'info', duration: 3000 });
+  }
+}
+
+function insertCharacterLine(name) {
+  const ta = document.getElementById('prompt');
+  if (!ta || !name) return;
+  const v = ta.value || '';
+  const pre = v.trim() ? (/\n$/.test(v) ? '' : '\n') : '';
+  ta.value = `${v}${pre}${name}: `;
+  const at = ta.value.length;
+  ta.focus();
+  try { ta.setSelectionRange(at, at); } catch (_) {}
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof refreshNoVoiceAuto === 'function') { try { refreshNoVoiceAuto(); } catch (_) {} }
 }
 
 // Toggle the visibility of the default vs character-only quality strips
-// based on whether a character is currently selected. Idempotent — safe
-// to call any time the selection state changes.
+// based on whether a trained-face character is currently selected on LTX.
 function _applyCharacterQualityStripVisibility() {
-  // Q4 tier keeps the regular quality pills (Quick/Balanced/Standard) —
-  // no Q8-only character quality strip. The character LoRA fuses into
-  // the Q4 distilled base; identity match is imperfect but it renders.
   if (window.PHOSPHENE_CAP_TIER === 'q4') return;
   const def  = document.getElementById('qualityGroup');
   const char = document.getElementById('qualityGroupCharacter');
   const skipWrap = document.getElementById('charSkipstepToggleWrap');
   if (!def || !char) return;
-  // Selecting a character must not replace H3's controls with LTX tiers.
-  const selected = _manualCharacters.find(c => c.id === _selectedCharacterId);
-  if (currentEngine() !== 'ltx' || (selected && !selected.face_lora_path)) {
+  const ids = (typeof globalThis.selectedManualCharacterIds === 'function')
+    ? globalThis.selectedManualCharacterIds()
+    : (_selectedCharacterId ? [_selectedCharacterId] : []);
+  const selectedList = ids.map(cid => _manualCharacters.find(c => c.id === cid)).filter(Boolean);
+  const anyTrainedFace = selectedList.some(c => !!c.face_lora_path);
+  if (currentEngine() !== 'ltx' || !anyTrainedFace) {
     def.hidden = currentEngine() !== 'ltx';
     char.hidden = true;
     if (skipWrap) skipWrap.hidden = true;
     return;
   }
-  if (_selectedCharacterId) {
+  if (ids.length && anyTrainedFace) {
     def.hidden = true;
     char.hidden = false;
     if (skipWrap) skipWrap.hidden = false;
-    // Snap to Q8 Pro on first switch — but only if no char-quality
-    // chip is currently active (preserves user's choice if they had
-    // picked Draft earlier and switched between characters).
     const anyActive = char.querySelector('.char-quality.active');
     const target = anyActive || char.querySelector('[data-char-quality="pro"]');
     if (target) _setCharacterQuality(target, { allowMissing: true });
@@ -945,15 +1033,9 @@ function _applyCharacterQualityStripVisibility() {
     def.hidden = false;
     char.hidden = true;
     if (skipWrap) skipWrap.hidden = true;
-    // Restore Balanced as the default video preset — the same value
-    // the page boots with — so the user lands in a sensible state
-    // when they deselect the character.
     if (typeof setQuality === 'function') {
       try { setQuality('balanced'); } catch (_) {}
     }
-    // (History: a skip-step reset used to live here; the whole HQ Speed
-    // control was removed in v4.0.5 after the audit proved it dead at
-    // the engine boundary, so there is no skip-step state to manage.)
   }
 }
 
@@ -2202,7 +2284,8 @@ Object.assign(globalThis, {
   _restoreSelectedOutputAfterLive, _handoffLiveStageToOutput, returnToLiveRender, _renderLiveStageFrame,
   renderLiveStage, renderNowPreview, stopEarly, markNoVoiceTouched,
   refreshNoVoiceAuto, setCharStrength, toggleCharSplit, toggleCharVoiceHelp,
-  openCharactersManageModal, closeCharactersManageModal, applyCharacterSelection, selectManualCharacter,
+  openCharactersManageModal, closeCharactersManageModal, applyCharacterSelection, applyCharacterSelections,
+  selectManualCharacter, startFromCharacterPicture, insertCharacterLine,
   _applyCharacterQualityStripVisibility, _setCharacterQuality, setSchedPreset, schedPresetActive,
   _applySchedPresetRowVisibility, setI2vRefMode, i2vInspireActive, _applyI2vRefModeVisibility,
   _applyStgRowVisibility, _civitaiContextMeta, openCivitaiModal, civitaiRenderFamilyPills,

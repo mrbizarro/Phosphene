@@ -247,6 +247,9 @@ def plain_error(exc: BaseException, cancelled: bool = False) -> str:
 
 def resolve_render_voice(library, form, characters, character_id=""):
     """Resolve the user's choice; inherit a character's trained adapter directly."""
+    import unicodedata
+    def _nk(s):
+        return unicodedata.normalize("NFC", str(s or "")).strip().casefold()
     def value(key, default=""):
         v = form.get(key, default)
         return str((v[0] if v else default) if isinstance(v, list) else v)
@@ -259,9 +262,9 @@ def resolve_render_voice(library, form, characters, character_id=""):
         choice = "inherit"
     def aliases(c):
         name = re.sub(r"\s*\([^)]*\)\s*$", "", str(c.get("name") or ""))
-        return {str(c["id"]).casefold(), str(c.get("trigger") or "").casefold(),
-                name.casefold(), str(c.get("name") or "").casefold()}
-    character = next((c for c in characters if character_id and character_id.casefold() in aliases(c)), None)
+        return {_nk(c["id"]), _nk(c.get("trigger") or ""),
+                _nk(name), _nk(c.get("name") or "")}
+    character = next((c for c in characters if character_id and _nk(character_id) in aliases(c)), None)
     # An explicit library selection overrides inheritance; otherwise an existing
     # character adapter is authoritative, even if a sample was assigned earlier.
     if choice == "inherit" and character and character.get("audio_lora_path"):
@@ -289,3 +292,34 @@ def resolve_render_voice(library, form, characters, character_id=""):
         record["trigger"] = record.get("trigger") or record["id"]
         record["adapter_path"] = str(library.folder(record["id"]) / "voice.audio.safetensors") if record.get("training") == "ready" else ""
     return record
+
+
+def resolve_speaker_voice(library, speaker, characters, speaker_voices=None):
+    """Resolve a line's speaker label to an explicit map override, a character voice, or a standalone saved voice."""
+    import unicodedata
+    def _nk(s):
+        return unicodedata.normalize("NFC", str(s or "")).strip().casefold()
+    who = str(speaker or "").strip()
+    if not who:
+        return None
+    key = _nk(who)
+    if isinstance(speaker_voices, dict):
+        mapped = ""
+        for k, v in speaker_voices.items():
+            if _nk(k) == key:
+                mapped = str(v or "").strip()
+                break
+        if mapped and mapped != "default":
+            picked = resolve_render_voice(library, {"voice_id": mapped}, characters, who)
+            if picked:
+                return picked
+    picked = resolve_render_voice(library, {"voice_id": "inherit"}, characters, who)
+    if picked:
+        return picked
+    for v in library.list():
+        vname = re.sub(r"\s*\([^)]*\)\s*$", "", str(v.get("name") or "")).strip()
+        aliases = {_nk(v.get("id") or ""), _nk(v.get("name") or ""),
+                   _nk(vname), _nk(v.get("trigger") or "")}
+        if key in aliases:
+            return resolve_render_voice(library, {"voice_id": v["id"]}, characters, "")
+    return None

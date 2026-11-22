@@ -145,7 +145,7 @@ function wnShowcase(items) {
 // first: the current window draws it right under the header, tighter, so it shares the first screen with the Pro block.
 function wnFreeSec(r, first) {
   if (!(r.free && r.free.length)) return '';
-  return `<section class="wn-sec wn-sec-free${first ? ' is-first' : ''}">${wnSecHead(T('whatsnew.new_for_everyone', 'New for everyone'), 'is-free', (r.free || []).length)}`
+  return `<section class="wn-sec wn-sec-free${first ? ' is-first' : ''}">${wnSecHead(r.section || T('whatsnew.new_for_everyone', 'New for everyone'), 'is-free', (r.free || []).length)}`
     + wnLines(r.free) + '</section>';
 }
 

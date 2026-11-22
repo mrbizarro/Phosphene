@@ -66,7 +66,10 @@ def get_voices(h, parsed):
         if same:
             same.setdefault('characters', []).append(name)
             continue
-        character_voices.append({'id': 'character:' + character['id'], 'name': name})
+        entry = {'id': 'character:' + character['id'], 'name': name}
+        if Path(voice.get('sample_path') or '').is_file():
+            entry['has_sample'] = True
+        character_voices.append(entry)
     h._json({"voices": records, "assignments": lib.assignments(), "character_voices": character_voices})
 
 

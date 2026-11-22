@@ -3856,105 +3856,181 @@
     "date": "2026-11-22"
   },
   "5.0.81": {
+    "silent": true,
+    "date": "2026-11-22"
+  },
+  "5.0.82": {
     "date": "2026-11-22",
-    "headline": "Choose when Phosphene updates, keep moved models working, and clearer repair messages.",
+    "headline": "A redesigned Studio, and your characters in Hailuo H3: up to 3 pictures and a voice.",
+    "section": "New for everyone: the Studio, redesigned",
     "free": [
-      "Turn automatic updates off in Settings to choose when Phosphene updates; your previous version keeps working until a new update finishes setting up.",
-      "Moving models to an external drive keeps them working, and opening the updated Mac app repairs links from an earlier move without downloading models again.",
-      "Mac app setup messages now follow your chosen language, with a verified backup source in China if the main download cannot connect.",
-      "When a Hailuo H3 file on your Mac is damaged, the card now points to Repair instead of asking you to Retry."
+      "Every screen of the Studio is reworked: a cleaner layout, more room for your prompt and your clips, and every control where you expect it.",
+      "Every mode has its own button and a new set of icons, the model choice sits at the top, and the queue opens only when you press Generate.",
+      "Start & end and Keyframes: your pictures sit side by side in one grid. Drag to reorder, swap first and last, add or remove keyframes.",
+      "Extend and the other modes that start from a clip let you pick one of your recent clips.",
+      "Short tips appear when you hover, instead of long text on the screen."
     ],
-    "pro": [],
+    "pro": [
+      "Characters in Hailuo H3: up to 3 pictures of a person and their saved voice. They keep their look and speak in their own voice, with no training.",
+      "Re-voice: change who says a line in a finished clip. The picture and the rest of the sound stay as they are. Find it under More on any clip."
+    ],
+    "how": [
+      {
+        "id": "characters-voice",
+        "title": "How characters with voices work",
+        "pro": {
+          "video": "/assets/whats_new/how_characters_voice.mp4",
+          "poster": "/assets/whats_new/how_characters_voice.jpg",
+          "label": "Pro",
+          "caption": "New character: add pictures and pick a voice. In Hailuo H3, start each line with the character's name."
+        }
+      },
+      {
+        "id": "revoice",
+        "title": "How Re-voice works",
+        "pro": {
+          "video": "/assets/whats_new/how_revoice.mp4",
+          "poster": "/assets/whats_new/how_revoice.jpg",
+          "label": "Pro",
+          "caption": "Phosphene finds every line. Pick a voice for the lines you want to change. Before, then after."
+        }
+      }
+    ],
     "i18n": {
       "de": {
-        "headline": "Selbst wählen, wann Phosphene aktualisiert, verschobene Modelle weiter nutzen und klarere Reparaturhinweise.",
+        "headline": "Ein neu gestaltetes Studio und deine Figuren in Hailuo H3: bis zu 3 Bilder und eine Stimme.",
+        "section": "Neu für alle: das Studio, neu gestaltet",
         "free": [
-          "Schalte automatische Updates in den Einstellungen aus, um selbst zu wählen, wann Phosphene aktualisiert; deine bisherige Version läuft weiter, bis ein neues Update fertig eingerichtet ist.",
-          "Modelle funktionieren weiter, nachdem du sie auf ein externes Laufwerk verschoben hast, und das Öffnen der neuen Mac-App repariert Verknüpfungen früherer Umzüge ohne neuen Download.",
-          "Die Einrichtungsmeldungen der Mac-App folgen jetzt deiner Sprache, mit einer geprüften Ersatzquelle in China, falls der Hauptdownload keine Verbindung bekommt.",
-          "Wenn eine Hailuo H3 Datei auf deinem Mac beschädigt ist, verweist die Karte jetzt auf Reparieren statt auf Erneut versuchen."
+          "Jeder Bildschirm des Studios ist überarbeitet: ein aufgeräumteres Layout, mehr Platz für deinen Prompt und deine Clips, und jedes Bedienelement dort, wo du es erwartest.",
+          "Jeder Modus hat seinen eigenen Knopf und neue Symbole, die Modellwahl steht oben, und die Warteschlange öffnet sich erst, wenn du auf Erstellen drückst.",
+          "Start & Ende und Keyframes: Deine Bilder liegen nebeneinander in einem Raster. Zum Umsortieren ziehen, erstes und letztes Bild tauschen, Keyframes hinzufügen oder entfernen.",
+          "Verlängern und die anderen Modi, die mit einem Clip beginnen, lassen dich einen deiner letzten Clips auswählen.",
+          "Kurze Tipps erscheinen beim Darüberfahren statt langer Texte auf dem Bildschirm."
         ],
-        "pro": []
+        "pro": [
+          "Charaktere in Hailuo H3: bis zu 3 Bilder einer Person und ihre gespeicherte Stimme. Sie behalten ihr Aussehen und sprechen mit ihrer eigenen Stimme, ganz ohne Training.",
+          "Neu vertonen: Ändere, wer eine Zeile in einem fertigen Clip spricht. Bild und restlicher Ton bleiben, wie sie sind. Zu finden unter Mehr bei jedem Clip."
+        ]
       },
       "es": {
-        "headline": "Elige cuándo se actualiza Phosphene, mantén funcionando los modelos movidos y avisos de reparación más claros.",
+        "headline": "Un Studio rediseñado, y tus personajes en Hailuo H3: hasta 3 fotos y una voz.",
+        "section": "Nuevo para todos: el Studio, rediseñado",
         "free": [
-          "Desactiva las actualizaciones automáticas en Ajustes para elegir cuándo se actualiza Phosphene; tu versión anterior sigue funcionando hasta que la nueva termina de prepararse.",
-          "Mover modelos a una unidad externa los mantiene funcionando, y abrir la app para Mac actualizada repara los enlaces de un traslado anterior sin volver a descargarlos.",
-          "Los mensajes de configuración de la app para Mac siguen ahora tu idioma, con una fuente de respaldo verificada en China si la descarga principal no conecta.",
-          "Cuando un archivo de Hailuo H3 en tu Mac está dañado, la tarjeta ahora indica Reparar en lugar de pedirte Reintentar."
+          "Cada pantalla del Studio está renovada: un diseño más limpio, más espacio para tu prompt y tus clips, y cada control donde lo esperas.",
+          "Cada modo tiene su propio botón y nuevos iconos, la elección del modelo está arriba y la cola solo se abre al pulsar Generar.",
+          "Inicio y fin y Fotogramas clave: tus imágenes quedan una junto a otra en una sola cuadrícula. Arrastra para reordenar, intercambia la primera y la última, añade o quita fotogramas clave.",
+          "Extender y los demás modos que parten de un clip te dejan elegir uno de tus clips recientes.",
+          "Consejos breves al pasar el ratón, en lugar de textos largos en pantalla."
         ],
-        "pro": []
+        "pro": [
+          "Personajes en Hailuo H3: hasta 3 imágenes de una persona y su voz guardada. Mantienen su aspecto y hablan con su propia voz, sin entrenamiento.",
+          "Cambiar voz: cambia quién dice una frase en un clip terminado. La imagen y el resto del sonido no cambian. Está en Más, en cualquier clip."
+        ]
       },
       "fr": {
-        "headline": "Choisissez quand Phosphene se met à jour, gardez vos modèles déplacés utilisables et des avis de réparation plus clairs.",
+        "headline": "Un Studio repensé, et vos personnages dans Hailuo H3 : jusqu'à 3 images et une voix.",
+        "section": "Nouveau pour tous : le Studio, repensé",
         "free": [
-          "Désactivez les mises à jour automatiques dans Réglages pour choisir quand Phosphene se met à jour ; votre version précédente reste utilisable jusqu'à la fin de l'installation.",
-          "Déplacer vos modèles sur un disque externe les garde utilisables, et ouvrir l'app Mac mise à jour répare les liens d'un ancien déplacement sans tout retélécharger.",
-          "Les messages d'installation de l'app Mac suivent maintenant votre langue, avec une source de secours vérifiée en Chine si le téléchargement principal échoue.",
-          "Lorsqu'un fichier Hailuo H3 sur votre Mac est endommagé, la carte indique maintenant Réparer au lieu de demander de Réessayer."
+          "Chaque écran du Studio est retravaillé : une mise en page plus nette, plus de place pour votre prompt et vos clips, et chaque réglage là où vous l'attendez.",
+          "Chaque mode a son bouton et de nouvelles icônes, le choix du modèle est en haut, et la file ne s'ouvre que lorsque vous appuyez sur Générer.",
+          "Début et fin et Images clés : vos images sont côte à côte dans une seule grille. Glissez pour réordonner, échangez la première et la dernière, ajoutez ou retirez des images clés.",
+          "Prolonger et les autres modes qui partent d'un clip vous laissent choisir parmi vos clips récents.",
+          "De courtes astuces apparaissent au survol, au lieu de longs textes à l'écran."
         ],
-        "pro": []
+        "pro": [
+          "Personnages dans Hailuo H3 : jusqu’à 3 images d’une personne et sa voix sauvegardée. Ils gardent leur apparence et parlent avec leur propre voix, sans entraînement.",
+          "Changer la voix : changez qui dit une réplique dans un clip terminé. L’image et le reste du son ne bougent pas. C’est dans Plus, sur n’importe quel clip."
+        ]
       },
       "it": {
-        "headline": "Scegli quando aggiornare Phosphene, mantieni funzionanti i modelli spostati e avvisi di riparazione più chiari.",
+        "headline": "Uno Studio ridisegnato e i tuoi personaggi in Hailuo H3: fino a 3 immagini e una voce.",
+        "section": "Novità per tutti: lo Studio, ridisegnato",
         "free": [
-          "Disattiva gli aggiornamenti automatici in Impostazioni per scegliere quando aggiornare Phosphene; la versione precedente continua a funzionare finché il nuovo aggiornamento non è pronto.",
-          "Spostare i modelli su un disco esterno li mantiene funzionanti, e aprire l'app Mac aggiornata ripara i collegamenti di uno spostamento precedente senza riscaricarli.",
-          "I messaggi di configurazione dell'app Mac ora seguono la tua lingua, con una fonte di riserva verificata in Cina se il download principale non si connette.",
-          "Quando un file di Hailuo H3 sul tuo Mac è danneggiato, la scheda ora rimanda a Ripara invece di chiedere di Riprova."
+          "Ogni schermata dello Studio è stata rifatta: un layout più pulito, più spazio per il prompt e le clip, e ogni comando dove te lo aspetti.",
+          "Ogni modalità ha il suo pulsante e nuove icone, la scelta del modello è in alto e la coda si apre solo quando premi Genera.",
+          "Inizio e fine e Keyframe: le tue immagini stanno affiancate in un'unica griglia. Trascina per riordinare, scambia la prima e l'ultima, aggiungi o togli keyframe.",
+          "Estendi e le altre modalità che partono da una clip ti fanno scegliere una delle tue clip recenti.",
+          "Brevi suggerimenti al passaggio del mouse, invece di lunghi testi sullo schermo."
         ],
-        "pro": []
+        "pro": [
+          "Personaggi in Hailuo H3: fino a 3 immagini di una persona e la sua voce salvata. Mantengono il loro aspetto e parlano con la propria voce, senza addestramento.",
+          "Cambia voce: cambia chi dice una battuta in una clip finita. L’immagine e il resto del suono restano come sono. Si trova in Altro, su qualsiasi clip."
+        ]
       },
       "ja": {
-        "headline": "更新タイミングの選択、外付けドライブへ移動したモデルの保護、修復案内の改善を行いました。",
+        "headline": "Studioを全面リデザイン。Hailuo H3ではキャラクターを最大3枚の写真と声で使えます。",
+        "section": "すべての方に：Studioを全面リデザイン",
         "free": [
-          "設定で自動アップデートをオフにすると、Phospheneを更新するタイミングを自分で選べます。新しいバージョンの準備が終わるまで以前のバージョンがそのまま使えます。",
-          "モデルを外付けドライブへ移動してもそのまま使え、更新後のMacアプリを開くだけで以前移動して切れたリンクも再ダウンロードなしで修復します。",
-          "Macアプリのセットアップ表示が選択した言語に合うようになり、主なダウンロードに接続できない場合は中国向けの検証済みバックアップ元を使います。",
-          "Mac上のHailuo H3ファイルが破損しているとき、再試行ではなく修復を案内するようになりました。"
+          "Studioのすべての画面を作り直しました。すっきりしたレイアウトで、プロンプトとクリップのスペースが広がり、操作は期待どおりの場所にあります。",
+          "各モードに専用のボタンと新しいアイコンがあり、モデルの選択は上部に、キューは生成を押したときだけ開きます。",
+          "開始と終了、キーフレーム：写真が一つのグリッドに並びます。ドラッグで並べ替え、最初と最後を入れ替え、キーフレームの追加や削除ができます。",
+          "延長など、クリップから始めるモードでは最近のクリップから選べます。",
+          "画面上の長い説明の代わりに、カーソルを合わせると短いヒントが出ます。"
         ],
-        "pro": []
+        "pro": [
+          "Hailuo H3 のキャラクター：人物の画像を最大3枚と、保存した声。見た目を保ったまま、自分の声で話します。学習は不要です。",
+          "声を差し替え：完成したクリップのセリフを、別の声で話させることができます。映像とほかの音はそのままです。どのクリップでも「その他」から使えます。"
+        ]
       },
       "ko": {
-        "headline": "업데이트 시점을 직접 고르고, 외장 드라이브로 옮긴 모델을 유지하며, 복구 안내를 더 명확하게 바꿨습니다.",
+        "headline": "새롭게 디자인한 Studio, 그리고 Hailuo H3의 내 캐릭터: 사진 최대 3장과 목소리.",
+        "section": "모든 사용자에게: 새롭게 디자인한 Studio",
         "free": [
-          "설정에서 자동 업데이트를 끄면 Phosphene을 업데이트할 시점을 직접 고를 수 있고, 새 업데이트 준비가 끝날 때까지 이전 버전이 계속 동작합니다.",
-          "모델을 외장 드라이브로 옮겨도 그대로 작동하며, 업데이트된 Mac 앱을 열면 예전 이동으로 끊긴 링크도 다시 내려받지 않고 복구합니다.",
-          "Mac 앱 설정 메시지가 선택한 언어에 맞춰 표시되며, 기본 다운로드에 연결되지 않으면 중국용 검증된 백업 경로를 사용합니다.",
-          "Mac의 Hailuo H3 파일이 손상되면 다시 시도 대신 복구를 안내하도록 바뀌었습니다."
+          "Studio의 모든 화면을 다시 만들었습니다. 더 깔끔한 레이아웃, 프롬프트와 클립을 위한 더 넓은 공간, 그리고 모든 조작이 예상한 자리에 있습니다.",
+          "모드마다 전용 버튼과 새 아이콘이 있고, 모델 선택은 맨 위에 있으며, 대기열은 생성을 누를 때만 열립니다.",
+          "시작과 끝, 키프레임: 사진이 하나의 그리드에 나란히 놓입니다. 드래그로 순서를 바꾸고, 처음과 마지막을 맞바꾸고, 키프레임을 추가하거나 뺄 수 있습니다.",
+          "연장처럼 클립에서 시작하는 모드에서는 최근 클립 중 하나를 고를 수 있습니다.",
+          "화면의 긴 설명 대신, 마우스를 올리면 짧은 도움말이 나타납니다."
         ],
-        "pro": []
+        "pro": [
+          "Hailuo H3의 캐릭터: 한 사람의 사진 최대 3장과 저장한 목소리. 모습은 그대로, 자기 목소리로 말해요. 학습은 필요 없어요.",
+          "목소리 바꾸기: 완성된 클립에서 대사를 누가 말할지 바꿀 수 있어요. 화면과 나머지 소리는 그대로예요. 어느 클립에서든 더 보기에서 찾을 수 있어요."
+        ]
       },
       "pt": {
-        "headline": "Escolha quando atualizar o Phosphene, mantenha modelos movidos funcionando e avisos de reparo mais claros.",
+        "headline": "Um Studio redesenhado, e seus personagens no Hailuo H3: até 3 fotos e uma voz.",
+        "section": "Novo para todos: o Studio, redesenhado",
         "free": [
-          "Desative as atualizações automáticas em Ajustes para escolher quando o Phosphene atualiza; sua versão anterior continua funcionando até a nova terminar de preparar.",
-          "Mover modelos para um disco externo mantém tudo funcionando, e abrir o app para Mac atualizado repara os vínculos de uma mudança anterior sem baixar tudo de novo.",
-          "As mensagens de configuração do app para Mac agora seguem o seu idioma, com uma fonte reserva verificada na China se o download principal não conectar.",
-          "Quando um arquivo do Hailuo H3 no seu Mac está danificado, o cartão agora aponta para Reparar em vez de pedir para Tentar novamente."
+          "Todas as telas do Studio foram refeitas: um layout mais limpo, mais espaço para seu prompt e seus clipes, e cada controle onde você espera.",
+          "Cada modo tem seu próprio botão e novos ícones, a escolha do modelo fica no topo e a fila só abre quando você clica em Gerar.",
+          "Início e fim e Quadros-chave: suas fotos ficam lado a lado em uma só grade. Arraste para reordenar, troque a primeira pela última, adicione ou remova quadros-chave.",
+          "Estender e os outros modos que começam de um clipe deixam você escolher um dos seus clipes recentes.",
+          "Dicas curtas aparecem ao passar o mouse, em vez de textos longos na tela."
         ],
-        "pro": []
+        "pro": [
+          "Personagens no Hailuo H3: até 3 imagens de uma pessoa e a voz salva dela. Eles mantêm a aparência e falam com a própria voz, sem treinamento.",
+          "Trocar voz: mude quem diz uma fala em um clipe pronto. A imagem e o resto do som ficam como estão. Fica em Mais, em qualquer clipe."
+        ]
       },
       "ru": {
-        "headline": "Выбор времени обновлений, сохранность перенесённых моделей и более понятные подсказки по восстановлению.",
+        "headline": "Studio в новом виде и ваши персонажи в Hailuo H3: до 3 фото и голос.",
+        "section": "Новое для всех: Studio в новом виде",
         "free": [
-          "Отключите автообновление в Настройках, чтобы самим выбирать время обновления Phosphene; прежняя версия продолжает работать, пока новая не завершит подготовку.",
-          "Перенос моделей на внешний диск сохраняет их работоспособность, а запуск обновлённого приложения для Mac чинит ссылки от прошлых переносов без повторной загрузки.",
-          "Сообщения настройки приложения для Mac теперь соответствуют выбранному языку, а если основная загрузка не подключается, используется проверенный резервный источник в Китае.",
-          "Если файл Hailuo H3 на вашем Mac повреждён, карточка теперь предлагает Восстановить вместо Повторить."
+          "Каждый экран Studio переработан: более чистая раскладка, больше места для промпта и клипов, и каждый элемент управления там, где вы его ждёте.",
+          "У каждого режима своя кнопка и новые значки, выбор модели наверху, а очередь открывается только когда вы нажимаете «Создать».",
+          "Начало и конец и Ключевые кадры: ваши картинки стоят рядом в одной сетке. Перетаскивайте, чтобы поменять порядок, меняйте местами первый и последний кадр, добавляйте и убирайте ключевые кадры.",
+          "В «Продлить» и других режимах, которые начинаются с клипа, можно выбрать один из недавних клипов.",
+          "Короткие подсказки появляются при наведении вместо длинного текста на экране."
         ],
-        "pro": []
+        "pro": [
+          "Персонажи в Hailuo H3: до 3 изображений человека и его сохранённый голос. Они сохраняют свой облик и говорят своим голосом, без обучения.",
+          "Заменить голос: поменяйте, кто произносит реплику в готовом клипе. Картинка и остальной звук не меняются. Ищите в меню «Ещё» у любого клипа."
+        ]
       },
       "zh-Hans": {
-        "headline": "自由决定何时更新 Phosphene、移至外接硬盘的模型保持可用，并改进修复提示。",
+        "headline": "全新设计的 Studio，以及 Hailuo H3 中的角色：最多 3 张图片加一个声音。",
+        "section": "所有人可用：全新设计的 Studio",
         "free": [
-          "在“设置”中关闭自动更新后，你可以自己决定何时更新 Phosphene；在新更新准备完成前，旧版本会继续正常工作。",
-          "将模型移到外接硬盘后可继续正常使用，打开更新后的 Mac 应用还会自动修复此前移动导致的失效链接，无需重新下载。",
-          "Mac 应用的安装提示现已跟随你选择的语言显示，当主下载无法连接时会改用经过校验的中国备用下载源。",
-          "当 Mac 上的 Hailuo H3 文件损坏时，任务卡片现在会提示点按“修复”，而不再要求重试。"
+          "Studio 的每个界面都重新打磨：布局更清爽，提示词和片段有更多空间，每个控件都在你预期的位置。",
+          "每种模式都有自己的按钮和全新图标，模型选择位于顶部，只有按下“生成”时才会打开队列。",
+          "首尾帧和关键帧：图片在同一个网格中并排显示。拖动即可调整顺序、交换首尾帧、添加或删除关键帧。",
+          "延长以及其他从视频片段开始的模式，现在可以从你最近的片段中挑选。",
+          "把鼠标移上去就会出现简短提示，不再在屏幕上堆满长段文字。"
         ],
-        "pro": []
+        "pro": [
+          "Hailuo H3 中的角色：一个人的最多 3 张图片和已保存的声音。角色保持原有样貌，用自己的声音说话，无需训练。",
+          "替换声音：更换已完成片段中某句台词的说话人。画面和其他声音保持不变。在任意片段的“更多”里可以找到。"
+        ]
       }
     }
   }

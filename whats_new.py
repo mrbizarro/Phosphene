@@ -283,8 +283,9 @@ def localise(ent: dict, lang: str | None) -> dict:
     if not isinstance(tr, dict):
         return ent
     out = dict(ent)
-    if isinstance(tr.get("headline"), str) and tr["headline"].strip():
-        out["headline"] = tr["headline"]
+    for k in ("headline", "section"):
+        if isinstance(tr.get(k), str) and tr[k].strip():
+            out[k] = tr[k]
     for k in ("free", "pro"):
         out[k] = _tr_lines(ent.get(k), tr.get(k))
     return out
@@ -446,12 +447,14 @@ def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: boo
             earlier.append(ent)
     date = next((e.get("date") for _, e in newest if isinstance(e.get("date"), str)), None)
     headline = next((hl for hl in (_headline(e) for _, e in newest) if hl), None)
+    # A release may name its everyone-section ("section", e.g. "The Studio, redesigned"); otherwise New for everyone.
+    section = next((e["section"] for _, e in newest if isinstance(e.get("section"), str) and e["section"].strip()), None)
     return {
         "version": version, "pro_active": bool(pro_active),
         "show": bool(free or pro or nip) and (force or not seen_now),   # nip alone cannot be set without free/pro
         "title": "What's new in %s" % version,
         "free": free, "pro": pro,
-        "free_title": FREE_TITLE, "pro_title": PRO_TITLE,
+        "free_title": FREE_TITLE, "pro_title": PRO_TITLE, "section": section,
         "thanks": THANKS if pro_active else None,
         "pricing_url": PRICING_URL, "plans_url": PLANS_URL, "changelog_url": CHANGELOG_URL,
         "date": date, "headline": headline, "hero": hero, "how": hows,

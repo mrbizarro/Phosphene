@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+<defs><linearGradient id="queue-accent" gradientUnits="userSpaceOnUse" x1="2" y1="4" x2="7" y2="3"><stop stop-color="#ff2e9f"/><stop offset=".5" stop-color="#b14aff"/><stop offset="1" stop-color="#5eeaff"/></linearGradient></defs>
+<path d="M7 5v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4M3 10h3a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1ZM3 17h3a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1ZM10 5h12M10 11.5h12M10 18.5h12" stroke="#e8e8ee" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M2 4a1 1 0 0 1 1-1h4" stroke="url(#queue-accent)" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M6 3a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" fill="url(#queue-accent)"/>
+</svg>

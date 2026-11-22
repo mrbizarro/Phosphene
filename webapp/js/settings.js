@@ -2029,6 +2029,7 @@ function proSpeedRender() {
   if (!pro) {                                   // Free: the line only
     sw.hidden = true; note.hidden = false; row.hidden = false;
     note.innerHTML = proNoteHtml(proSpotText('ltx-faster', false));
+    note.title = (note.textContent || '').trim();   // feedback 4: one tiny line, the rest on hover
     if (field) field.value = 'on';
     return;
   }
@@ -2095,6 +2096,7 @@ function proDraftRender() {
       + (st.ready ? '' : T('settings.first_use_downloads_gb_once', ' First use downloads {gb} GB once.', {gb: st.gb || 1.2}));
   }
   note.innerHTML = proNoteHtml(text);
+  note.title = (note.textContent || '').trim();
   note.hidden = false;
 }
 function proSpeedChanged() {

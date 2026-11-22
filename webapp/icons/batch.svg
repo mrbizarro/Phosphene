@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+<defs><linearGradient id="batch-accent" gradientUnits="userSpaceOnUse" x1="12" y1="22" x2="16" y2="20"><stop stop-color="#ff2e9f"/><stop offset=".5" stop-color="#b14aff"/><stop offset="1" stop-color="#5eeaff"/></linearGradient></defs>
+<path d="M9 4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-1 1.7M6 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10M16 18V10a2 2 0 0 0-2-2H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9M7 12l4 2.5L7 17Z" stroke="#e8e8ee" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12 22h2a2 2 0 0 0 2-2" stroke="url(#batch-accent)" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M15 20a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" fill="url(#batch-accent)"/>
+</svg>

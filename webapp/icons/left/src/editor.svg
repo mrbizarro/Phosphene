@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+<defs><linearGradient id="editor-accent" gradientUnits="userSpaceOnUse" x1="8" y1="5.5" x2="13.2" y2="4.2"><stop stop-color="#ff2e9f"/><stop offset=".5" stop-color="#b14aff"/><stop offset="1" stop-color="#5eeaff"/></linearGradient></defs>
+<path d="M11 7v15M3 10h5a1.5 1.5 0 0 1 0 3H3a1.5 1.5 0 0 1 0-3ZM14 10h7a1.5 1.5 0 0 1 0 3h-7a1.5 1.5 0 0 1 0-3ZM3 17h2.5a1.5 1.5 0 0 1 0 3H3a1.5 1.5 0 0 1 0-3ZM9 17a1.5 1.5 0 0 0 0 3M13 17h8a1.5 1.5 0 0 1 0 3h-8" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M8 5.5a4 4 0 0 1 4-2" stroke="url(#editor-accent)" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12.2 4.2a1 1 0 1 0 2 0a1 1 0 1 0-2 0" fill="url(#editor-accent)"/>
+</svg>

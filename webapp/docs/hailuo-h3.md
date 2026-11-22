@@ -215,7 +215,7 @@ H3 has its own library of LoRA add-ons. You cannot use LTX LoRAs or trained char
 
 ## Choose the export size {#after}
 
-Open **After the render → Upscale** to choose the export size: **Native**, **720p fit** (the default) or **1080p fit**. To add sharpening and face correction after the draft, tick **Also run Upscale & Face Fix after the draft**. See [Upscale and export](#docs/video/upscale).
+Open **Upscale** to choose the export size: **Native**, **720p fit** (the default) or **1080p fit**. To add sharpening and face correction after the draft, tick **Also run Upscale & Face Fix after the draft**. See [Upscale and export](#docs/video/upscale).
 
 ## When something goes wrong {#troubleshooting}
 

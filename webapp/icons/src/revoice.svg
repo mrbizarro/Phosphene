@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+<defs><linearGradient id="re-voice-accent" gradientUnits="userSpaceOnUse" x1="9" y1="6" x2="19" y2="6"><stop stop-color="#ff2e9f"/><stop offset=".5" stop-color="#b14aff"/><stop offset="1" stop-color="#5eeaff"/></linearGradient></defs>
+<path d="M2 12v2M4.5 10v6M7 8v10M9.5 11v4M16 12v2M18.5 10v6M21 11v4M23 12v2" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M9 6c3-4 7-3 10 0M19 4v2h-2" stroke="url(#re-voice-accent)" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -38047,6 +38047,40 @@ def _engine_would_be_h3(requested: str, mode: str) -> bool:
     return bool(h3_capable())
 
 
+def _parse_character_ids_field(form: dict[str, list[str]] | dict[str, str]) -> list[str]:
+    """Return ordered deduplicated character IDs from `character_ids` or legacy `character_id`."""
+    def _f(name: str) -> str:
+        v = form.get(name, "")
+        if isinstance(v, list):
+            v = v[0] if v else ""
+        return str(v or "").strip()
+    raw_multi = _f("character_ids")
+    ids: list[str] = []
+    if raw_multi:
+        if raw_multi.startswith("["):
+            try:
+                parsed = json.loads(raw_multi)
+                if isinstance(parsed, list):
+                    ids = [str(x or "").strip() for x in parsed if str(x or "").strip()]
+            except ValueError:
+                ids = []
+        else:
+            ids = [x.strip() for x in raw_multi.split(",") if x.strip()]
+    single = _f("character_id")
+    if single and single not in ids:
+        if not ids:
+            ids = [single]
+        else:
+            ids.insert(0, single)
+    out: list[str] = []
+    seen: set[str] = set()
+    for cid in ids:
+        if cid and cid not in seen:
+            seen.add(cid)
+            out.append(cid)
+    return out
+
+
 def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> str | None:
     """Validate the complete trained-character contract before enqueueing.
 
@@ -38074,61 +38108,40 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
             v = v[0] if v else default
         return str(v or "").strip()
     quality = _f("quality", "balanced").lower()
-    cid = _f("character_id", "")
-    if cid:
+    cids = _parse_character_ids_field(form)
+    if cids:
         try:
-            char = next((c for c in list_characters() if c.get("id") == cid), None)
+            all_chars = list_characters()
         except Exception as exc:  # noqa: BLE001 - turn discovery failure into API 400
-            return f"could not resolve character {cid!r}: {exc}"
-        if not char:
-            return f"character {cid!r} not found; request was not queued"
-        # H3 uses pictures, not the face adapter; LTX can use a picture
-        # before training. Keep the declared-but-missing adapter check below.
-        if _engine_would_be_h3(_f("engine", ENGINE_DEFAULT), _f("mode", "t2v")):
-            return None
-        if not char.get("face_lora_path"):
-            return None
-        if char.get("ltx_compatible") is False:
-            return str(char.get("ltx_compat_reason") or
-                       f"character {cid!r} is incompatible with the active "
-                       "LTX generation; request was not queued")
-        face = Path(str(char.get("face_lora_path") or ""))
-        if not face.is_file():
-            return (f"character {cid!r} is missing its face LoRA; request was "
-                    "not queued")
+            return f"could not resolve character {cids[0]!r}: {exc}"
+        by_id = {c.get("id"): c for c in all_chars}
+        is_h3 = _engine_would_be_h3(_f("engine", ENGINE_DEFAULT), _f("mode", "t2v"))
         no_voice = _f("no_voice", "off").lower() in ("on", "true", "1", "yes")
-        # A CHARACTER THAT NEVER HAD A VOICE IS NOT A BROKEN CHARACTER.
-        #
-        # `list_characters()` sets audio_lora_path to None when no
-        # `.audio.safetensors` sits beside the face file — that is how a
-        # face-only character is REPRESENTED, and the UI has always treated it
-        # as a first-class state (the "silent" badge). Refusing it here made
-        # every silent character unrenderable on every path, with no way to opt
-        # out: the No-voice pill is hidden precisely for these characters, so
-        # `no_voice` could never be sent. The shipped one-click SAMPLE
-        # CHARACTER is exactly this shape — one face file, no audio — so
-        # from-zero onboarding produced a character the panel then refused.
-        #
-        # The contract this check exists to enforce is "a character's declared
-        # voice must actually be there", and it is preserved by asking the
-        # right question: DECLARED but MISSING is a corrupt bundle and still
-        # refuses; NEVER DECLARED is silent by construction and renders.
-        audio_declared = str(char.get("audio_lora_path") or "").strip()
-        if audio_declared and not no_voice and not Path(audio_declared).is_file():
-            # A saved library voice replaces this adapter. A broken original
-            # must not prevent rendering the explicitly selected replacement.
-            from voices import VoiceLibrary, resolve_render_voice
-            try:
-                replacement = resolve_render_voice(VoiceLibrary(STATE_DIR), form, list_characters(), cid)
-            except ValueError as exc:
-                return str(exc)
-            if not replacement:
-                return (f"character {cid!r} is missing its trained voice LoRA. "
-                        "Restore/train the voice file, or submit no_voice=on "
-                        "explicitly; request was not queued")
-        # Character mode on Q4 submits with Quick/Balanced/Standard. The
-        # identity match is imperfect but the requested face + voice pair is
-        # present. Q8 users who pick quality=high get the full-fidelity path.
+        for cid in cids:
+            char = by_id.get(cid)
+            if not char:
+                return f"character {cid!r} not found; request was not queued"
+            if is_h3 or not char.get("face_lora_path"):
+                continue
+            if char.get("ltx_compatible") is False:
+                return str(char.get("ltx_compat_reason") or
+                           f"character {cid!r} is incompatible with the active "
+                           "LTX generation; request was not queued")
+            face = Path(str(char.get("face_lora_path") or ""))
+            if not face.is_file():
+                return (f"character {cid!r} is missing its face LoRA; request was "
+                        "not queued")
+            audio_declared = str(char.get("audio_lora_path") or "").strip()
+            if len(cids) == 1 and audio_declared and not no_voice and not Path(audio_declared).is_file():
+                from voices import VoiceLibrary, resolve_render_voice
+                try:
+                    replacement = resolve_render_voice(VoiceLibrary(STATE_DIR), form, all_chars, cid)
+                except ValueError as exc:
+                    return str(exc)
+                if not replacement:
+                    return (f"character {cid!r} is missing its trained voice LoRA. "
+                            "Restore/train the voice file, or submit no_voice=on "
+                            "explicitly; request was not queued")
         return None
     # No character_id — but a raw train_character LoRA in `loras` triggers
     # the same quality concern. 2026-06-26: we allow it on Q4 (same
@@ -39689,12 +39702,19 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         mode_in = "t2v"
         form["mode"] = "t2v"
     _selected_character = None
-    if f("character_id"):
-        _selected_character = next((c for c in list_characters()
-                                    if c["id"] == f("character_id")), None)
-        if not _selected_character:
-            raise CharacterRequestError("Character not found")
-        if (not _selected_character.get("face_lora_path") and mode_in == "t2v"
+    _selected_characters: list[dict] = []
+    _requested_cids = _parse_character_ids_field(form)
+    if _requested_cids:
+        _chars_pool = {c["id"]: c for c in list_characters()}
+        for _rcid in _requested_cids:
+            _cobj = _chars_pool.get(_rcid)
+            if not _cobj:
+                raise CharacterRequestError("Character not found")
+            _selected_characters.append(_cobj)
+        _selected_character = _selected_characters[0]
+        if (len(_selected_characters) == 1
+                and not _selected_character.get("face_lora_path")
+                and mode_in == "t2v"
                 and not _engine_would_be_h3(f("engine", ENGINE_DEFAULT), mode_in)):
             pictures = _selected_character.get("pictures") or []
             if pictures:
@@ -40064,11 +40084,16 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # while API replay may submit the real pipeline quality. Both must become
     # the same job dict, and High · 720p must reach ``high_720p`` rather than an
     # unknown string that falls through to the distilled lane.
-    _character_id = f("character_id", "")
+    _character_id = _selected_characters[0]["id"] if _selected_characters else f("character_id", "")
     _quality_choice_raw = f("quality_choice", "")
     _quality_raw = f("quality", "")
     _character_quality = None
-    if _character_id and _selected_character.get("face_lora_path"):
+    _has_ltx_face_lora = (
+        bool(_selected_characters)
+        and any(c.get("face_lora_path") for c in _selected_characters)
+        and not _engine_would_be_h3(f("engine", ENGINE_DEFAULT), mode_in)
+    )
+    if _has_ltx_face_lora:
         _character_quality = resolve_character_quality(
             _quality_choice_raw or _quality_raw, ACTIVE_MODEL_VERSION)
         if _character_quality is None:
@@ -41106,149 +41131,122 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # Bounded to [0, 2.0] same as parse_loras_from_form for any user-picked
     # LoRA — overriding to 0 effectively disables a character without
     # forcing the user to clear the picker.
-    if _character_id and (_engine == "h3" or not _selected_character.get("face_lora_path")):
-        # Identity is engine-specific; voice resolution below is shared.
-        pictures = _selected_character.get("pictures") or []
+    if _selected_characters and _engine == "h3":
+        # Identity on H3 uses character pictures; voice resolution below is shared.
+        if len(_selected_characters) == 1:
+            pictures = list(_selected_character.get("pictures") or [])
+        else:
+            pictures = []
+            for _sc in _selected_characters:
+                _spics = _sc.get("pictures") or []
+                if _spics:
+                    pictures.append(_spics[0])
         for picture in pictures:
             if not Path(picture).is_file():
                 raise CharacterRequestError("Character picture is missing; add it again.")
         job["params"]["character_id"] = _character_id
+        if len(_selected_characters) > 1:
+            job["params"]["character_ids"] = [c["id"] for c in _selected_characters]
         job["params"]["character_face_lora"] = False
         if _engine == "h3" and pictures and not bool(pro_status().get("active")):
-            # Pictures on H3 go through References (Pro). Free keeps the character's voice and says so in one
-            # line, instead of a job the worker refuses with a switch Free cannot use (release review, 21 Nov).
             job["params"]["refs_note"] = ("On Hailuo H3, a character's pictures go into References, which is part "
                                           "of Phosphene Pro, so this clip uses the character's voice but not "
                                           "their pictures.")
-        elif _engine == "h3" and pictures:
+        elif pictures:
             job["params"]["h3_refs"] = True
             for key, picture in zip(("h3_reference", "h3_reference2", "h3_reference3"),
                                     (pictures + ["", "", ""])[:3]):
                 job["params"][key] = picture
-        elif _engine == "ltx" and pictures and mode_in == "t2v":
+    elif _selected_characters and not any(c.get("face_lora_path") for c in _selected_characters):
+        for _sc in _selected_characters:
+            for picture in (_sc.get("pictures") or []):
+                if not Path(picture).is_file():
+                    raise CharacterRequestError("Character picture is missing; add it again.")
+        job["params"]["character_id"] = _character_id
+        if len(_selected_characters) > 1:
+            job["params"]["character_ids"] = [c["id"] for c in _selected_characters]
+        job["params"]["character_face_lora"] = False
+        pictures = _selected_character.get("pictures") or []
+        if len(_selected_characters) == 1 and _engine == "ltx" and pictures and mode_in == "t2v":
             job["params"].update(mode="i2v", image=pictures[0])
-    elif _character_id:
+    elif _selected_characters:
         job["params"]["character_face_lora"] = True
         try:
             char_strength = float(f("character_strength", "1.0") or "1.0")
         except (TypeError, ValueError):
             char_strength = 1.0
         char_strength = max(0.0, min(2.0, char_strength))
-        # THE VOICE IS A SEPARATE FILE AND IT NEEDS A SEPARATE NUMBER.
-        #
-        # A character is two trained LoRAs: <trigger>.safetensors (1152 modules,
-        # 384 of them on the audio branch) and <trigger>.audio.safetensors (576,
-        # all audio). They OVERLAP on 384 modules, and on those the face file's
-        # audio deltas are NOISE — it was trained on 42 still images with
-        # generate_audio false, so whatever the optimiser did to those
-        # parameters encodes no voice at all. Measured, the noise is LOUDER than
-        # the signal: median ||D|| 1.45 against the voice file's 1.10, an SNR of
-        # 0.81x at equal strength. At q4 both were erased (~95 %) and the ratio
-        # never mattered; at q8 ~90 % of both survives, which is why fixing the
-        # face is what surfaced the voice.
-        #
-        # That is the MEASUREMENT, and it argued for running the voice hotter:
-        # parity is 1.2, and 1.4 was the first rung with real headroom — also
-        # where community guidance for 2.5 puts "balanced".
-        #
-        # THE EAR DISAGREED, and the ear is the authority here. 1.0 and 1.4
-        # were rendered as a graded pair and the owner rejected 1.4: "candidate
-        # seems less good". So the default is 1.0 — the pair every graded clip
-        # was rendered at and passed on — and it is not provisional. The split
-        # control still ships and the ladder is still reachable; what changed is
-        # that the panel no longer recommends climbing it. An SNR argument is a
-        # reason to give the voice its own number, not a reason to turn it up.
-        #
-        # THE ALLOWLIST TRAP: make_job builds params from named reads, and a
-        # field nobody reads here is dropped with no error — the render
-        # succeeds and the voice silently runs at the face's strength. That has
-        # bitten this project before (image params, 2026-05). The assertion that
-        # this key reaches params is part of the same commit.
         try:
             char_voice_strength = float(
                 f("character_voice_strength", "1.0") or "1.0")
         except (TypeError, ValueError):
             char_voice_strength = 1.0
         char_voice_strength = max(0.0, min(2.0, char_voice_strength))
-        # Per-render voice opt-out (2026-05-18). When the user flips the
-        # "No voice" toggle in composer-tools, drop the character's
-        # audio LoRA from the stack for THIS render — face still locks,
-        # but no speech is generated. Useful when the trained voice
-        # produces gibberish on a particular prompt and the user only
-        # wants the visual. Matches the same checkbox idiom as
-        # f("enhance") / f("stop_comfy") above — "on" or empty.
         no_voice = (f("no_voice", "off") or "").strip().lower() in ("on", "true", "1", "yes")
         try:
             chars_by_id = {c["id"]: c for c in list_characters()}
         except Exception as exc:  # noqa: BLE001 - preserve a loud contract failure
             raise CharacterRequestError(
                 f"could not resolve character {_character_id!r}: {exc}") from exc
-        char_rec = chars_by_id.get(_character_id)
-        if not char_rec:
-            raise CharacterRequestError(
-                f"character {_character_id!r} not found; request was not queued")
-        face_p = char_rec.get("face_lora_path")
-        audio_p = char_rec.get("audio_lora_path")
-        if not face_p or not Path(str(face_p)).is_file():
-            raise CharacterRequestError(
-                f"character {_character_id!r} is missing its face LoRA; "
-                "request was not queued")
-        # DECLARED-BUT-MISSING refuses; NEVER-DECLARED renders. `audio_p` is
-        # None for a character with no `.audio.safetensors` beside its face
-        # file — the representation of a face-only character, which the UI
-        # shows with a "silent" badge and whose No-voice pill is HIDDEN (so
-        # `no_voice` can never be submitted for it). Refusing that shape made
-        # every silent character unrenderable with no opt-out, the shipped
-        # one-click sample character among them. See the twin check in
-        # _validate_character_quality.
-        _audio_declared = str(audio_p or "").strip()
-        from voices import VoiceLibrary, resolve_render_voice
-        try:
-            _replacement_voice = resolve_render_voice(VoiceLibrary(STATE_DIR), form, list(chars_by_id.values()), _character_id)
-        except ValueError as exc:
-            raise CharacterRequestError(str(exc)) from exc
-        if _audio_declared and not no_voice and not _replacement_voice and not Path(_audio_declared).is_file():
-            raise CharacterRequestError(
-                f"character {_character_id!r} is missing its trained voice "
-                "LoRA. Restore/train the voice file, or submit no_voice=on "
-                "explicitly; request was not queued")
-        if no_voice:
-            job["params"]["no_voice"] = True
         existing_paths = {
             str((entry or {}).get("path") or "")
             for entry in (job["params"].get("loras") or [])
         }
         additions: list[dict] = []
-        if face_p not in existing_paths:
-            additions.append({"path": face_p, "strength": char_strength})
-            existing_paths.add(face_p)
-        if audio_p and audio_p not in existing_paths and not no_voice and not _replacement_voice:
-            additions.append({"path": audio_p,
-                              "strength": char_voice_strength})
-            existing_paths.add(audio_p)
+        trained_face_count = 0
+        from voices import VoiceLibrary, resolve_render_voice
+        for _sc in _selected_characters:
+            _cid_i = _sc["id"]
+            char_rec = chars_by_id.get(_cid_i)
+            if not char_rec:
+                raise CharacterRequestError(
+                    f"character {_cid_i!r} not found; request was not queued")
+            face_p = char_rec.get("face_lora_path")
+            audio_p = char_rec.get("audio_lora_path")
+            if not face_p:
+                for picture in (char_rec.get("pictures") or []):
+                    if not Path(picture).is_file():
+                        raise CharacterRequestError("Character picture is missing; add it again.")
+                continue
+            if not Path(str(face_p)).is_file():
+                raise CharacterRequestError(
+                    f"character {_cid_i!r} is missing its face LoRA; "
+                    "request was not queued")
+            trained_face_count += 1
+            if face_p not in existing_paths:
+                additions.append({"path": face_p, "strength": char_strength})
+                existing_paths.add(face_p)
+            if len(_selected_characters) == 1:
+                _audio_declared = str(audio_p or "").strip()
+                try:
+                    _replacement_voice = resolve_render_voice(VoiceLibrary(STATE_DIR), form, list(chars_by_id.values()), _cid_i)
+                except ValueError as exc:
+                    raise CharacterRequestError(str(exc)) from exc
+                if _audio_declared and not no_voice and not _replacement_voice and not Path(_audio_declared).is_file():
+                    raise CharacterRequestError(
+                        f"character {_cid_i!r} is missing its trained voice "
+                        "LoRA. Restore/train the voice file, or submit no_voice=on "
+                        "explicitly; request was not queued")
+                if audio_p and audio_p not in existing_paths and not no_voice and not _replacement_voice:
+                    additions.append({"path": audio_p,
+                                      "strength": char_voice_strength})
+                    existing_paths.add(audio_p)
+        if no_voice:
+            job["params"]["no_voice"] = True
         if additions:
-            # Face/audio LoRAs go FIRST in the stack so they take effect
-            # before any style LoRAs the user stacked on top. Mirrors
-            # the existing /characters/<id>/generate ordering.
             job["params"]["loras"] = additions + list(
                 job["params"].get("loras") or []
             )
-        # Always stamp the character_id on params even when the form
-        # didn't declare source="characters". The Manual-tab picker is
-        # a different entry point — stamping is what lets Load Params
-        # later restore the picker selection.
+        if trained_face_count >= 2:
+            job["params"]["ltx_face_blend_note"] = (
+                "Two trained looks in one LTX shot can blend; for two clear faces "
+                "use shot and reverse shot, or Hailuo H3."
+            )
         if "character_id" not in job["params"]:
             job["params"]["character_id"] = _character_id
-        # This is the UI token, while params.quality above is the pipeline token.
-        # Recording both is what lets all four chips round-trip even when Pro
-        # and High share 1024×576. Missing/legacy requests resolve to Pro here,
-        # preserving the graded default explicitly in new sidecars.
+        if len(_selected_characters) > 1:
+            job["params"]["character_ids"] = [c["id"] for c in _selected_characters]
         job["params"]["quality_choice"] = _quality_choice
-        # Persist BOTH strengths so Load Params restores the exact sliders
-        # and the sidecar records what actually rendered. The voice value is
-        # stamped even when it equals the default: the number in a clip's
-        # sidecar is how a future listener knows which rung of the ladder
-        # they are hearing.
         job["params"].setdefault("character_strength", char_strength)
         job["params"].setdefault("character_voice_strength",
                                  char_voice_strength)
@@ -41308,16 +41306,60 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
 
     # Snapshot adapters at submission. Character audio adapters never go through
     # the weaker sample-reference or conversion route unless explicitly chosen.
-    from voices import VoiceLibrary, resolve_render_voice
-    from voice_pass import dialogue_phrases
+    from voices import VoiceLibrary, resolve_render_voice, resolve_speaker_voice
+    from voice_pass import dialogue_phrases, plain_dialogue, ltx_plain_dialogue
     _voice_library = VoiceLibrary(STATE_DIR)
     try:
-        _saved_voice = resolve_render_voice(_voice_library, form, list_library_characters(), _character_id)
+        _lib_chars = list_library_characters()
+        _saved_voice = resolve_render_voice(_voice_library, form, _lib_chars, _character_id)
         _route = f("voice_method", "voice_pass")
         if _route not in ("voice_pass", "h3_reference", "conversion"):
             raise ValueError("Unknown voice method")
         if _route == "conversion" and os.environ.get("PHOSPHENE_EXPERIMENTAL_VOICE_CONVERSION") != "1":
             raise ValueError("Voice conversion is experimental and disabled")
+        _no_voice_flag = f("no_voice", "off").lower() in ("on", "true", "1", "yes")
+        _speaker_voices_map: dict = {}
+        _sv_raw = f("speaker_voices", "")
+        if _sv_raw.startswith("{"):
+            try:
+                _parsed_sv = json.loads(_sv_raw)
+                if isinstance(_parsed_sv, dict):
+                    _speaker_voices_map = _parsed_sv
+            except ValueError:
+                _speaker_voices_map = {}
+        _names = []
+        for _c in _lib_chars:
+            _names += [_c.get("name") or "", re.sub(r"\s*\([^)]*\)\s*$", "", str(_c.get("name") or "")),
+                       _c.get("trigger") or ""]
+        for _v in _voice_library.list():
+            _names += [_v.get("name") or "", re.sub(r"\s*\([^)]*\)\s*$", "", str(_v.get("name") or "")),
+                       _v.get("trigger") or ""]
+        if _saved_voice:
+            _names += [_saved_voice.get("name") or "", _saved_voice.get("trigger") or ""]
+        for _sk_name in _speaker_voices_map:
+            _names.append(str(_sk_name))
+        _dlg_lang = f("dialogue_lang", "English") or "English"
+        _voice_id_raw = f("voice_id", "inherit").strip().lower()
+        _model_voice_only = (_voice_id_raw == "default" and not bool(_speaker_voices_map))
+        if _model_voice_only and _engine == "ltx":
+            _old_audio = {c.get("audio_lora_path") for c in list_characters() if c.get("audio_lora_path")}
+            if _old_audio:
+                job["params"]["loras"] = [x for x in job["params"].get("loras", [])
+                                          if x.get("path") not in _old_audio]
+        # Detect multi-speaker LTX dialogue (2+ cast characters, explicit speaker_voices map, or 2+ named speakers in prompt).
+        _ltx_multi_voice = False
+        if _engine == "ltx" and not _no_voice_flag and not _model_voice_only:
+            if len(_selected_characters) >= 2 or bool(_speaker_voices_map):
+                _ltx_multi_voice = True
+            else:
+                _probe_phrases = dialogue_phrases(plain_dialogue(job["params"]["prompt"], _names, "", language=_dlg_lang))
+                _distinct_speakers = {
+                    unicodedata.normalize("NFC", p["speaker"]).strip().casefold()
+                    for p in _probe_phrases
+                    if p.get("speaker") and resolve_speaker_voice(_voice_library, p["speaker"], _lib_chars, _speaker_voices_map)
+                }
+                if len(_distinct_speakers) >= 2:
+                    _ltx_multi_voice = True
         job["params"]["voice_id"] = _saved_voice["id"] if _saved_voice else ""
         job["params"]["voice_method"] = _route
         if _saved_voice:
@@ -41327,7 +41369,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 if not _adapter or not Path(_adapter).is_file():
                     raise ValueError("Train this voice in Voices before rendering.")
                 job["params"]["voice_adapter"] = _adapter
-            if _engine == "ltx":
+            if _engine == "ltx" and not _ltx_multi_voice:
                 _old_audio = {c.get("audio_lora_path") for c in list_characters()}
                 job["params"]["loras"] = [x for x in job["params"].get("loras", [])
                                           if x.get("path") not in _old_audio]
@@ -41336,8 +41378,8 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                     if _saved_voice["id"] == "character:" + _character_id else 1.0)})
                 job["params"]["voice_route"] = "ltx_lora"
                 job["params"]["prompt"] += f" Audio: {_saved_voice['trigger']} speaking."
-            elif _route == "h3_reference":
-                if _engine != "h3" or not job["params"].get("h3_refs"):
+            elif _route == "h3_reference" and _engine == "h3":
+                if not job["params"].get("h3_refs"):
                     raise ValueError("Voice reference needs H3 References.")
                 if sum(bool(job["params"].get(k)) for k in
                        ("h3_reference", "h3_reference2", "h3_reference3")) > 2:
@@ -41346,37 +41388,67 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                     raise ValueError("This character has a trained voice but no reference sample. Use Voice pass.")
                 job["params"]["voice_sample"] = _saved_voice["sample_path"]
                 job["params"]["voice_route"] = "h3_reference"
+            elif _route == "h3_reference":
+                raise ValueError("Voice reference needs H3 References.")
             elif _route == "conversion":
                 job["params"]["voice_sample"] = _saved_voice["sample_path"]
                 job["params"]["voice_route"] = "conversion"
-        if _engine == "h3" and _route == "voice_pass" and f("no_voice", "off").lower() not in ("on", "true", "1", "yes"):
-            # Plain words in, engine format out (owner, 21 Nov 2026): "Bizarro: Hello" or a quoted line with one
-            # character picked becomes H3 dialogue here, so the user never types <d> tags.
-            from voice_pass import plain_dialogue
-            _names = []
-            for _c in list_library_characters():
-                _names += [_c.get("name") or "", re.sub(r"\s*\([^)]*\)\s*$", "", str(_c.get("name") or "")),
-                           _c.get("trigger") or ""]
-            if _saved_voice:
-                _names += [_saved_voice.get("name") or "", _saved_voice.get("trigger") or ""]
-            _default = re.sub(r"\s*\([^)]*\)\s*$", "", str((_saved_voice or {}).get("name") or ""))
-            job["params"]["prompt"] = plain_dialogue(job["params"]["prompt"], _names, _default)
-            _phrases = dialogue_phrases(job["params"]["prompt"])
+        if ((_engine == "h3" and _route == "voice_pass") or _ltx_multi_voice) and not _no_voice_flag:
+            if _ltx_multi_voice:
+                _old_audio = {c.get("audio_lora_path") for c in list_characters() if c.get("audio_lora_path")}
+                if _old_audio:
+                    job["params"]["loras"] = [x for x in job["params"].get("loras", [])
+                                              if x.get("path") not in _old_audio]
+            _default = (
+                re.sub(r"\s*\([^)]*\)\s*$", "", str((_saved_voice or {}).get("name") or ""))
+                if len(_selected_characters) <= 1 else ""
+            )
+            _raw_prompt = f("prompt_plain", "").strip() or job["params"]["prompt"]
+            _tagged_prompt = plain_dialogue(_raw_prompt, _names, _default, language=_dlg_lang)
+            if _engine == "h3":
+                job["params"]["prompt"] = _tagged_prompt
+                if _tagged_prompt != _raw_prompt:
+                    job["params"]["prompt_plain"] = _raw_prompt
+                if f("dialogue_lang", "").strip() or _dlg_lang != "English":
+                    job["params"]["dialogue_lang"] = _dlg_lang
+            _phrases = dialogue_phrases(_tagged_prompt) if not _model_voice_only else []
+            # Layout r6 (Codex sweep): a voice picked for THIS shot on a one-character shot is the voice
+            # its lines speak in ("This shot speaks in X"), over the character's own; a per-line pick
+            # (speaker_voices) still wins. With two or more characters each keeps their own voice.
+            _shot_override = (_voice_id_raw not in ("", "inherit", "default") and _saved_voice
+                              and len(_selected_characters) <= 1)
+            def _line_mapped(_who):
+                _k = str(_who or "").strip().casefold()
+                return any(str(_kk or "").strip().casefold() == _k and str(_vv or "").strip() not in ("", "default")
+                           for _kk, _vv in (_speaker_voices_map or {}).items())
             for _phrase in _phrases:
                 _speaker = _phrase["speaker"]
-                _picked = (resolve_render_voice(_voice_library, {"voice_id": "inherit"},
-                           list_library_characters(), _speaker) if _speaker else _saved_voice)
+                if _speaker and _shot_override and not _line_mapped(_speaker):
+                    _picked = _saved_voice
+                else:
+                    _picked = (resolve_speaker_voice(_voice_library, _speaker, _lib_chars, _speaker_voices_map)
+                               if _speaker else _saved_voice)
+                if not _picked and _saved_voice and (
+                    _voice_id_raw not in ("", "inherit", "default")
+                    or re.fullmatch(r"speaker(?:\s*\d+)?", str(_speaker or "").strip(), re.I)
+                ):
+                    _picked = _saved_voice
                 if _picked:
                     if not _picked.get("adapter_path") or not Path(_picked["adapter_path"]).is_file():
                         raise ValueError("Train this voice in Voices before rendering.")
                     _phrase["voice"] = {k: _picked[k] for k in
                                         ("id", "name", "trigger", "adapter_path")}
             if any(x.get("voice") for x in _phrases):
+                if _engine == "ltx":
+                    _ltx_prompt = ltx_plain_dialogue(_raw_prompt, _names)
+                    job["params"]["prompt"] = _ltx_prompt
+                    if _ltx_prompt != _raw_prompt:
+                        job["params"]["prompt_plain"] = _raw_prompt
+                    if f("dialogue_lang", "").strip() or _dlg_lang != "English":
+                        job["params"]["dialogue_lang"] = _dlg_lang
                 job["params"].update(voice_route="voice_pass", voice_phrases=_phrases)
-            elif _saved_voice:
-                # No spoken line: render anyway, without the voice, and say so in one plain line (it used to
-                # refuse with tag syntax, owner 21 Nov 2026).
-                _who = _default or _saved_voice.get("name") or "This character"
+            elif not _model_voice_only and (_saved_voice or len(_selected_characters) >= 2):
+                _who = _default or (_selected_characters[0].get("name") if _selected_characters else None) or (_saved_voice or {}).get("name") or "This character"
                 job["params"]["voice_note"] = (f"{_who} doesn't say anything in this prompt, so the voice wasn't used. "
                                                f"To hear it, add a line like: {_who}: Hello there.")
     except ValueError as exc:
@@ -45061,6 +45133,13 @@ def run_h3_job_inner(job: dict) -> None:
             raise RuntimeError(f"{H3_FLEX_TURBO_NAME} is part of Phosphene Pro, and Pro is not "
                                "active on this Mac. Pick H3 Flex, Fast or Best.")
         cmd += _turbo_argv
+    if user_lora is not None and not h3_supports_lora_stack() and (tristep or flex or flex_turbo):
+        _speed_label = "Fast (3 steps)" if tristep else H3_FLEX_NAME
+        raise RenderRefused(
+            "h3_lora_slots",
+            f"{_speed_label} and the LoRA {user_lora.name} both want H3's single "
+            f"adapter slot — its runner's `--lora` takes one path, so they "
+            f"cannot both run. Pick Best under Speed, or un-pick the LoRA.")
     if user_lora is not None and (not turbo or h3_supports_lora_stack()):
         # The SAME flag Turbo rides. On a stacking runner every `--lora` is one
         # more adapter on the same base layers, Turbo first; on the single-slot
@@ -47284,7 +47363,8 @@ def run_job_voice_pass(job: dict) -> None:
             raise
         push("[voice pass] failed, render kept: " + f"{type(exc).__name__}: {exc}"[:400])
         why = str(exc).strip().rstrip(".")[:200]
-        note = ("The saved voices could not be put in, so this clip keeps the voices Hailuo H3 made"
+        _eng_label = "LTX" if (job.get("params") or {}).get("engine") == "ltx" else "Hailuo H3"
+        note = (f"The saved voices could not be put in, so this clip keeps the voices {_eng_label} made"
                 + (f" ({why})." if why else "."))
         job["warning"] = " ".join(x for x in (job.get("warning"), note) if x)
         push("[voice pass] " + note)

@@ -900,18 +900,9 @@ function _syncEnginePromptTools() {
   if (helper) helper.hidden = (eng !== 'h3');
   const promptEl = document.getElementById('prompt');
   if (promptEl) {
-    // H3-07: the placeholder was LTX's audio-cue example unconditionally —
-    // no hint anywhere that H3 needs a structured field + a <d>…</d> tag to
-    // get spoken dialogue at all.
-    promptEl.placeholder = (eng === 'h3')
-      ? 'integrated_multimodal_description: [Shot 1] Who/what, the setting, '
-        + T('queue.what_happens_a_line_of', 'what happens. A line of dialogue goes ONLY inside a tag: ')
-        + 'GEORGE says: <d>[English] I thought it was ashwagandha!</d> then '
-        + T('queue.his_mouth_settles_closed_click', 'his mouth settles closed. Click Structure or + Line above to ')
-        + 'insert the skeleton.\n\noverall_soundscape: ambience, sound '
-        + 'effects.\n\nnon_diegetic_music: N/A or a description.'
-      : T('queue.describe_the_scene_action_and', 'Describe the scene, action and camera. Include dialogue and sound cues. ')
-        + T('queue.audio_is_made_together_with', 'Audio is made together with the video.');
+    // Plain dialogue on H3: server-side plain_dialogue() formats Name: line automatically. The short
+    // placeholder and the Prompt "?" text are one function's (characters.js updatePromptPlaceholder).
+    if (typeof updatePromptPlaceholder === 'function') { try { updatePromptPlaceholder(); } catch (e) {} }
   }
   if (eng === 'h3' && typeof h3SyncPromptHelper === 'function') {
     try { h3SyncPromptHelper(); } catch (e) {}
@@ -1586,6 +1577,49 @@ function syncExtendDuration() {
   // something ELSE happens to call updateDerived().
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
 }
+let faceFixPlanRequest = 0;
+let faceFixPlanPath = null;
+let faceFixPlanTimer = null;
+async function refreshFaceFixPlan(force = false) {
+  const hint = document.getElementById('faceFixPlan');
+  const path = (document.getElementById('upscale_source_path') || {}).value || '';
+  const active = (document.getElementById('mode') || {}).value === 'upscale';
+  if (!hint) return;
+  if (!active) { faceFixPlanPath = null; ++faceFixPlanRequest; hint.textContent = ''; return; }
+  if (!force && faceFixPlanPath === path) return;
+  faceFixPlanPath = path;
+  const request = ++faceFixPlanRequest;
+  clearTimeout(faceFixPlanTimer);
+  hint.textContent = path ? T('queue.face_fix_checking', 'Checking this clip…') : T('queue.face_fix_pick', 'Pick the clip to fix first.');
+  if (!path) return;
+  faceFixPlanTimer = setTimeout(async () => {
+    try {
+      const response = await fetch('/queue/facefix/plan', {
+        method: 'POST', body: new URLSearchParams({source_path: path})
+      });
+      if (!response.ok) throw new Error();
+      const plan = await response.json();
+      if (request !== faceFixPlanRequest) return;
+      hint.textContent = plan.ok ? plan.message : plan.error;
+    } catch (_) {
+      if (request === faceFixPlanRequest) hint.textContent = T('queue.face_fix_check_failed', 'Could not check this clip. Choose it again to retry.');
+    }
+  }, 200);
+}
+
+function useAsUpscaleSourcePath(path) {
+  if (typeof workflowSwitch === 'function') { try { workflowSwitch('manual'); } catch (e) {} }
+  setMode('upscale');
+  const inp = document.getElementById('upscale_source_path');
+  if (inp) inp.value = path;
+  const sel = document.getElementById('upscaleSrcSelect');
+  if (sel) sel.value = path;
+  updateDerived();
+  const pane = document.querySelector('aside.form-pane');
+  if (pane) pane.scrollTop = 0;
+}
+function useAsUpscaleSource() { if (!activePath) return alert(T('queue.pick_an_output_first', 'Pick an output first.')); useAsUpscaleSourcePath(activePath); }
+
 document.getElementById('extend_seconds').addEventListener('input', syncExtendDuration);
 document.getElementById('extend_direction').addEventListener('change', syncExtendDuration);
 syncExtendDuration();   // initialize on load
@@ -2043,6 +2077,13 @@ function updateDerived() {
       && (currentMode === 't2v' || currentMode === 'i2v' || currentMode === 'character'));
   }
   if (typeof _h3RefsUpdate === 'function') _h3RefsUpdate();
+  // Pictures (H3, Text / Character / Image) replaces Face to keep, References and the Image picker
+  // on screen; their fields stay in the form underneath and the area writes them.
+  if (typeof picturesSync === 'function') picturesSync();
+  if (typeof picturesActive === 'function' && picturesActive()) {
+    if (_h3Ref) _h3Ref.classList.remove('show');
+    document.getElementById('imageSection').classList.remove('show');
+  }
   if (typeof voicesSyncRenderField === 'function') voicesSyncRenderField();
   const _restoreSection = document.getElementById('restoreSection');
   if (_restoreSection) _restoreSection.classList.toggle('show', currentMode === 'restore');
@@ -2064,7 +2105,10 @@ function updateDerived() {
   document.getElementById('keyframeSection').classList.toggle('show', currentMode === 'keyframe');
   // Keyframe toggle row — visible only in keyframe mode
   const kfToggleRow = document.getElementById('kfToggleRow');
-  if (kfToggleRow) kfToggleRow.style.display = currentMode === 'keyframe' ? '' : 'none';
+  // Feedback 6: the mode tiles (Start & end / Keyframes) choose; the old toggle is never shown.
+  if (kfToggleRow) kfToggleRow.style.display = 'none';
+  if (currentMode === 'keyframe' && typeof keyframeGridLayout === 'function') keyframeGridLayout();
+  if (typeof clipPickMarkAll === 'function') clipPickMarkAll();
   renderKeyframeDynamicSlots();
   if (currentMode === 'keyframe') {
     maybeScaleTouchedKeyframeTiming(window._kfTimingLastFrames, f);
@@ -2102,7 +2146,64 @@ function updateDerived() {
   // the old imagePreview / startImagePreview / endImagePreview elements
   // are gone.
   _updateKeyframeFramesGate();
+  if (typeof _syncShotFormStepHeaders === 'function') { try { _syncShotFormStepHeaders(); } catch (e) {} }
 }
+
+function _syncShotFormStepHeaders(hoveredChip) {
+  const modeSub = document.getElementById('sfModeSub');
+  if (modeSub) {
+    const remixWrap = document.getElementById('remixSubGroup');
+    const remixOpen = !!(remixWrap && remixWrap.style.display !== 'none' && !remixWrap.hidden);
+    const chip = hoveredChip
+      || (remixOpen ? document.querySelector('#remixSubGroup .mode-chip.active') : null)
+      || document.querySelector('#modeGroup .mode-chip.active');
+    const sub = chip ? chip.querySelector('.mc-sub') : null;
+    let txt = sub ? (sub.textContent || '').trim() : '';
+    if (sub && sub.dataset.uses) txt = (txt ? txt + ' · ' : '') + 'uses ' + sub.dataset.uses;
+    modeSub.textContent = txt ? '· ' + txt : '';
+  }
+  const refsBox = document.querySelector('#genForm .composer-card > .composer-refs');
+  const inHead = document.getElementById('sfStepInputs');
+  const inSub = document.getElementById('sfInputsSub');
+  if (refsBox && inHead) {
+    const hasVisibleInput = Array.from(refsBox.children).some(ch => {
+      if (ch === inHead || ch.hidden) return false;
+      if (ch.style && ch.style.display === 'none') return false;
+      if (ch.classList.contains('mode-only') && !ch.classList.contains('show')) return false;
+      if (ch.id === 'manualCharactersPickerSlot' && document.body.classList.contains('px-on')) return false;
+      return true;
+    });
+    refsBox.classList.toggle('is-empty', !hasVisibleInput);
+    inHead.hidden = !hasVisibleInput;
+    if (inSub && hasVisibleInput) {
+      const m = (typeof currentMode !== 'undefined' && currentMode) || 't2v';
+      const subMap = {
+        t2v: T('shotForm.sub_optional_cast_voice', 'optional · characters & voice'),
+        character: T('shotForm.sub_pick_chars', 'pick characters & voices'),
+        i2v: T('shotForm.sub_first_frame', 'first frame · required'),
+        keyframe: T('shotForm.sub_keyframes', 'keyframe pictures · required'),
+        extend: T('shotForm.sub_source_clip', 'clip to continue · required'),
+        v2a: T('shotForm.sub_v2a_clip', 'clip to score · required'),
+        ingredients: T('shotForm.sub_ingredients', '2–8 reference images · required'),
+        control: T('shotForm.sub_control_clip', 'motion clip · required'),
+        restore: T('shotForm.sub_restore_clip', 'clip to colorize · required'),
+        upscale: T('shotForm.sub_upscale_clip', 'clip to fix · required'),
+      };
+      inSub.textContent = subMap[m] || T('shotForm.sub_optional', 'optional');
+    }
+  }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const mg = document.getElementById('modeGroup');
+  if (mg) {
+    mg.addEventListener('mouseover', (e) => {
+      const c = e.target.closest('.mode-chip');
+      if (c) _syncShotFormStepHeaders(c);
+    });
+    mg.addEventListener('mouseleave', () => _syncShotFormStepHeaders(null));
+  }
+  _syncShotFormStepHeaders(null);
+});
 
 // VA-25: FFLF/Keyframes needs both a start and an end frame, and used to say
 // so only in a native alert() AFTER Generate was clicked (Generate stayed
@@ -2193,7 +2294,9 @@ function refreshExtendClampNote() {
     return;
   }
   el.hidden = false;
-  el.textContent = `On this Mac (${tier.label || 'this tier'}), Extend renders `
+  // Feedback 4: a short line; the why is its tooltip.
+  el.textContent = T('queue.extend_cap_short', 'Up to {cap}px on this Mac', { cap });
+  el.title = `On this Mac (${tier.label || 'this tier'}), Extend renders `
     + `at up to ${cap}px on the longer side — a bigger source clip is `
     + T('queue.downscaled_to_fit_before_the', 'downscaled to fit before the new frames are added.');
 }
@@ -2577,6 +2680,9 @@ function pickerSetImage(key, path, opts = {}) {
       audioStudioMouthCheck('');
     }
   }
+  if ((key === 'start_image' || key === 'end_image' || /^keyframe_\d\d_image$/.test(key)) && typeof keyframeRecentRender === 'function') {
+    try { keyframeRecentRender(); } catch (_) {}
+  }
   updateDerived();
 }
 
@@ -2632,9 +2738,44 @@ function pickerWire(key) {
   els.drop.addEventListener('drop', (e) => {
     e.preventDefault();
     els.drop.classList.remove('dragover');
+    // Feedback 6: a picture dragged from another frame swaps the two; one dragged from a Recent strip fills this one.
+    let fromKey = '', fromPath = '';
+    try { fromKey = e.dataTransfer.getData('application/x-phos-kf') || ''; fromPath = e.dataTransfer.getData('application/x-phos-path') || ''; } catch (_) {}
+    if (fromKey) {
+      if (fromKey !== key && typeof keyframeSwapImages === 'function') keyframeSwapImages(fromKey, key);
+      return;
+    }
+    if (fromPath) { pickerSetImage(key, fromPath); return; }
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
     if (f) pickerUploadFile(key, f);
   });
+  // Codex r6 sweep #4: the keyframe slots work from the keyboard. Tab to a frame, Enter or Space
+  // browses, Alt+Left / Alt+Right swaps its picture with the frame beside it, Delete clears it.
+  if (typeof els.drop.closest === 'function' && els.drop.closest('.kf-slot')) {
+    els.drop.tabIndex = 0;
+    els.drop.setAttribute('role', 'button');
+    const tag = els.drop.querySelector('.kf-tag');
+    if (tag) els.drop.setAttribute('aria-label', `${(tag.textContent || '').trim()}. ${T('queue.kf_keys', 'Enter to choose a picture, Alt+Left or Alt+Right to move it, Delete to clear it')}`);
+    els.drop.addEventListener('keydown', (e) => {
+      if (e.target !== els.drop) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); els.file.click(); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && els.hidden.value) { e.preventDefault(); pickerSetImage(key, ''); return; }
+      if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && typeof keyframeGridKeys === 'function') {
+        const keys = keyframeGridKeys(), i = keys.indexOf(key), j = i + (e.key === 'ArrowLeft' ? -1 : 1);
+        if (i < 0 || j < 0 || j >= keys.length) return;
+        e.preventDefault();
+        keyframeSwapImages(key, keys[j]);
+        const next = document.getElementById(`picker_drop_${keys[j]}`);
+        if (next) next.focus();
+      }
+    });
+  }
+  if (els.preview && typeof els.preview.getAttribute === 'function' && els.preview.getAttribute('draggable') === 'true') {
+    els.preview.addEventListener('dragstart', (e) => {
+      if (!els.hidden.value) { e.preventDefault(); return; }
+      try { e.dataTransfer.setData('application/x-phos-kf', key); e.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+    });
+  }
   // VC-29/H3-01/VA-02: naturalWidth/Height (needed for the crop-preview
   // overlay's math) aren't available until the <img> actually decodes —
   // updateDerived() alone can fire before that, so also refresh on load.
@@ -2883,6 +3024,10 @@ async function refreshUploadsStrip() {
       btn.addEventListener('click', (e) => { e.stopPropagation(); deleteUpload(btn.dataset.path); });
     });
   });
+  // The Pictures area (H3) shows the same uploads once, as its one library.
+  if (typeof picturesSync === 'function') { try { picturesSync(); } catch (e) {} }
+  // Feedback 6: the keyframe grid shows them once too, under all its frames.
+  if (typeof keyframeRecentRender === 'function') { try { keyframeRecentRender(); } catch (e) {} }
 }
 
 // Delete an imported reference image from disk (plus its thumbnails), then
@@ -2909,6 +3054,827 @@ async function deleteUpload(path) {
   });
   await refreshUploadsStrip();
   if (typeof refreshIngredientRecent === 'function') { try { refreshIngredientRecent(); } catch (e) {} }
+}
+
+// ====== Pictures (Hailuo H3): one place to give the shot its pictures =========
+// Owner, 21 Nov 2026: five differently named ways to give H3 a picture (Reference image = the first
+// frame, Face to keep, References nested inside it, character pictures, the Image mode) became ONE
+// area with three questions: Start from (the first frame), Who's in it (saved characters or a face)
+// and Where (a place). It is only the way pictures are GIVEN; underneath it writes the same fields
+// as before, so make_job, the Free/Pro gates and the engine paths are untouched:
+//   Start from   -> #image (+ #image_crop_focus), and the mode Text <-> Image follows it
+//   Who + Where  -> #h3_reference, #h3_reference2, #h3_reference3, packed in order (people first,
+//                   the place last, so the prompt's Picture 1/2/3 always line up), and #h3_refs is
+//                   ticked exactly when more than one picture, or a place, is given: one face is
+//                   today's Face to keep, more is today's References (Pro, Text only).
+//   a character's voice -> #voice_character_id (resolve_render_voice) when one character is in it;
+//                   with two or more, each line names its speaker ("Aria: <d>Hi.</d>"), as before.
+// #characterIdInput is disabled while this area is in use, because a posted character_id makes
+// make_job overwrite the three picture fields with that one character's pictures.
+const PX = {
+  list: [],        // [{path, kind: 'face'|'char'|'where', id, name, pics}] people first, the place last
+  target: null,    // {slot: 'start'|'who'|'where', n}
+  start: '',       // the ORIGINAL start picture (#image may hold a framed copy of it)
+  framed: '',      // path of the framed copy #image holds, '' when it holds the original
+  box: null,       // {x, y, w, h} as fractions of the start picture
+  boxAspect: 0,    // the canvas aspect the box was made for
+  nat: null,       // {w, h} of the start picture
+  written: null,   // the three picture fields as this area last wrote them
+  lastMode: '',
+  importedSel: '',
+  rewriteQueued: false,
+  framing: false,
+  expanded: false,
+};
+const PX_KEYS = ['h3_reference', 'h3_reference2', 'h3_reference3'];
+
+function picturesActive() {
+  const sec = document.getElementById('picturesSection');
+  return !!sec && document.body.dataset.engine === 'h3'
+    && ['t2v', 'i2v', 'character'].includes(currentMode);
+}
+function _pxVal(id) { return ((document.getElementById(id) || {}).value || '').trim(); }
+function _pxFlexOn() { return typeof globalThis.h3FlexPickedAny === 'function' && globalThis.h3FlexPickedAny(); }
+function _pxFaceOk() { return !!((globalThis.H3 && globalThis.H3.reference) || {}).supported; }
+function _pxStartOk() { return !globalThis.H3 || globalThis.H3.first_frame !== false; }
+function _pxRefsShown() { const i = _h3RefsInfo(); return !!(i.offered || i.locked); }
+function _pxLocked() { return !!_h3RefsInfo().locked; }
+function _pxMax() { return Math.max(1, Number(_h3RefsInfo().max_pictures || 3)); }
+function _pxHasStart() { return currentMode === 'i2v' && !!_pxVal('image'); }
+// Image mode renders from a first frame, and References renders Text only, so Image keeps one face.
+function _pxStartCtx() { return currentMode === 'i2v'; }
+// How many pictures this shot can use right now: zero on H3 Flex (Flex takes first_frame + voice_pass only),
+// one face with a start picture (References renders Text only) or on Free; up to three with References.
+function _pxCap() {
+  if (!_pxFaceOk() || _pxFlexOn()) return 0;
+  if (_pxStartCtx() || !_pxRefsShown() || _pxLocked()) return 1;
+  // A voice sample sent with References takes one of the three (make_job refuses three pictures + it).
+  return Math.max(1, _pxMax() - _pxVoiceReserve());
+}
+function _pxPeople() { return PX.list.filter(x => x.kind !== 'where'); }
+function _pxPlace() { return PX.list.find(x => x.kind === 'where') || null; }
+// The pictures that are used, in Picture 1/2/3 order. The rest are kept ("parked") and come back
+// when the start picture is removed.
+function _pxUsed() {
+  const cap = _pxCap();
+  const people = _pxPeople(), place = _pxPlace();
+  if (cap <= 1) return people.slice(0, cap);
+  return [...people.slice(0, cap - (place ? 1 : 0)), ...(place ? [place] : [])];
+}
+function _pxNeedRefs(used) { return used.length > 1 || used.some(x => x.kind === 'where'); }
+// THREE PICTURES PER SHOT (owner, 22 Nov 2026, feedback 3): H3 References takes 3 pictures in total.
+// Every character and the place get ONE first (their slot above); the pictures still free go, one at a
+// time and in order, to the characters that carry more pictures of their own. So one character alone
+// in Character mode uses up to 3 of its pictures (what the shipped Character mode sent), and two
+// characters + a place use one picture each. A character's pictures start at its lead picture (it.n):
+// one click on a small picture under it makes that one the lead, i.e. a one-click swap.
+// A voice sample sent "with References" takes one of the three (make_job refuses 3 pictures + it).
+function _pxVoiceReserve() {
+  const row = document.getElementById('renderVoiceMethodRow');
+  const m = document.getElementById('renderVoiceMethod');
+  return (row && !row.hidden && m && m.value === 'h3_reference') ? 1 : 0;
+}
+function _pxPicsOf(it, take) {
+  if (it.kind !== 'char' || !it.pics || !it.pics.length) return [it.path];
+  const m = it.pics.length, n = Math.min(m - 1, Math.max(0, it.n || 0));
+  return Array.from({ length: Math.max(1, Math.min(take, m)) }, (_, i) => it.pics[(n + i) % m]);
+}
+function _pxSlots() {
+  const used = _pxUsed();
+  const cap = _pxCap();
+  // A restored recipe (Load Params, queue edit) keeps its exact pictures in their saved order (so
+  // "Picture 2" in its prompt still means the same one) until the user changes the pictures.
+  const rs = PX.restored;
+  if (rs && rs.length && rs.length <= Math.max(cap, 1) && rs.every(r => used.includes(r.item))
+      && used.every(it => rs.some(r => r.item === it))) {
+    return rs.map((r, k) => ({ item: r.item, kind: r.item.kind, path: r.path, k }));
+  }
+  const take = new Map(used.map(it => [it, 1]));
+  // Room for more of a character's pictures: a shot that is already a References shot (two or more
+  // pictures, or a place), or Character mode (a character's pictures are what that mode is for).
+  const roomy = cap > 1 && (_pxNeedRefs(used) || currentMode === 'character');
+  // A restored recipe (Load Params, queue edit) keeps exactly the pictures it was saved with.
+  used.forEach(it => { if (it.kept && it.kept.length > 1) take.set(it, it.kept.length); });
+  if ([...take.values()].reduce((a, b) => a + b, 0) > Math.max(cap, 1)) used.forEach(it => { take.set(it, 1); delete it.kept; });
+  if (roomy) {
+    let spare = cap - [...take.values()].reduce((a, b) => a + b, 0);
+    const chars = used.filter(it => it.kind === 'char' && it.pics && it.pics.length > 1);
+    while (spare > 0) {
+      let gave = false;
+      for (const it of chars) {
+        if (it.kept) continue;
+        if (spare > 0 && take.get(it) < it.pics.length) { take.set(it, take.get(it) + 1); spare -= 1; gave = true; }
+      }
+      if (!gave) break;
+    }
+  }
+  const out = [];
+  used.forEach(it => (it.kept && it.kept.length > 1 ? it.kept.slice(0, take.get(it)) : _pxPicsOf(it, take.get(it)))
+    .forEach((path, k) => out.push({ item: it, kind: it.kind, path, k })));
+  return out.slice(0, Math.max(cap, 1));
+}
+function _pxExpected() {
+  const used = _pxSlots();
+  const paths = used.map(x => x.path);
+  if (!_pxNeedRefs(used)) return [paths[0] || '', '', ''];
+  return [paths[0] || '', paths[1] || '', paths[2] || ''];
+}
+function _pxFields() { return PX_KEYS.map(_pxVal); }
+function _pxSame(a, b) { return !!a && !!b && a.join('\n') === b.join('\n'); }
+
+// Write the used pictures into today's fields (the switch first: _h3RefsUpdate clears pictures 2-3
+// whenever References is off).
+function _pxWrite() {
+  const used = _pxSlots();
+  const want = _pxExpected();
+  const sw = document.getElementById('h3_refs');
+  if (sw) sw.checked = _pxNeedRefs(used) && _pxRefsShown() && !_pxLocked();
+  PX.written = want.slice();
+  // One write: the per-field updates below each run updateDerived(); none of them may read a
+  // half-written set as someone else's change (that turned a place into a face).
+  PX.writing = true;
+  try {
+    PX_KEYS.forEach((k, i) => {
+      if (_pxVal(k) !== want[i] && typeof pickerSetImage === 'function') {
+        try { pickerSetImage(k, want[i], { snapAspect: false }); } catch (e) {}
+      }
+    });
+  } finally { PX.writing = false; }
+  PX.written = _pxFields();
+  if (typeof updateDerived === 'function') updateDerived();
+}
+// Someone else changed the fields (Load Params, a deleted upload): take them as they are.
+function _pxUnkeep() { PX.list.forEach(x => { delete x.kept; }); PX.restored = null; }
+function _pxAdopt(fields) {
+  _pxUnkeep();
+  const byPath = {};
+  PX.list.forEach(x => { byPath[x.path] = x; });
+  const place = _pxPlace();
+  const seen = new Set();
+  const out = [];
+  fields.filter(Boolean).forEach(p => {
+    // A second or third picture of a character already in the list is that character's, not a new face.
+    const own = PX.list.find(x => x.kind === 'char' && x.pics && x.pics.includes(p) && seen.has(x));
+    if (own) { (own.kept = own.kept || [own.path]).push(p); return; }
+    const it = byPath[p] || PX.list.find(x => x.kind === 'char' && x.pics && x.pics.includes(p) && !seen.has(x))
+      || { path: p, kind: (place && place.path === p) ? 'where' : 'face' };
+    if (seen.has(it)) return;
+    if (it.kind === 'char') { it.path = p; it.n = Math.max(0, it.pics.indexOf(p)); delete it.kept; }
+    seen.add(it); out.push(it);
+  });
+  PX.list = out;
+  PX.list.sort((a, b) => (a.kind === 'where') - (b.kind === 'where'));
+  // Remember the exact saved order: every path with the item it belongs to.
+  PX.restored = fields.filter(Boolean).map(p => ({ path: p,
+    item: PX.list.find(x => x.path === p) || PX.list.find(x => x.kind === 'char' && x.pics && x.pics.includes(p)) }))
+    .filter(r => r.item);
+  PX.written = fields.slice();
+}
+
+function _pxCharList() {
+  return (Array.isArray(globalThis._manualCharacters) ? _manualCharacters : [])
+    .map(c => ({ c, pics: (c.pictures && c.pictures.length) ? c.pictures.slice()
+                       : (c.sample_image_path ? [c.sample_image_path] : []) }))
+    .filter(x => x.pics.length);
+}
+function _pxCharThumb(id, n) {
+  return `/characters/${encodeURIComponent(id)}/preview` + (n ? `?n=${n}` : '');
+}
+function _pxThumbFor(item) {
+  if (item.kind === 'char') return _pxCharThumb(item.id, item.n || 0);
+  return `/image?path=${encodeURIComponent(item.path)}&w=320`;
+}
+function _pxSlotLabel(t) {
+  if (!t) return '';
+  if (t.slot === 'start') return T('pictures.slot_start', 'Start from');
+  if (t.slot === 'where') return T('pictures.slot_where', 'Where');
+  return T('pictures.slot_who', "Who's in it");
+}
+
+// The slot a library click fills: the one the user picked, else the first open one.
+function _pxDefaultTarget() {
+  const people = _pxPeople();
+  if (currentMode === 'i2v' && !_pxHasStart() && _pxStartOk()) return { slot: 'start', n: 0 };
+  if (_pxFaceOk() && people.length < _pxCap() && _pxUsed().length < _pxMax()) return { slot: 'who', n: people.length };
+  if (_pxStartOk() && !_pxHasStart()) return { slot: 'start', n: 0 };
+  return null;
+}
+function _pxSlotState(slot, n) {
+  if (slot === 'start') return _pxStartOk() ? 'ok' : 'off';
+  if (!_pxFaceOk()) return 'off';
+  const extra = slot === 'where' || n >= 1;
+  if (extra && _pxLocked()) return 'locked';
+  if (extra && !_pxRefsShown()) return 'off';
+  if (extra && _pxStartCtx()) return 'off';
+  const hasItem = slot === 'where' ? !!_pxPlace() : n < _pxPeople().length;
+  if (!hasItem && _pxUsed().length >= _pxMax()) return 'full';
+  return 'ok';
+}
+
+function _pxSetStart(path) {
+  PX.start = path; PX.framed = ''; PX.box = null; PX.nat = null;
+  const focus = document.getElementById('image_crop_focus');
+  if (focus) focus.value = '0.5';
+  if (path && currentMode !== 'i2v') setMode('i2v');
+  if (typeof pickerSetImage === 'function') pickerSetImage('image', path);
+  if (!path && currentMode === 'i2v') setMode('t2v');
+}
+function _pxFill(target, path) {
+  if (!target || !path) return;
+  _pxUnkeep();
+  const st = _pxSlotState(target.slot, target.n);
+  if (st === 'locked') { if (typeof openProModal === 'function') openProModal(document.querySelector('[data-px-slot="where"]')); return; }
+  if (st === 'off') { _pxToastOff(); return; }
+  if (target.slot === 'start') { _pxSetStart(path); PX.target = null; picturesSync(); return; }
+  if (target.slot === 'where') {
+    if (_pxPeople().length >= _pxMax()) { _pxToastFull(); return; }
+    PX.list = [..._pxPeople(), { path, kind: 'where' }];
+  } else {
+    const people = _pxPeople();
+    const item = { path, kind: 'face' };
+    if (target.n < people.length) people[target.n] = item;
+    else {
+      if (people.length + (_pxPlace() ? 1 : 0) >= _pxMax()) { _pxToastFull(); return; }
+      people.push(item);
+    }
+    PX.list = [...people, ...(_pxPlace() ? [_pxPlace()] : [])];
+  }
+  PX.target = null;
+  _pxWrite();
+}
+function _pxToastFull() {
+  if (typeof phosToast === 'function') phosToast(T('pictures.full', 'Three pictures at most. Remove one first.'), { kind: 'info' });
+}
+function _pxToastOff() {
+  if (typeof phosToast === 'function') phosToast(_pxStartCtx()
+    ? T('pictures.one_with_start', 'With a start picture, one face is kept. Remove the start picture to add more people or a place.')
+    : T('pictures.not_here', 'This Hailuo H3 cannot take more pictures. Update it to add more.'), { kind: 'info' });
+}
+function _pxRemove(slot, n) {
+  _pxUnkeep();
+  if (slot === 'start') { _pxSetStart(''); picturesSync(); return; }
+  if (slot === 'where') PX.list = _pxPeople();
+  else { const people = _pxPeople(); people.splice(n, 1); PX.list = [...people, ...(_pxPlace() ? [_pxPlace()] : [])]; }
+  _pxWrite();
+}
+function _pxToggleChar(id) {
+  _pxUnkeep();
+  const hit = PX.list.findIndex(x => x.kind === 'char' && x.id === id);
+  if (hit !== -1) { PX.list.splice(hit, 1); _pxWrite(); return; }
+  const rec = _pxCharList().find(x => x.c.id === id);
+  if (!rec) return;
+  const people = _pxPeople();
+  if (!_pxFlexOn()) {
+    if (people.length >= 1 && _pxLocked()) { if (typeof openProModal === 'function') openProModal(document.getElementById('pxChars')); return; }
+    if (people.length >= 1 && _pxStartCtx()) { _pxToastOff(); return; }
+    if (people.length >= 1 && !_pxRefsShown()) { _pxToastOff(); return; }
+    if (people.length + (_pxPlace() ? 1 : 0) >= _pxMax()) { _pxToastFull(); return; }
+  }
+  people.push({ path: rec.pics[0], kind: 'char', id, name: rec.c.name || id, n: 0, pics: rec.pics });
+  PX.list = [...people, ...(_pxPlace() ? [_pxPlace()] : [])];
+  _pxWrite();
+}
+// A character with several pictures fills one slot; the user picks which picture.
+function _pxPickCharPicture(n, k) {
+  const people = _pxPeople();
+  const it = people[n];
+  if (!it || it.kind !== 'char' || !it.pics || !it.pics[k]) return;
+  it.n = k; it.path = it.pics[k]; delete it.kept; PX.restored = null;
+  _pxWrite();
+}
+// Any caller that selects a character (New character, Load Params) lands here while this area is in
+// use, so the character joins Who's in it instead of replacing the pictures.
+function picturesTakeCharacter(id) {
+  if (!picturesActive() || !id) return false;
+  if (!PX.list.some(x => x.kind === 'char' && x.id === id)) _pxToggleChar(id);
+  return true;
+}
+function picturesPickedChars() {
+  if (!picturesActive()) return [];
+  const all = Array.isArray(globalThis._manualCharacters) ? _manualCharacters : [];
+  const src = _pxFlexOn() ? PX.list.filter(x => x.kind === 'char') : _pxUsed().filter(x => x.kind === 'char');
+  return src.map(x => all.find(c => c.id === x.id) || { id: x.id, name: x.name, has_voice: false });
+}
+function _pxInsertLine(name) {
+  const ta = document.getElementById('prompt');
+  if (!ta) return;
+  const v = ta.value;
+  const pre = v.trim() ? (/\n$/.test(v) ? '' : '\n') : '';
+  const line = `${name}: `;
+  ta.value = v + pre + line;
+  const at = ta.value.length;
+  ta.focus(); ta.setSelectionRange(at, at);
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// ---- the crop frame (Start from) --------------------------------------------
+// The frame keeps the video's shape and can be dragged and resized over the whole picture. A frame
+// that spans the cut side is exactly today's cover crop and only moves #image_crop_focus; a smaller
+// (zoomed) frame is saved as a framed copy of the picture, which then fills the canvas as it is.
+// The canvas this render uses. Hailuo H3 keeps the cell's landscape size in #width/#height and
+// renders it rotated when the orientation is vertical (make_job), so read the orientation too (the
+// old crop preview did not, and drew a wide frame on a tall video).
+function _pxCanvasAspect() {
+  const w = parseInt(_pxVal('width') || '0', 10), h = parseInt(_pxVal('height') || '0', 10);
+  if (!(w > 0 && h > 0)) return 0;
+  const portrait = _pxVal('h3_orientation') === 'portrait';
+  return portrait ? Math.min(w, h) / Math.max(w, h) : Math.max(w, h) / Math.min(w, h);
+}
+function _pxMaxBox() {
+  const ca = _pxCanvasAspect();
+  if (!PX.nat || !ca) return null;
+  const r = ca / (PX.nat.w / PX.nat.h);
+  return r <= 1 ? { w: r, h: 1 } : { w: 1, h: 1 / r };
+}
+function _pxResetBox() {
+  const m = _pxMaxBox();
+  if (!m) { PX.box = null; return; }
+  const focus = Math.min(1, Math.max(0, parseFloat(_pxVal('image_crop_focus') || '0.5')));
+  PX.box = { x: (1 - m.w) * (m.w < 1 ? focus : 0.5), y: (1 - m.h) * (m.h < 1 ? focus : 0.5), w: m.w, h: m.h };
+  PX.boxAspect = _pxCanvasAspect();
+}
+function _pxDrawBox() {
+  const box = document.getElementById('pxCropBox');
+  if (!box || !PX.box) return;
+  const b = PX.box;
+  box.style.left = (b.x * 100) + '%'; box.style.top = (b.y * 100) + '%';
+  box.style.width = (b.w * 100) + '%'; box.style.height = (b.h * 100) + '%';
+}
+function _pxRenderCrop(show) {
+  const wrap = document.getElementById('pxCrop');
+  const img = document.getElementById('pxCropImg');
+  if (!wrap || !img) return;
+  if (!show) { wrap.hidden = true; return; }
+  const src = `/image?path=${encodeURIComponent(PX.start)}&w=720`;
+  if (img.dataset.src !== src) {
+    img.dataset.src = src; PX.nat = null;
+    img.onload = () => {
+      const probe = new Image();
+      probe.onload = () => { PX.nat = { w: probe.naturalWidth, h: probe.naturalHeight }; _pxResetBox(); _pxDrawBox(); _pxRenderShape(); };
+      probe.src = `/image?path=${encodeURIComponent(PX.start)}`;
+    };
+    img.src = src;
+  }
+  wrap.hidden = false;
+  if (PX.nat && Math.abs(_pxCanvasAspect() - PX.boxAspect) > 0.01) {
+    // The video's shape changed (orientation, quality): a new frame, back to today's cover crop.
+    _pxResetBox(); _pxCommitCrop();
+  }
+  _pxDrawBox();
+}
+function _pxRenderShape() {
+  const line = document.getElementById('pxShape');
+  const text = document.getElementById('pxShapeText');
+  const btn = document.getElementById('pxShapeBtn');
+  if (!line || !text || !btn) return;
+  if (!_pxHasStart() || !PX.nat) { line.hidden = true; return; }
+  const tall = PX.nat.h > PX.nat.w;
+  const portrait = _pxVal('h3_orientation') === 'portrait';
+  line.hidden = false;
+  if (tall && portrait) {
+    text.textContent = T('pictures.shape_tall_plain', 'Your picture is tall, so the video is tall (portrait).');
+    btn.textContent = T('pictures.make_wide_plain', 'Make it wide (landscape)'); btn.dataset.to = 'landscape';
+  } else if (tall) {
+    text.textContent = T('pictures.shape_cut_tall', 'The video is wide, so part of your tall picture is cut: the frame shows what stays.');
+    btn.textContent = T('pictures.make_tall', 'Make the video tall like the picture'); btn.dataset.to = 'portrait';
+  } else if (portrait) {
+    text.textContent = T('pictures.shape_cut_wide', 'The video is tall, so part of your wide picture is cut: the frame shows what stays.');
+    btn.textContent = T('pictures.make_wide_like', 'Make the video wide like the picture'); btn.dataset.to = 'landscape';
+  } else {
+    text.textContent = T('pictures.shape_wide', 'Your picture is wide, so the video is wide.');
+    btn.textContent = T('pictures.make_tall_plain', 'Make it tall (portrait)'); btn.dataset.to = 'portrait';
+  }
+}
+async function _pxCommitCrop() {
+  const m = _pxMaxBox(), b = PX.box;
+  const focusEl = document.getElementById('image_crop_focus');
+  if (!m || !b || !PX.start) return;
+  if (Math.abs(b.w - m.w) < 0.004 && Math.abs(b.h - m.h) < 0.004) {
+    const f = m.w < 0.999 ? b.x / Math.max(1e-6, 1 - b.w) : m.h < 0.999 ? b.y / Math.max(1e-6, 1 - b.h) : 0.5;
+    if (focusEl) focusEl.value = String(Math.round(Math.min(1, Math.max(0, f)) * 1000) / 1000);
+    if (PX.framed || _pxVal('image') !== PX.start) { PX.framed = ''; pickerSetImage('image', PX.start, { snapAspect: false }); }
+    return;
+  }
+  const help = document.getElementById('pxCropHelp');
+  const job = JSON.stringify(b);
+  PX.framing = job;
+  if (help) help.textContent = T('pictures.framing', 'Saving the frame…');
+  try {
+    const full = new Image();
+    await new Promise((ok, bad) => { full.onload = ok; full.onerror = bad; full.src = `/image?path=${encodeURIComponent(PX.start)}`; });
+    const sx = b.x * full.naturalWidth, sy = b.y * full.naturalHeight;
+    const sw = b.w * full.naturalWidth, sh = b.h * full.naturalHeight;
+    const k = Math.min(1, 2048 / Math.max(sw, sh));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(sw * k)); cv.height = Math.max(1, Math.round(sh * k));
+    cv.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    const blob = await new Promise(ok => cv.toBlob(ok, 'image/png'));
+    if (PX.framing !== job) return;   // a newer frame is on its way
+    const stem = PX.start.split('/').pop().replace(/^\d+_/, '').replace(/\.[^.]+$/, '');
+    const fd = new FormData(); fd.append('image', blob, `${stem}-framed.png`);
+    const r = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || T('pictures.upload_failed_short', 'upload failed'));
+    if (PX.framing !== job) return;
+    PX.framed = data.path;
+    if (focusEl) focusEl.value = '0.5';
+    pickerSetImage('image', data.path, { snapAspect: false });
+  } catch (e) {
+    if (typeof phosToast === 'function') phosToast(T('pictures.frame_failed', 'Could not save the frame: {why}', { why: e.message || e }), { kind: 'danger' });
+  } finally {
+    if (PX.framing === job) {
+      PX.framing = false;
+      if (help) help.textContent = T('pictures.crop_help_again_short', 'Drag to frame · corner to zoom');
+    }
+  }
+}
+function _pxWireCrop() {
+  const stage = document.getElementById('pxCropStage');
+  const box = document.getElementById('pxCropBox');
+  if (!stage || !box || stage.dataset.wired) return;
+  stage.dataset.wired = '1';
+  let drag = null;
+  box.addEventListener('pointerdown', (e) => {
+    if (!PX.box) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = stage.querySelector('img').getBoundingClientRect();
+    drag = { handle: e.target.dataset.pxHandle || '', x0: e.clientX, y0: e.clientY, b0: { ...PX.box }, rw: r.width, rh: r.height };
+    box.setPointerCapture(e.pointerId);
+  });
+  box.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = (e.clientX - drag.x0) / drag.rw, dy = (e.clientY - drag.y0) / drag.rh;
+    const b0 = drag.b0, m = _pxMaxBox();
+    if (!m) return;
+    if (!drag.handle) {
+      PX.box = { ...b0, x: Math.min(1 - b0.w, Math.max(0, b0.x + dx)), y: Math.min(1 - b0.h, Math.max(0, b0.y + dy)) };
+    } else {
+      // Resize from a corner, the opposite corner stays put, the shape stays the video's.
+      const left = drag.handle.includes('w'), top = drag.handle.includes('n');
+      const ax = left ? b0.x + b0.w : b0.x, ay = top ? b0.y + b0.h : b0.y;
+      let w = b0.w + (left ? -dx : dx);
+      w = Math.max(m.w * 0.2, Math.min(m.w, w));
+      let h = w * (m.h / m.w);
+      const maxW = left ? ax : 1 - ax, maxH = top ? ay : 1 - ay;
+      if (w > maxW) { w = maxW; h = w * (m.h / m.w); }
+      if (h > maxH) { h = maxH; w = h * (m.w / m.h); }
+      PX.box = { x: left ? ax - w : ax, y: top ? ay - h : ay, w, h };
+    }
+    _pxDrawBox();
+  });
+  const end = () => { if (!drag) return; drag = null; _pxCommitCrop(); };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+}
+
+// ---- drawing -----------------------------------------------------------------
+function _pxRenderSlot(el, item, state, label, usedPaths) {
+  const img = el.querySelector('.px-slot-img');
+  const tag = el.querySelector('.px-slot-tag');
+  el.classList.toggle('has-image', !!item);
+  el.classList.toggle('is-locked', state === 'locked');
+  el.classList.toggle('is-off', state === 'off' && !item);
+  el.classList.toggle('is-full', state === 'full' && !item);
+  el.classList.toggle('is-parked', !!item && state === 'off');
+  if (img) {
+    const src = item ? _pxThumbFor(item) : '';
+    if (img.dataset.src !== src) { img.dataset.src = src; if (src) img.src = src; else img.removeAttribute('src'); }
+  }
+  if (tag) { tag.textContent = label || ''; tag.hidden = !label; }
+  let pics = el.querySelector('.px-slot-pics');
+  if (item && item.kind === 'char' && item.pics && item.pics.length > 1) {
+    if (!pics) { pics = document.createElement('div'); pics.className = 'px-slot-pics'; el.appendChild(pics); }
+    const inUse = usedPaths || [item.path];
+    const html = item.pics.map((p, k) => `<button type="button" class="px-pic${inUse.includes(p) ? ' is-on' : ''}${k === (item.n || 0) ? ' is-lead' : ''}" data-px-pic="${k}" aria-pressed="${inUse.includes(p)}" title="${escapeHtml(inUse.includes(p) ? T('pictures.pic_in_use', 'Picture {n} of {name} · in this shot', { n: k + 1, name: item.name }) : T('pictures.use_picture_n', 'Use picture {n} of {name}', { n: k + 1, name: item.name }))}"><img src="${escapeHtml(_pxCharThumb(item.id, k))}" alt=""></button>`).join('');
+    if (pics.dataset.html !== html) { pics.dataset.html = html; pics.innerHTML = html; }
+  } else if (pics) pics.remove();
+}
+function _pxRenderChars() {
+  const row = document.getElementById('pxChars');
+  if (!row) return;
+  const list = _pxCharList();
+  const on = new Set(PX.list.filter(x => x.kind === 'char').map(x => x.id));
+  const chips = list.map(({ c }) => `<button type="button" class="px-char${on.has(c.id) ? ' is-on' : ''}" data-px-char="${escapeHtml(c.id)}" aria-pressed="${on.has(c.id)}"
+      title="${escapeHtml(c.has_voice ? T('pictures.char_with_voice', '{name}: picture and voice', { name: c.name || c.id }) : T('pictures.char_picture', '{name}: picture', { name: c.name || c.id }))}">
+      <img src="${escapeHtml(c.sample_image_url || _pxCharThumb(c.id, 0))}" alt=""><span>${escapeHtml(c.name || c.id)}</span>${typeof voiceMarkHtml === 'function' ? voiceMarkHtml(c, on.has(c.id)) : (c.has_voice ? '<svg class="ph px-char-voice" aria-hidden="true"><use href="#ph-microphone"/></svg>' : '')}</button>`).join('');
+  const showExpand = currentMode === 't2v' && !_pxFlexOn() && !_pxHasStart() && PX.list.length === 0;
+  const expandBtn = showExpand
+    ? `<button type="button" class="px-char px-char-slots${PX.expanded ? ' is-on' : ''}" data-px-expand="1">${escapeHtml(PX.expanded ? T('pictures.hide_pic_boxes', 'Hide photo boxes') : T('pictures.add_pic_or_place', '+ Face or place photo'))}</button>`
+    : '';
+  const html = chips + `<button type="button" class="px-char px-char-new" data-px-newchar="1">${escapeHtml(T('pictures.new_character', 'New character'))}</button>` + expandBtn;
+  if (row.dataset.html !== html) { row.dataset.html = html; row.innerHTML = html; }
+}
+function _pxRenderLibrary() {
+  const wrap = document.getElementById('pxLibraryWrap');
+  const strip = document.getElementById('pxLibrary');
+  const label = document.getElementById('pxLibraryLabel');
+  if (!wrap || !strip) return;
+  const ups = (Array.isArray(globalThis._uploadsCache) ? _uploadsCache : []).filter(u => !/[-_]framed\.png$/i.test(u.name || ''));
+  wrap.hidden = !ups.length;
+  const t = PX.target || _pxDefaultTarget();
+  if (label) label.innerHTML = T('pictures.library_label', 'Your pictures · click one to put it in <b>{slot}</b>, or drag it onto a box', { slot: escapeHtml(_pxSlotLabel(t)) });
+  const used = new Set([PX.start, ...PX.list.map(x => x.path)]);
+  const html = ups.map(u => `
+      <span class="picker-recent-wrap">
+        <img class="picker-recent-thumb${used.has(u.path) ? ' selected' : ''}" draggable="true"
+             src="${escapeHtml(_thumbUrl(u.url, 128))}" data-path="${escapeHtml(u.path)}"
+             title="${escapeHtml(u.name)}" alt="">
+        <button type="button" class="picker-recent-x" data-path="${escapeHtml(u.path)}"
+                title="${escapeHtml(T('pictures.delete_upload_recent', 'Delete from recent uploads'))}"><svg class="ph" aria-hidden="true"><use href="#ph-trash-simple"/></svg></button>
+      </span>`).join('');
+  if (strip.dataset.html !== html) { strip.dataset.html = html; strip.innerHTML = html; }
+}
+
+// Called from updateDerived() on every form change. Draws; writes only when the context changed
+// (a start picture removed, Pro turning on) and never from inside itself.
+function picturesSync() {
+  const sec = document.getElementById('picturesSection');
+  if (!sec) return;
+  const active = picturesActive();
+  sec.classList.toggle('show', active);
+  document.body.classList.toggle('px-on', active);
+  const vc = document.getElementById('voice_character_id');
+  if (vc) vc.disabled = !active;
+  const cid = document.getElementById('characterIdInput');
+  if (cid) cid.disabled = active;
+  const cidMulti = document.getElementById('characterIdsInput');
+  if (cidMulti) {
+    const selIds = (typeof globalThis.selectedManualCharacterIds === 'function') ? globalThis.selectedManualCharacterIds() : [];
+    cidMulti.disabled = active || selIds.length <= 1;
+  }
+  if (!active) {
+    PX.lastMode = '';
+    if (typeof voicesSyncRenderField === 'function') voicesSyncRenderField();
+    return;
+  }
+  _pxWireOnce();
+  // A character picked elsewhere (on LTX, before switching to Hailuo H3) joins Who's in it once.
+  const sel = (typeof _selectedCharacterId !== 'undefined') ? _selectedCharacterId : '';
+  if (sel && PX.importedSel !== sel) {
+    PX.importedSel = sel;
+    if (!PX.list.some(x => x.kind === 'char' && x.id === sel)) { setTimeout(() => _pxToggleChar(sel), 0); }
+  }
+  // Fields vs. what this area last wrote.
+  const fields = _pxFields(), want = _pxExpected();
+  if (PX.writing) { /* mid-write: draw only */ }
+  else if (!_pxSame(fields, want)) {
+    if (_pxSame(fields, PX.written) || PX.written === null && !fields.some(Boolean)) {
+      if (!PX.rewriteQueued) { PX.rewriteQueued = true; setTimeout(() => { PX.rewriteQueued = false; if (picturesActive()) _pxWrite(); }, 0); }
+    } else {
+      _pxAdopt(fields);
+    }
+  } else {
+    PX.written = fields;
+  }
+  // Start from: #image is the truth; a value that is neither our original nor our framed copy came
+  // from somewhere else (Load Params, the old picker) and becomes the new original.
+  const img = _pxVal('image');
+  if (img && img !== PX.start && img !== PX.framed) { PX.start = img; PX.framed = ''; PX.box = null; }
+  const hasStart = _pxHasStart();
+  // The mode chip says what the user came for.
+  if (PX.lastMode !== currentMode) {
+    if (currentMode !== 't2v') PX.expanded = false;
+    if (currentMode === 'i2v' && !hasStart) PX.target = { slot: 'start', n: 0 };
+    if (currentMode === 'character') {
+      PX.target = null;
+      const row = document.getElementById('pxChars');
+      if (row && PX.lastMode) {
+        row.classList.remove('px-pulse'); void row.offsetWidth; row.classList.add('px-pulse');
+        setTimeout(() => { try { row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }, 50);
+      }
+    }
+    PX.lastMode = currentMode;
+  }
+  const t = PX.target || _pxDefaultTarget();
+  const flexOn = _pxFlexOn();
+  const compactTextEmpty = currentMode === 't2v' && !hasStart && PX.list.length === 0 && !PX.expanded && !flexOn;
+  // The one character whose voice comes along (with two or more, each line names its speaker).
+  const usedChars = (flexOn ? PX.list : _pxUsed()).filter(x => x.kind === 'char');
+  if (vc) vc.value = usedChars.length === 1 ? usedChars[0].id : '';
+  // Start from (shown in Image mode, when a start picture is set, or when photo boxes are expanded)
+  const startGroup = document.getElementById('pxStartGroup');
+  if (startGroup) startGroup.hidden = !_pxStartOk() || (currentMode !== 'i2v' && !hasStart && !PX.expanded);
+  const startSlot = sec.querySelector('[data-px-slot="start"]');
+  if (startSlot) {
+    startSlot.hidden = hasStart;
+    _pxRenderSlot(startSlot, null, 'ok', '');
+    startSlot.classList.toggle('is-target', !!t && t.slot === 'start');
+  }
+  _pxRenderCrop(hasStart);
+  _pxRenderShape();
+  const sn = document.getElementById('pxStartNote');
+  if (sn) {
+    const parked = !flexOn && _pxStartCtx() && PX.list.length > 1;
+    sn.hidden = true;   // feedback 5: the reason is the tooltip of the parked pictures (pxSlotsRow), not a line
+    PX.parkedWhy = parked ? T('pictures.start_parks', 'With a start picture, Hailuo H3 keeps one face (Picture 1). Remove the start picture to use the other pictures again.') : '';
+    if (parked) sn.textContent = T('pictures.start_parks', 'With a start picture, Hailuo H3 keeps one face (Picture 1). Remove the start picture to use the other pictures again.');
+  }
+  // Who's in it (or Who speaks on H3 Flex, where face/place pictures are off but saved voices work)
+  const whoGroup = document.getElementById('pxWhoGroup');
+  if (whoGroup) {
+    whoGroup.hidden = !_pxFaceOk() && !flexOn;
+    const whoQ = whoGroup.querySelector('.px-q strong');
+    const whoH = whoGroup.querySelector('.px-q-hint');
+    if (whoQ) whoQ.textContent = flexOn ? T('characters.who_speaks', 'Who speaks') : T('pictures.dynamic_who_q', "Who's in it");
+    if (whoH) whoH.textContent = flexOn ? T('characters.pick_speakers_for_lines', 'pick characters for their voices') : T('pictures.dynamic_who_hint', 'pick a saved character, or drop a clear photo of a face');
+    if (whoQ && whoH) whoQ.title = whoH.textContent;   // feedback 3: the hint is a tooltip, not a line
+    const whoSlots = whoGroup.querySelector('.px-slots');
+    if (whoSlots) whoSlots.hidden = flexOn || compactTextEmpty;
+  }
+  const people = _pxPeople(), used = _pxUsed(), slots = _pxSlots(), refs = _pxNeedRefs(slots);
+  const usedSet = new Set(used);
+  const nosOf = (it) => slots.map((s, i) => s.item === it ? i + 1 : 0).filter(Boolean);
+  const picNo = (it) => { const ns = nosOf(it); return ns.length > 1 && ns[ns.length - 1] - ns[0] === ns.length - 1 ? ns[0] + '–' + ns[ns.length - 1] : ns.join(', '); };
+  const pathsOf = (it) => slots.filter(s => s.item === it).map(s => s.path);
+  sec.querySelectorAll('[data-px-slot="who"]').forEach(el => {
+    const n = parseInt(el.dataset.pxN, 10);
+    const it = people[n] || null;
+    let state = _pxSlotState('who', n);
+    if (it && !usedSet.has(it)) state = 'off';
+    el.hidden = flexOn || compactTextEmpty || (n >= 1 && !_pxRefsShown());
+    const name = it && it.kind === 'char' ? it.name : '';
+    const label = it ? (refs && usedSet.has(it) ? T('pictures.pic_n_short', 'Pic {n}', { n: picNo(it) }) + (name ? ' · ' + name : '') : name) : '';
+    _pxRenderSlot(el, it, state, label, it ? pathsOf(it) : []);
+    el.classList.toggle('is-target', !!t && t.slot === 'who' && t.n === n && state === 'ok');
+    const pro = el.querySelector('.pro-tag');
+    if (pro) pro.hidden = !(n >= 1);
+  });
+  // Where
+  // Feedback 5: the place is the 4th slot in the Who's-in-it row; it shows exactly when the old Where group did.
+  const whereSlot = sec.querySelector('[data-px-slot="where"]');
+  if (whereSlot) {
+    whereSlot.hidden = !_pxFaceOk() || !_pxRefsShown() || flexOn || compactTextEmpty;
+    const pl = _pxPlace();
+    let state = _pxSlotState('where', 0);
+    if (pl && !usedSet.has(pl)) state = 'off';
+    _pxRenderSlot(whereSlot, pl, state, pl && usedSet.has(pl) ? T('pictures.pic_n_short', 'Pic {n}', { n: picNo(pl) }) : '');
+    whereSlot.classList.toggle('is-target', !!t && t.slot === 'where' && state === 'ok');
+  }
+  // One plain line under Who's in it.
+  const wn = document.getElementById('pxWhoNote');
+  if (wn) {
+    let msg = '';
+    if (flexOn) msg = T('pictures.flex_voice_only', "H3 Flex doesn't use face or place pictures — picked characters speak their lines with their saved voices.");
+    else if (_pxLocked()) msg = T('pictures.free_line_short', 'Free: one face. Pro: up to 3 pictures.');
+    else if (_pxVoiceReserve() && _pxRefsShown()) msg = T('pictures.voice_takes_one', 'The voice sample uses one of the 3 pictures.');
+    else if (_pxStartCtx() && _pxRefsShown()) msg = T('pictures.start_one_face_short', 'With a start picture: one face.');
+    // Feedback 5: no helper line under the pictures; the same words are the tooltip of the question and the slots.
+    wn.hidden = true; wn.textContent = msg;
+    const whoQ2 = document.querySelector('#pxWhoGroup .px-q strong');
+    const whoH2 = document.querySelector('#pxWhoGroup .px-q-hint');
+    const tip = [whoH2 ? whoH2.textContent : '', msg].filter(Boolean).join('\n');
+    if (whoQ2) whoQ2.title = tip;
+    const row = document.getElementById('pxSlotsRow');
+    const rowTip = PX.parkedWhy || msg;
+    if (row) { if (rowTip) row.title = rowTip; else row.removeAttribute('title'); }
+  }
+  // Their voices, and where the lines go (plain words, zero tag syntax).
+  const voiced = usedChars.map(x => ({ x, c: (_manualCharacters || []).find(c => c.id === x.id) }))
+    .filter(v => v.c && v.c.has_voice);
+  const lines = document.getElementById('pxLines');
+  if (lines) {
+    lines.hidden = !voiced.length;
+    if (voiced.length) {
+      const names = voiced.map(v => v.x.name);
+      // Feedback 3: the voice simply comes along; the how-to sits behind the "?".
+      document.getElementById('pxLinesText').textContent = T('pictures.lines_short', 'Lines');
+      const lh = document.getElementById('pxLinesHelp');
+      if (lh) lh.textContent = voiced.length === 1
+        ? T('pictures.voice_one_plain', "{name}'s voice comes along. Write each line in your prompt like this: {name}: Hello.", { name: names[0] })
+        : T('pictures.voice_many_plain', 'Their voices come along. Start each line in your prompt with who says it, like {name}: Hello.', { name: names[0] });
+      const btns = names.map(n => `<button type="button" class="ghost-btn small" data-px-line="${escapeHtml(n)}">${escapeHtml(T('pictures.add_line', "+ {name}'s line", { name: n }))}</button>`).join('');
+      const bw = document.getElementById('pxLinesBtns');
+      if (bw.dataset.html !== btns) { bw.dataset.html = btns; bw.innerHTML = btns; }
+    }
+  }
+  // How the prompt names them.
+  // The three pictures of the shot, always visible while References can take more than one: a small
+  // meter of three cells (which picture goes where), its sentence behind a "?".
+  const lab = document.getElementById('pxLabels');
+  const meter = document.getElementById('pxMeter');
+  const cap = _pxCap();
+  if (meter) {
+    const show = !flexOn && cap > 1 && PX.list.length > 0;
+    meter.hidden = !show;
+    if (show) {
+      const cells = Array.from({ length: cap }, (_, i) => {
+        const s = slots[i];
+        if (!s) return `<span class="px-meter-cell is-free" title="${escapeHtml(T('pictures.meter_free', 'Free'))}"></span>`;
+        const who = s.kind === 'char' ? s.item.name : s.kind === 'where' ? T('pictures.the_place', 'the place') : T('pictures.a_person', 'a person');
+        const src = s.kind === 'char' ? _pxCharThumb(s.item.id, s.item.pics.indexOf(s.path)) : _pxThumbFor(s.item);
+        return `<span class="px-meter-cell" title="${escapeHtml(T('pictures.picture_n', 'Picture {n}', { n: i + 1 }) + ' · ' + who)}"><img src="${escapeHtml(src)}" alt=""></span>`;
+      }).join('');
+      const html = `<span class="px-meter-label">${escapeHtml(T('pictures.meter_label', 'Pictures'))}</span>${cells}<span class="px-meter-count">${slots.length}/${cap}</span>`;
+      const box = document.getElementById('pxMeterCells');
+      if (box && box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
+    }
+  }
+  if (lab) {
+    const parts = slots.map((s, i) => T('pictures.picture_n', 'Picture {n}', { n: i + 1 }) + ' = '
+      + (s.kind === 'char' ? s.item.name : s.kind === 'where' ? T('pictures.the_place', 'the place') : T('pictures.a_person', 'a person')));
+    lab.textContent = T('pictures.three_total', 'A shot takes {cap} pictures in total. Each character and the place get one; free ones go to characters with more pictures of their own. Click a small picture under a character to swap which one it uses.', { cap })
+      + (refs ? ' ' + T('pictures.labels', 'Your prompt can name them: {list}. These pictures are not the first frame; clips of 5 seconds.', { list: parts.join(', ') }) : '');
+  }
+  // References renders 5 s clips: keep Length synced so chips & footer never contradict "clips of 5 seconds".
+  if (typeof _h3RefsOn === 'function' && _h3RefsOn() && typeof h3CurrentCell === 'function') {
+    const curCell = h3CurrentCell();
+    if (curCell && Number(curCell.seconds || 0) > 5 && typeof globalThis.setH3Length === 'function') {
+      setTimeout(() => { if (_h3RefsOn()) globalThis.setH3Length('5s'); }, 0);
+    } else if (typeof renderH3Axes === 'function') {
+      renderH3Axes();
+    }
+  }
+  _pxRenderChars();
+  _pxRenderLibrary();
+  const libWrap = document.getElementById('pxLibraryWrap');
+  if (libWrap && (compactTextEmpty || flexOn)) libWrap.hidden = true;
+  if (typeof voicesSyncRenderField === 'function') voicesSyncRenderField();
+}
+
+function _pxTargetOf(el) {
+  const s = el.closest('[data-px-slot]');
+  if (!s) return null;
+  return { slot: s.dataset.pxSlot, n: parseInt(s.dataset.pxN || '0', 10) };
+}
+async function _pxUpload(target, file) {
+  if (!file) return;
+  try {
+    const fd = new FormData(); fd.append('image', file);
+    const r = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || T('pictures.upload_failed_short', 'upload failed'));
+    if (typeof refreshUploadsStrip === 'function') refreshUploadsStrip();
+    _pxFill(target, data.path);
+  } catch (e) {
+    if (typeof phosToast === 'function') phosToast(T('pictures.upload_failed', 'Upload failed: {why}', { why: e.message || e }), { kind: 'danger' });
+  }
+}
+function _pxWireOnce() {
+  const sec = document.getElementById('picturesSection');
+  if (!sec || sec.dataset.wired) return;
+  sec.dataset.wired = '1';
+  _pxWireCrop();
+  const file = document.getElementById('pxFile');
+  let fileTarget = null;
+  sec.addEventListener('click', (e) => {
+    const x = e.target.closest('[data-px-clear]');
+    if (x) { e.stopPropagation(); const t = _pxTargetOf(x) || { slot: 'start', n: 0 }; _pxRemove(t.slot, t.n); return; }
+    const pic = e.target.closest('[data-px-pic]');
+    if (pic) { e.stopPropagation(); const t = _pxTargetOf(pic); if (t) _pxPickCharPicture(t.n, parseInt(pic.dataset.pxPic, 10)); return; }
+    const ch = e.target.closest('[data-px-char]');
+    if (ch) { _pxToggleChar(ch.dataset.pxChar); return; }
+    if (e.target.closest('[data-px-newchar]')) { if (typeof newCharacterOpen === 'function') newCharacterOpen(); return; }
+    if (e.target.closest('[data-px-expand]')) { PX.expanded = !PX.expanded; picturesSync(); return; }
+    const line = e.target.closest('[data-px-line]');
+    if (line) { _pxInsertLine(line.dataset.pxLine); return; }
+    if (e.target.closest('#pxShapeBtn')) { const to = e.target.closest('#pxShapeBtn').dataset.to; if (typeof setH3Orientation === 'function') setH3Orientation(to); return; }
+    const del = e.target.closest('#pxLibrary .picker-recent-x');
+    if (del) { e.stopPropagation(); deleteUpload(del.dataset.path); return; }
+    const th = e.target.closest('#pxLibrary .picker-recent-thumb');
+    if (th) { _pxFill(PX.target || _pxDefaultTarget(), th.dataset.path); return; }
+    const t = _pxTargetOf(e.target);
+    if (!t || e.target.closest('#pxCrop')) return;
+    const st = _pxSlotState(t.slot, t.n);
+    if (st === 'locked') { if (typeof openProModal === 'function') openProModal(e.target.closest('[data-px-slot]')); return; }
+    if (st === 'off') { _pxToastOff(); return; }
+    if (st === 'full') { _pxToastFull(); return; }
+    PX.target = t;
+    if (e.target.closest('[data-px-browse]')) { fileTarget = t; if (file) file.click(); }
+    picturesSync();
+  });
+  sec.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-px-slot]')) { e.preventDefault(); e.target.click(); }
+  });
+  if (file) file.addEventListener('change', () => {
+    const f = file.files && file.files[0];
+    if (f) _pxUpload(fileTarget || PX.target || _pxDefaultTarget(), f);
+    file.value = '';
+  });
+  sec.addEventListener('dragstart', (e) => {
+    const th = e.target.closest && e.target.closest('#pxLibrary .picker-recent-thumb');
+    if (th) { e.dataTransfer.setData('text/x-phos-path', th.dataset.path); e.dataTransfer.effectAllowed = 'copy'; }
+  });
+  sec.addEventListener('dragover', (e) => {
+    const s = e.target.closest('[data-px-slot]');
+    if (!s) return;
+    e.preventDefault();
+    sec.querySelectorAll('.px-slot.dragover').forEach(x => { if (x !== s) x.classList.remove('dragover'); });
+    s.classList.add('dragover');
+  });
+  sec.addEventListener('dragleave', (e) => {
+    const s = e.target.closest('[data-px-slot]');
+    if (s && !s.contains(e.relatedTarget)) s.classList.remove('dragover');
+  });
+  sec.addEventListener('drop', (e) => {
+    const s = e.target.closest('[data-px-slot]');
+    if (!s) return;
+    e.preventDefault(); s.classList.remove('dragover');
+    const t = _pxTargetOf(s);
+    const p = e.dataTransfer.getData('text/x-phos-path');
+    if (p) { _pxFill(t, p); return; }
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) _pxUpload(t, f);
+  });
 }
 
 // ====== Ingredients (multi-reference) picker ======
@@ -4670,6 +5636,8 @@ async function poll() {
   // removed 2026-05-12 because it duplicated the bottom Now strip and
   // covered the playing video. Bottom strip is the single source.)
 
+  bpDockSync(s);
+
   // Logs
   const log = document.getElementById('log');
   const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
@@ -4932,6 +5900,8 @@ async function poll() {
     // Control (Union) control-video dropdown — same video-only list.
     const controlSel = document.getElementById('controlSrcSelect');
     if (controlSel) controlSel.innerHTML = _videoOpts;
+    // Feedback 6: the recent-clips strips show the same videos as small poster frames.
+    if (typeof clipPickRenderAll === 'function') clipPickRenderAll();
   }
   // OUTSIDE #queueList's qSig memoisation, and after currentOutputs refreshes:
   // a completed job can therefore hand off from its last preview frame to the
@@ -7220,7 +8190,19 @@ function useAsExtendSourcePath(path) {
   // 4.19: an H3 clip continues on H3 (its own motion and voice carry on);
   // any other clip keeps the engine the user has chosen.
   const _o = (typeof findOutputByPath === 'function') ? findOutputByPath(path) : null;
-  if (_o && h3ClipIsH3(_o) && h3CanServe('extend') && typeof setEngine === 'function') {
+  // Codex r6 sweep: go through Text (valid on both engines), then H3, then Extend. Switching the
+  // engine from an LTX-only mode is refused, and Extend on LTX is refused on Q4-tier Macs: there any
+  // clip continues on Hailuo H3 when it can, otherwise the form is left as it was, with the reason.
+  const _h3Ext = typeof h3CanServe === 'function' && h3CanServe('extend') && typeof setEngine === 'function';
+  // Under 48 GB LTX cannot extend at all, so the only engine that can is H3 with Extend (Codex r6-4 #2:
+  // H3 selected but too old to extend fell back to LTX Extend).
+  const _ltxNoExtend = globalThis.PHOSPHENE_CAP_TIER === 'q4';
+  if (_ltxNoExtend && !_h3Ext) {
+    if (typeof phosToast === 'function') phosToast(T('queue.extend_needs_more_memory', 'Extend with LTX needs a Mac with 48 GB or more. On this Mac, clips continue with Hailuo H3 once it is installed.'), { kind: 'warn', duration: 7000 });
+    return;
+  }
+  if (_h3Ext && ((_o && h3ClipIsH3(_o)) || _ltxNoExtend)) {
+    setMode('t2v');
     setEngine('h3');
   }
   setMode('extend');
@@ -7243,6 +8225,9 @@ function useAsAddSoundSource(path) {
     return;
   }
   if (typeof workflowSwitch === 'function') { try { workflowSwitch('manual'); } catch (e) {} }
+  // Through Text (valid on both engines), then H3, then Add sound: from an LTX-only mode (Upscale,
+  // Colorize…) H3 would refuse the switch and leave LTX's controls on an Add sound that runs on H3.
+  setMode('t2v');
   if (typeof setEngine === 'function') setEngine('h3');
   setMode('v2a');
   document.getElementById('video_path').value = path;
@@ -7252,6 +8237,121 @@ function useAsAddSoundSource(path) {
   document.querySelector('aside.form-pane').scrollTop = 0;
   phosToast(T('queue.clip_loaded_into_add_sound', 'Clip loaded into Add sound — describe the sound you want, then Generate.'), { kind: 'success' });
 }
+
+// ====== Recent clips picker (feedback 6 #3, 22 Nov 2026) ======
+// One compact picker for every mode that starts from a clip: Extend and Add sound (#video_path),
+// Colorize, Upscale & Face Fix, Motion Control and Re-voice. A strip of the latest videos (the same
+// poster frames as Outputs, small; click to choose), "Browse…" for any file on this Mac, and the
+// path box kept for pasting. The old dropdowns stay in the page (hidden) for code that sets them.
+const CLIP_PICK_MAX = 12;
+const CLIP_PICK_MAX_UPLOAD = 64 * 1024 * 1024;   // the /upload cap (routes_files.py)
+function clipPickVideos() {
+  return (globalThis.currentOutputs || []).filter(o => outputKind(o) === 'video').slice(0, CLIP_PICK_MAX);
+}
+function _clipPickCurrent(box) {
+  if (box.dataset.pick === 'revoice') return (typeof REVOICE !== 'undefined' && REVOICE && REVOICE.path) || '';
+  const inp = document.getElementById(box.dataset.input || '');
+  return inp ? String(inp.value || '').trim() : '';
+}
+function clipPickMark(box) {
+  const cur = _clipPickCurrent(box);
+  box.querySelectorAll('.clip-pick-thumb').forEach(b => {
+    const on = !!cur && b.dataset.path === cur;
+    b.classList.toggle('selected', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+}
+function clipPickMarkAll() {
+  if (typeof document === 'undefined' || !document.querySelectorAll) return;
+  document.querySelectorAll('.clip-pick').forEach(clipPickMark);
+}
+function clipPickRenderAll() {
+  if (typeof document === 'undefined' || !document.querySelectorAll) return;
+  const vids = clipPickVideos();
+  const sig = vids.map(o => `${o.path}|${o.mtime || ''}|${o.name || ''}`).join(';');
+  document.querySelectorAll('.clip-pick').forEach(box => {
+    const strip = box.querySelector('.clip-pick-strip');
+    if (!strip) return;
+    if (box.dataset.sig !== sig) {
+      box.dataset.sig = sig;
+      const vq = (typeof _posterVersionQuery === 'function') ? _posterVersionQuery : () => '';
+      strip.innerHTML = vids.map(o => `<button type="button" class="clip-pick-thumb" role="option" aria-selected="false" data-path="${escapeHtml(o.path)}" title="${escapeHtml(o.name || String(o.path).split('/').pop())}"><img src="/poster?path=${encodeURIComponent(o.path)}${vq(o)}" alt="" loading="lazy" draggable="false"></button>`).join('');
+      strip.hidden = !vids.length;
+    }
+    clipPickMark(box);
+  });
+}
+function clipPickChoose(box, path, name) {
+  if (!box || !path) return;
+  if (box.dataset.pick === 'revoice') {
+    if (typeof revoiceUseSource === 'function') revoiceUseSource(path, name);
+    clipPickMark(box);
+    return;
+  }
+  const inp = document.getElementById(box.dataset.input || '');
+  if (!inp) return;
+  inp.value = path;
+  const sel = box.dataset.select ? document.getElementById(box.dataset.select) : null;
+  if (sel) sel.value = path;
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  inp.dispatchEvent(new Event('change', { bubbles: true }));
+  inp.title = path;
+  try { inp.scrollLeft = inp.scrollWidth; } catch (_) {}   // the file name end, not the folder start
+  clipPickMark(box);
+  if (typeof updateDerived === 'function') updateDerived();
+}
+async function clipPickUpload(box, file) {
+  if (!box || !file) return;
+  if (box.dataset.pick === 'revoice') { if (typeof revoiceUpload === 'function') revoiceUpload(file); return; }
+  const say = (msg, kind) => { if (typeof phosToast === 'function') phosToast(msg, { kind: kind || 'warn', duration: 6000 }); };
+  if (!/^video\//.test(file.type || '') && !/\.(mp4|mov|m4v|webm|mkv)$/i.test(file.name || '')) {
+    say(T('queue.clip_pick_not_video', 'Choose a video file (MP4, MOV, M4V, WEBM or MKV).')); return;
+  }
+  if (file.size > CLIP_PICK_MAX_UPLOAD) {
+    say(T('queue.clip_pick_too_big', 'This file is bigger than 64 MB. Paste its path in the box below instead.')); return;
+  }
+  const btn = box.querySelector('.clip-pick-browse');
+  const label = btn ? btn.textContent : '';
+  box.classList.add('is-busy');
+  if (btn) { btn.disabled = true; btn.textContent = T('queue.clip_pick_adding', 'Adding…'); }
+  try {
+    const fd = new FormData(); fd.append('audio', file);
+    const r = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || T('queue.clip_pick_upload_failed', 'Could not add this file.'));
+    clipPickChoose(box, data.path, file.name);
+  } catch (e) {
+    say(T('queue.clip_pick_upload_failed', 'Could not add this file.') + ' ' + (e.message || e), 'danger');
+  } finally {
+    box.classList.remove('is-busy');
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+(function wireClipPicks() {
+  if (typeof document === 'undefined' || !document.querySelectorAll) return;
+  document.querySelectorAll('.clip-pick').forEach(box => {
+    box.addEventListener('click', (e) => {
+      const thumb = e.target.closest('.clip-pick-thumb');
+      if (thumb) { clipPickChoose(box, thumb.dataset.path, thumb.title); return; }
+      if (e.target.closest('.clip-pick-browse')) {
+        const f = box.dataset.pick === 'revoice' ? document.getElementById('revoiceFile') : box.querySelector('.clip-pick-file');
+        if (f) f.click();
+      }
+    });
+    const f = box.querySelector('.clip-pick-file');
+    if (f) f.addEventListener('change', () => { const file = f.files && f.files[0]; f.value = ''; clipPickUpload(box, file); });
+    const inp = box.dataset.input ? document.getElementById(box.dataset.input) : null;
+    if (inp) inp.addEventListener('input', () => clipPickMark(box));
+    const hasFiles = (e) => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'));
+    box.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); box.classList.add('dragover'); } });
+    box.addEventListener('dragleave', () => box.classList.remove('dragover'));
+    box.addEventListener('drop', (e) => {
+      box.classList.remove('dragover');
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) { e.preventDefault(); e.stopPropagation(); clipPickUpload(box, file); }
+    });
+  });
+})();
 
 // W6 (2026-10-19): Add sound was nearly undiscovered (3 renders in 14 days
 // against 115 Lip-sync), so every SILENT clip offers it where the user is
@@ -7357,7 +8457,8 @@ async function continueSongFromClip(path) {
     // output's sidecar, so this only applies when the clip being continued
     // is the one on screen (true from the player button; a defensive no-op
     // otherwise rather than restoring the wrong clip's params).
-    if (activePath === path) await loadParams();
+    // A refused reload (e.g. Hailuo H3 not ready) stops here: never continue with the previous song (Codex r6-8 #1).
+    if (activePath === path && (await loadParams()) === false) return;
     const r = await fetch('/a2v/continue_song', { method: 'POST', body: new URLSearchParams({ clip: path }) });
     const res = await r.json();
     if (!res.ok) {
@@ -8070,54 +9171,6 @@ async function takeJoinPartialFromPath(path) {
   currentOutputs = []; outputsCacheMutated([]); poll();
 }
 
-// The full lane (Remix → Upscale & Face Fix): presets, source picker, prompt.
-// Same hand-off shape as Extend: switch to the Remix tool, point the picker
-// at this clip, scroll the form to the top.
-// Server-owned size, length and download checks, visible before Generate.
-let faceFixPlanRequest = 0;
-let faceFixPlanPath = null;
-let faceFixPlanTimer = null;
-async function refreshFaceFixPlan(force = false) {
-  const hint = document.getElementById('faceFixPlan');
-  const path = (document.getElementById('upscale_source_path') || {}).value || '';
-  const active = (document.getElementById('mode') || {}).value === 'upscale';
-  if (!hint) return;
-  if (!active) { faceFixPlanPath = null; ++faceFixPlanRequest; hint.textContent = ''; return; }
-  if (!force && faceFixPlanPath === path) return;
-  faceFixPlanPath = path;
-  const request = ++faceFixPlanRequest;
-  clearTimeout(faceFixPlanTimer);
-  hint.textContent = path ? T('queue.face_fix_checking', 'Checking this clip…') : T('queue.face_fix_pick', 'Pick the clip to fix first.');
-  if (!path) return;
-  faceFixPlanTimer = setTimeout(async () => {
-    try {
-      const response = await fetch('/queue/facefix/plan', {
-        method: 'POST', body: new URLSearchParams({source_path: path})
-      });
-      if (!response.ok) throw new Error();
-      const plan = await response.json();
-      if (request !== faceFixPlanRequest) return;
-      hint.textContent = plan.ok ? plan.message : plan.error;
-    } catch (_) {
-      if (request === faceFixPlanRequest) hint.textContent = T('queue.face_fix_check_failed', 'Could not check this clip. Choose it again to retry.');
-    }
-  }, 200);
-}
-
-function useAsUpscaleSourcePath(path) {
-  // VA-09: same fix as Extend above — switch tabs before the mode change,
-  // not after (or never).
-  if (typeof workflowSwitch === 'function') { try { workflowSwitch('manual'); } catch (e) {} }
-  setMode('upscale');
-  const inp = document.getElementById('upscale_source_path');
-  if (inp) inp.value = path;
-  const sel = document.getElementById('upscaleSrcSelect');
-  if (sel) sel.value = path;
-  updateDerived();
-  const pane = document.querySelector('aside.form-pane');
-  if (pane) pane.scrollTop = 0;
-}
-function useAsUpscaleSource() { if (!activePath) return alert(T('queue.pick_an_output_first', 'Pick an output first.')); useAsUpscaleSourcePath(activePath); }
 // Upscale & Face Fix presets — hidden numbers the server maps to how the
 // render starts; the pills are the only thing the user touches. `keep_shot`
 // is the preset; the Face Fix pill also pins the start and the step count
@@ -8175,6 +9228,38 @@ function _restoreLoraPicker(list, scaleV) {
 // an untouched form should still warn).
 let _loadedRecipeSnapshot = null;
 
+function _plainAuthoringPrompt(p) {
+  p = p || {};
+  let lang = String(p.dialogue_lang || '').trim();
+  const rawEnginePrompt = String(p.prompt || '');
+  if (!lang) {
+    const mLang = rawEnginePrompt.match(/<d>\s*\[([^\]]+)\]/i);
+    if (mLang) lang = String(mLang[1] || '').trim();
+  }
+  if (typeof p.prompt_plain === 'string' && p.prompt_plain.trim()) {
+    return { text: p.prompt_plain, lang };
+  }
+  let s = rawEnginePrompt;
+  const ltxCue = '\nAudio: clear natural spoken dialogue in a quiet room, no music.';
+  if (s.endsWith(ltxCue)) s = s.slice(0, -ltxCue.length);
+  s = s.replace(/(^|\n)([ \t]*[\p{L}\p{N}_][\p{L}\p{M}\p{N}_ .'-]{0,60}?)\s*:\s*<d>\s*(?:\[([^\]]+)\])?\s*([\s\S]*?)<\/d>/giu,
+    (_m, lead, who, lg, body) => {
+      if (lg && !lang) lang = String(lg).trim();
+      const txt = String(body || '').replace(/\s+/g, ' ').trim();
+      return `${lead}${who.trim()}: ${txt}`;
+    });
+  s = s.replace(/<d>\s*(?:\[([^\]]+)\])?\s*([\s\S]*?)<\/d>/gi, (_m, lg, body) => {
+    if (lg && !lang) lang = String(lg).trim();
+    const txt = String(body || '').replace(/\s+/g, ' ').trim();
+    return `"${txt}"`;
+  });
+  s = s.split('\n').map(line => {
+    const ms = line.match(/^(\s*)([\p{L}\p{N}_][\p{L}\p{M}\p{N}_ .'-]{0,60}?)\s+says(?:\s+clearly)?\s*:\s*["\u201c](.+?)["\u201d]\s*$/iu);
+    return ms ? `${ms[1]}${ms[2].trim()}: ${ms[3].trim()}` : line;
+  }).join('\n');
+  return { text: s, lang };
+}
+
 async function loadParams(recipe) {
   // 4.17 Codex SAFETY-4: `recipe` ({params}) applies a QUEUED job's recipe
   // with no sidecar fetch — editQueuedJob() restores through this one
@@ -8193,11 +9278,66 @@ async function loadParams(recipe) {
     data = await r.json();
   }
   const p = data.params;
+  // Codex r6-5 #2: under 48 GB, LTX cannot run Keyframes or Extend; an H3 recipe of either needs a ready
+  // H3. Without it, say so and leave the form (and any queued job being edited) exactly as it was,
+  // instead of rewriting it as an LTX Text job.
+  const _say = (msg) => { if (typeof phosToast === 'function') phosToast(msg, { kind: 'warn', duration: 7000 }); };
+  // Codex r6-7 #4: an H3 recipe (any surface: Video form, Lip-sync, One Shot, Add sound) needs an H3
+  // that can run its mode; otherwise it is refused, never rewritten as an LTX job.
+  // Codex r6-8 #4: a sidecar without a recipe (a plain picture's) has nothing to load; refuse it before the
+  // voice pickers below are touched. Old One Shot takes (top-level take) and Ideogram captions have paths.
+  const _legacyTake = !!(data && data.take && data.take.seconds);
+  if (!p && !_legacyTake) {
+    const _ideoNoP = (typeof _parseIdeoCaption === 'function') ? _parseIdeoCaption((data && data.prompt) || '') : null;
+    if (!_ideoNoP) {
+      _say(T('queue.recipe_not_restorable', 'This kind of job cannot be reopened in the form.'));
+      return false;
+    }
+  }
+  // Codex r6-8 #3: old One Shot takes keep their engine at the top level.
+  const _recipeEngine = String((p && p.engine) || (_legacyTake && data.engine) || '').toLowerCase();
+  if ((p || _legacyTake) && _recipeEngine === 'h3' && typeof h3CanServe === 'function'
+      && h3CanServe(String((p && p.mode) || 't2v')) === false) {
+    _say(T('queue.recipe_needs_h3', 'This job was made with Hailuo H3, which is not ready on this Mac. Once Hailuo H3 is installed, load it again.'));
+    return false;
+  }
+  if (p && globalThis.PHOSPHENE_CAP_TIER === 'q4' && (p.mode === 'keyframe' || p.mode === 'extend')) {
+    if (String(p.engine || '').toLowerCase() !== 'h3') {
+      // Codex r6-6 #1: an LTX Keyframes / Extend job cannot run under 48 GB; never rewrite it as Text.
+      _say(T('queue.recipe_ltx_needs_48', 'This job was made with LTX Start & end, Keyframes or Extend, which need a Mac with 48 GB or more. It was not loaded.'));
+      return false;
+    }
+  }
+  // Codex r6-7 #1/#2: only recipes the form can hold come in; anything else (Re-voice, speech, training,
+  // exports, music, plain picture jobs) or a tool this Mac does not offer is refused before any change.
+  const _RESTORABLE = ['t2v', 'i2v', 'i2v_clean_audio', 'keyframe', 'extend', 'v2a', 'a2v', 'control', 'restore', 'upscale', 'ingredients', 'retake'];
+  const _ideoEarly = (typeof _parseIdeoCaption === 'function') ? _parseIdeoCaption((data && (data.prompt || (p && p.prompt))) || '') : null;
+  if (p && p.mode && !_RESTORABLE.includes(String(p.mode)) && !(p.mode === 'image' && _ideoEarly)) {
+    _say(T('queue.recipe_not_restorable', 'This kind of job cannot be reopened in the form.'));
+    return false;
+  }
+  if (p && p.mode === 'ingredients' && typeof ingredientsServed === 'function' && ingredientsServed() === false) {
+    _say(T('queue.recipe_no_ingredients', 'This job used Ingredients, which is not available on this Mac. It was not loaded.'));
+    return false;
+  }
+  if (p && p.mode === 'retake') {
+    // Codex r6-6 #2: the form has no Retake settings (Retake opens from the player, on its clip);
+    // loading one used to turn it into a plain Text job without its segment.
+    _say(T('queue.recipe_retake', 'Retake jobs open from the player: select the clip, then use its Retake button.'));
+    return false;
+  }
+  // Every refusal is above: only now does this load own the complete-window flag (Codex r6-8 #2).
+  globalThis._h3ChainCompleteList = '';
   await voicesRefresh();
   const methodPicker = document.getElementById('renderVoiceMethod');
   if (methodPicker) methodPicker.value = p?.voice_method || 'voice_pass';
   const voicePicker = document.getElementById('renderVoice');
-  if (voicePicker) voicePicker.value = p && Object.prototype.hasOwnProperty.call(p, 'voice_id') ? (p.voice_id || 'default') : 'inherit';
+  if (voicePicker) {
+    const hasPerSpeakerVoices = !!(p && (p.voice_route === 'voice_pass' || (Array.isArray(p.voice_phrases) && p.voice_phrases.length > 0)));
+    voicePicker.value = p && Object.prototype.hasOwnProperty.call(p, 'voice_id')
+      ? (p.voice_id || (hasPerSpeakerVoices ? 'inherit' : 'default'))
+      : 'inherit';
+  }
   // Image-Studio sidecars (Ideogram 4 etc.) carry a TOP-LEVEL prompt that is a
   // structured caption JSON, not the video params shape below — the p.mode
   // dispatch would dump JSON into the i2v prompt box (or throw when p is
@@ -8252,16 +9392,9 @@ async function loadParams(recipe) {
   // compose state instead of dumping the user into Manual. The sidecar
   // carries the source flag + the original compose chips verbatim
   // (character_id, framing, duration, prompt_body, quality_choice).
-  if (p && p.source === 'characters' && p.character_id && !_queueEdit) {
-    try {
-      await charactersLoadParams(p);
-      return;
-    } catch (e) {
-      // Fall through to manual-form population on any unexpected error
-      // so the user still gets *something* useful.
-      console.warn('characters loadParams failed, falling back to Manual:', e);
-    }
-  }
+  // Codex r6-7 #3: the old Characters-tab loader lost Image / Image+audio modes and the recipe's engine,
+  // kept stale pictures, and toggled the character off on a second load. Characters live in the Video
+  // form now, so these recipes take the same full path as every other one (queue edit already did).
   // Character renders are stored with mode='t2v' server-side (the
   // helper actually runs t2v under the hood; 'character' is a UI-only
   // intent that dispatches on character_id presence). Without this
@@ -8299,6 +9432,9 @@ async function loadParams(recipe) {
   // further down runs again and lands on the same engine.
   if (String((p && p.engine) || '').toLowerCase() === 'h3'
       && typeof setEngine === 'function' && typeof engineById === 'function' && engineById('h3')) {
+    // From an LTX-only mode (Upscale, Colorize…) H3 refuses the switch: step through Text first
+    // (Codex r6-4 #1), the recipe's own mode is restored below.
+    try { if (typeof engineServesMode === 'function' && !engineServesMode(engineById('h3'), currentMode)) setMode('t2v'); } catch (e) {}
     try { setEngine('h3', { persist: false }); } catch (e) {}
   }
   // Carried context is on unless the recipe says it ran without it; the form
@@ -8371,6 +9507,12 @@ async function loadParams(recipe) {
   else if (p.mode === 'i2v_clean_audio' || p.mode === 'i2v') { setMode('i2v'); document.getElementById('i2vMode').value = p.mode; document.getElementById('mode').value = p.mode; }
   else if (p.character_id) setMode('character');
   else setMode('t2v');
+  // Codex r6-5 #1: setMode() re-applies the SAVED engine choice; an H3 recipe goes back to H3 here,
+  // before the engine-dependent fields (H3 Extend's 15 s, its canvas) are restored below.
+  if (String((p && p.engine) || '').toLowerCase() === 'h3'
+      && typeof setEngine === 'function' && typeof engineById === 'function' && engineById('h3')) {
+    try { setEngine('h3', { persist: false }); } catch (e) {}
+  }
   // Apply quality + aspect FIRST (these stomp on width/height), then
   // override with explicit sidecar values so any custom dims survive.
   if (p.quality) setQuality(p.quality);
@@ -8421,7 +9563,37 @@ async function loadParams(recipe) {
   else if (p.temporal_mode) setTemporalMode(p.temporal_mode);
   if (p.upscale) setUpscale(p.upscale);
   if (p.upscale_method) setUpscaleMethod(p.upscale_method);
-  document.getElementById('prompt').value = p.prompt || '';
+  const _restoredPrompt = (typeof globalThis.plainAuthoringPrompt === 'function' ? globalThis.plainAuthoringPrompt(p) : null) || (() => {
+    let lang = String((p && p.dialogue_lang) || '').trim();
+    const rawEnginePrompt = String((p && p.prompt) || '');
+    if (!lang) {
+      const mLang = rawEnginePrompt.match(/<d>\s*\[([^\]]+)\]/i);
+      if (mLang) lang = String(mLang[1] || '').trim();
+    }
+    if (p && typeof p.prompt_plain === 'string' && p.prompt_plain.trim()) return { text: p.prompt_plain, lang };
+    let s = rawEnginePrompt;
+    const ltxCue = '\nAudio: clear natural spoken dialogue in a quiet room, no music.';
+    if (s.endsWith(ltxCue)) s = s.slice(0, -ltxCue.length);
+    s = s.replace(/(^|\n)([ \t]*[\p{L}\p{N}_][\p{L}\p{M}\p{N}_ .'-]{0,60}?)\s*:\s*<d>\s*(?:\[([^\]]+)\])?\s*([\s\S]*?)<\/d>/giu,
+      (_m, lead, who, lg, body) => { if (lg && !lang) lang = String(lg).trim(); return `${lead}${who.trim()}: ${String(body || '').replace(/\s+/g, ' ').trim()}`; });
+    s = s.replace(/<d>\s*(?:\[([^\]]+)\])?\s*([\s\S]*?)<\/d>/gi,
+      (_m, lg, body) => { if (lg && !lang) lang = String(lg).trim(); return `"${String(body || '').replace(/\s+/g, ' ').trim()}"`; });
+    s = s.split('\n').map(line => {
+      const ms = line.match(/^(\s*)([\p{L}\p{N}_][\p{L}\p{M}\p{N}_ .'-]{0,60}?)\s+says(?:\s+clearly)?\s*:\s*["\u201c](.+?)["\u201d]\s*$/iu);
+      return ms ? `${ms[1]}${ms[2].trim()}: ${ms[3].trim()}` : line;
+    }).join('\n');
+    return { text: s, lang };
+  })();
+  document.getElementById('prompt').value = _restoredPrompt.text;
+  {
+    const dlgSel = document.getElementById('h3DialogueLang');
+    if (dlgSel) {
+      if (_restoredPrompt.lang) dlgSel.value = _restoredPrompt.lang;
+      else dlgSel.selectedIndex = 0;
+    }
+  }
+  if (typeof refreshNoVoiceAuto === 'function') { try { refreshNoVoiceAuto(); } catch (_) {} }
+  if (typeof h3SyncPromptHelper === 'function') { try { h3SyncPromptHelper(); } catch (_) {} }
   document.getElementById('negative_prompt').value = p.negative_prompt || '';
   // If the loaded sidecar carried an Avoid value, surface the row so the
   // user can see it without having to click the toggle.
@@ -8446,6 +9618,10 @@ async function loadParams(recipe) {
   let restoredStartImage = p.start_image || '';
   let restoredEndImage = p.end_image || '';
   if (p.mode === 'keyframe') {
+    // A recipe brings its own beats: nothing from an earlier, unsent keyframe draft rides along.
+    globalThis._kfDraft = null;
+    const _kfWrap = document.getElementById('keyframeDynamicSlots');
+    if (_kfWrap) { _kfWrap.innerHTML = ''; globalThis._kfRenderedMode = null; }
     let restoredKeyframes = null;
     try {
       const kfs = p.keyframes_json ? JSON.parse(p.keyframes_json) : null;
@@ -8494,14 +9670,22 @@ async function loadParams(recipe) {
     // The saved crop framing, not whatever the form last had (Codex H3-3).
     _setCropFocus('image', _cropFocusFromParams(p));
   }
-  if (restoredStartImage) pickerSetImage('start_image', restoredStartImage, { snapAspect: false });
-  if (restoredEndImage)   pickerSetImage('end_image', restoredEndImage, { snapAspect: false });
+  // A keyframe recipe owns both ends: a picture it did not have is cleared, so an H3 end-only
+  // Start & end never inherits the start picture the form had before (Codex r6 sweep #2).
+  const _kfRecipe = p.mode === 'keyframe';
+  if (restoredStartImage || _kfRecipe) pickerSetImage('start_image', restoredStartImage, { snapAspect: false });
+  if (restoredEndImage || _kfRecipe)   pickerSetImage('end_image', restoredEndImage, { snapAspect: false });
   if (p.audio) i2vAudioSet(p.audio);
   // Extend-specific: restore the WHOLE request, not just the source path.
   // Duration, direction, sampler depth and CFG were all saved to the sidecar
   // and never read back — a Load Params + Generate on an Extend silently
   // re-rendered with the defaults (journey audit, High).
   if (p.video_path) document.getElementById('video_path').value = p.video_path;
+  // Codex r6-7 #5: the follow-up Upscale & Face Fix is part of an Extend recipe, on or off.
+  if (p.mode === 'extend') {
+    const _ffa = document.getElementById('extendFaceFixAfter');
+    if (_ffa) _ffa.checked = p.extend_face_fix_after === true || ['1', 'true', 'on'].includes(String(p.extend_face_fix_after || '').toLowerCase());
+  }
   if (p.mode === 'extend' && String(p.engine || '') === 'h3' && Number(p.h3_extend_seconds) > 0) {
     // H3 Extend records seconds, not LTX latents.
     const sEl = document.getElementById('extend_seconds');
@@ -8552,19 +9736,20 @@ async function loadParams(recipe) {
   // shows only the user-stacked style LoRAs — same shape as the original
   // submission.
   let lorasForPicker = Array.isArray(p.loras) ? p.loras : null;
-  if (p.character_id && typeof refreshManualCharacters === 'function') {
-    // AWAITED, and through the real cascade (v4.0.5, owner-reported): the
-    // old restore was a fire-and-forget IIFE that wrote _selectedCharacterId
-    // and the hidden input directly — no avatar ring on slow registry loads,
-    // no quality-strip swap, "Loaded" flashed before the cast existed, and
-    // a character deleted since the render restored to silence. loadParams
-    // is async; there is nothing to gain by not waiting.
+  const savedCharIds = (Array.isArray(p.character_ids) && p.character_ids.length)
+    ? p.character_ids.filter(Boolean)
+    : (p.character_id ? [p.character_id] : []);
+  if (savedCharIds.length && typeof refreshManualCharacters === 'function') {
     try { await refreshManualCharacters(); } catch (_) {}
-    const exists = (_manualCharacters || []).some(c => c.id === p.character_id);
-    if (exists) {
-      // The non-toggling hydrator: full cascade, no trigger injection (the
-      // sidecar prompt, already restored above, carries the trigger).
-      try { applyCharacterSelection(p.character_id); } catch (_) {}
+    const present = savedCharIds.filter(id => (_manualCharacters || []).some(c => c.id === id));
+    if (present.length) {
+      try {
+        if (present.length > 1 && typeof globalThis.applyCharacterSelections === 'function') {
+          globalThis.applyCharacterSelections(present);
+        } else {
+          applyCharacterSelection(present[0]);
+        }
+      } catch (_) {}
       // The cascade snaps the character-quality strip to its default chip,
       // which stomps quality + dims — re-assert the CLIP's own record.
       // Chip first (by the UI token the sidecar carries), then dims.
@@ -8616,11 +9801,16 @@ async function loadParams(recipe) {
     // identical to the server's `_is_character_lora` rule: filename
     // matches `<trigger>_v2.safetensors` or `<trigger>.audio.safetensors`.
     if (lorasForPicker) {
-      const trig = String(p.character_id).toLowerCase();
+      const trigs = new Set(savedCharIds.map(id => String(id).toLowerCase()));
+      for (const id of savedCharIds) {
+        const rec = (_manualCharacters || []).find(c => c.id === id);
+        if (rec && rec.trigger) trigs.add(String(rec.trigger).toLowerCase());
+      }
       lorasForPicker = lorasForPicker.filter(l => {
         const fname = String(l.path || '').split('/').pop().toLowerCase();
-        if (fname === `${trig}_v2.safetensors`) return false;
-        if (fname === `${trig}.audio.safetensors`) return false;
+        for (const trig of trigs) {
+          if (fname === `${trig}_v2.safetensors` || fname === `${trig}.audio.safetensors`) return false;
+        }
         return true;
       });
     }
@@ -8720,6 +9910,10 @@ async function loadParams(recipe) {
     if (typeof setH3ChainPrompts === 'function') {
       try { setH3ChainPrompts(p.h3_chain_prompts); } catch (e) {}
     }
+    // Codex r6-7 #6: Storyboard shots carry whole-window prompts (h3_chain_prompts_complete). Remember
+    // the exact list; the flag goes back out while the window prompts are still that list.
+    globalThis._h3ChainCompleteList = (p.h3_chain_prompts_complete && Array.isArray(p.h3_chain_prompts))
+      ? JSON.stringify(p.h3_chain_prompts.map(x => String(x == null ? '' : x))) : '';
     const _seedEl = document.getElementById('seed');
     if (_seedEl && _seedBefore != null) _seedEl.value = _seedBefore;
   } else {
@@ -9246,9 +10440,13 @@ async function editQueuedJob(jobId) {
   // first, then its surface) — see loadParams(recipe). "Update job" posts
   // the full form, so anything not restored here would be replaced by
   // whatever the form happened to hold.
+  const _prevEdit = _editingQueuedJobId;
   _editingQueuedJobId = null;
   try {
-    await loadParams({ params: Object.assign({}, p), engine: p.engine });
+    const loaded = await loadParams({ params: Object.assign({}, p), engine: p.engine });
+    // Refused before the form changed (e.g. an H3 job this Mac cannot run yet): an edit already open
+    // stays open on its own job (Codex r6-7 #8).
+    if (loaded === false) { _editingQueuedJobId = _prevEdit; return; }
   } catch (e) {
     phosToast(T('queue.could_not_load_that_job', 'Could not load that job into the form: ') + ((e && e.message) || e), { kind: 'danger' });
     return;
@@ -9269,9 +10467,12 @@ async function updateQueuedJob() {
   if (!_editingQueuedJobId) return;
   const form = document.getElementById('genForm');
   const fd = new FormData(form);
+  if (!_prepareAndValidateVideoForm(fd, { update: true })) return;
   fd.set('id', _editingQueuedJobId);
   let r;
-  try { r = await (await fetch('/queue/update', { method: 'POST', body: fd })).json(); }
+  // /queue/update reads a plain form body (parse_qs), like /queue/add through api(): a multipart
+  // FormData arrived empty and every Update job answered "no job id given" (found in the 5.0.82 walk).
+  try { r = await (await fetch('/queue/update', { method: 'POST', body: new URLSearchParams(fd) })).json(); }
   catch (e) { r = { ok: false, error: String(e) }; }
   if (!r || !r.ok) {
     phosToast((r && r.error) || 'Could not update the job.', { kind: 'danger', duration: 7000 });
@@ -9291,6 +10492,73 @@ async function togglePause() {
 document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button[data-tab]').forEach(x => x.classList.toggle('active', x === b));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.toggle('show', t.id === 'tab-'+b.dataset.tab));
+  // A tab clicked on the folded line opens the pane on that tab.
+  if (document.body.classList.contains('bp-folded')) bpSetFolded(false, true);
+});
+
+// ====== The queue dock (owner, 22 Nov 2026, feedback 3) ======
+// "The queue is taking too much space again ... Hidden while idle (at most a thin line), opens on
+// Generate, can be folded." Idle (nothing running, nothing queued, no failure to read) the pane is
+// one thin line; it opens by itself when work starts, and the chevron folds/opens it by hand. A
+// hand choice holds until the state changes (idle -> busy or busy -> idle). Folded while busy, the
+// line still carries the status and a thin progress bar, so active progress is never hidden (the
+// reason the old collapse button was removed on 2026-05-12).
+const BP = { busy: null, hand: null, openedAt: 0 };
+function bpSetFolded(folded, byHand) {
+  document.body.classList.toggle('bp-folded', !!folded);
+  const btn = document.getElementById('bpFoldBtn');
+  if (btn) btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
+  if (byHand) { BP.hand = folded ? 'folded' : 'open'; BP.openedAt = 0; }
+}
+function bpToggleFold() { bpSetFolded(!document.body.classList.contains('bp-folded'), true); }
+function bpDockSync(s) {
+  if (!s) return;
+  const last = (s.history || [])[0];
+  const failed = !!(last && last.status === 'failed' && !s.queue.length && !s.running);
+  const busy = !!(s.running && s.current) || s.queue.length > 0 || failed;
+  if (busy !== BP.busy) { BP.busy = busy; if (!(busy && BP.hand === 'open')) BP.hand = null; if (busy) BP.openedAt = 0; }
+  // A Generate that never became a job (refused before it was queued) lets the line fold back.
+  if (!busy && BP.hand === 'open' && BP.openedAt && Date.now() - BP.openedAt > 8000) { BP.hand = null; BP.openedAt = 0; }
+  if (BP.hand === null) bpSetFolded(!busy, false);
+  const sum = document.getElementById('bpFoldSummary');
+  const fill = document.getElementById('progressFill');
+  const pct = (s.running && s.current && fill) ? Math.round(parseFloat(fill.style.width) || 0) : 0;
+  let text;
+  if (s.running && s.current) text = T('queue.fold_rendering', 'Rendering · {pct}%', { pct });
+  else if (failed) text = T('queue.last_job_failed', 'Last job failed');
+  else if (s.paused && s.queue.length) text = T('queue.fold_paused', 'Paused · {n} queued', { n: s.queue.length });
+  else if (s.queue.length) text = T('queue.fold_queued', '{n} queued', { n: s.queue.length });
+  else text = T('queue.idle', 'Idle');
+  if (s.running && s.current && s.queue.length) text += ' · ' + T('queue.fold_queued', '{n} queued', { n: s.queue.length });
+  if (sum && sum.textContent !== text) sum.textContent = text;
+  const bar = document.getElementById('bpFoldFill');
+  if (bar) bar.style.width = (s.running && s.current ? pct : 0) + '%';
+}
+// Generate opens the dock at once and keeps it open (owner, 22 Nov 2026, feedback 4: "when you press
+// Generate, the queue line opens by itself"). The open holds through the polls that land before the
+// job reaches the queue (they used to fold it straight back while the state still read idle); the
+// chevron still folds it by hand, and it goes back to a thin line once the work is done.
+function bpOpenForWork() { BP.hand = 'open'; BP.openedAt = Date.now(); bpSetFolded(false, false); }
+document.addEventListener('submit', bpOpenForWork, true);
+const BP_START_BUTTONS = '#genBtn, #revoiceRun, #imgStudioGenBtn, #trainStartBtn, #speechGenBtn, #musicGenBtn, #audioStudioGenBtn, #sbRenderBtn, #sbFinishBtn, #sbeRenderBtn, #osGenBtn, #oneshotGenBtn';
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest(BP_START_BUTTONS);
+  if (b && !b.disabled && b.getAttribute('aria-disabled') !== 'true') bpOpenForWork();
+}, true);
+// bpToggleFold, bpSetFolded, bpDockSync are published in the main Object.assign block below.
+
+// ====== Dock "More" menus (feedback 3) ======
+// A <details class="dock-more"> beside a form's main button. One click outside, Escape, or picking
+// an item closes it.
+document.addEventListener('click', (e) => {
+  document.querySelectorAll('details.dock-more[open]').forEach(d => {
+    const inMenu = e.target.closest && e.target.closest('.dock-menu');
+    if (!d.contains(e.target) || (inMenu && d.contains(inMenu) && e.target.closest('button, a'))) d.open = false;
+  });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('details.dock-more[open]').forEach(d => { d.open = false; const s = d.querySelector('summary'); if (s) s.focus(); });
 });
 
 // ====== Batch modal ======
@@ -9463,7 +10731,11 @@ async function queueBatch() {
     return;
   }
   const fd = new FormData(document.getElementById('genForm'));
-  fd.set('prompts', list.join('\n---\n'));
+  if (!_prepareAndValidateVideoForm(fd, { batch: true })) return;
+  const eng = String(fd.get('engine') || 'ltx');
+  const hasCast = !!(fd.get('character_id') || '');
+  const augmentedList = list.map(chunk => _augmentPromptConstraints(chunk, eng, hasCast));
+  fd.set('prompts', augmentedList.join('\n---\n'));
   // Takes mode is N renders of ONE prompt, so the seed must be random per job
   // or every take comes back identical. -1 is the panel's "random", resolved
   // per job at render time and recorded as seed_used.
@@ -9567,141 +10839,323 @@ function _duplicateOfLoadedRecipe() {
 //
 // We modify the FormData copy, not the textarea value — so the user's
 // original prompt stays untouched in the UI.
-document.getElementById('genForm').addEventListener('submit', async e => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
+// Shared prompt constraint helper ("No music" / "No voice") used by Generate, Update job, and Batch.
+function _augmentPromptConstraints(promptStr, engine, hasCast) {
+  let out = String(promptStr || '');
+  const noMusic = document.getElementById('noMusic');
+  if (noMusic && noMusic.checked) {
+    const lower = out.toLowerCase();
+    if (engine === 'h3') {
+      if (!lower.includes('non_diegetic_music')) {
+        out = out.trim() + '\n\nnon_diegetic_music: N/A';
+      }
+    } else if (!lower.includes('no music')) {
+      out = out.trim() + ' Audio: voice and ambient sounds only, no music, no soundtrack, no score, no melody.';
+    }
+  }
+  const noVoice = document.getElementById('noVoice');
+  if (noVoice && noVoice.checked && hasCast && engine !== 'h3') {
+    const lower = out.toLowerCase();
+    if (!lower.includes('no speech') && !lower.includes('no dialogue')) {
+      out = out.trim() + ' Audio: ambient sounds and environmental noise only, no speech, no dialogue, no narration.';
+    }
+  }
+  return out;
+}
 
-  // VC-15: a non-empty Avoid box on a quality that ignores it (distilled
-  // Quick/Balanced/Standard) submits fine and produces exactly the clip the
-  // "forbidden" content still appears in — the render isn't wrong, the
-  // expectation set by the box was. One toast, not a block: the user may
-  // know exactly what they're doing (leftover text from a High render, say)
-  // and Generate must not gain a second confirmation step for that.
-  if ((fd.get('negative_prompt') || '').toString().trim()
+// Shared pre-submit validation + FormData preparation for Generate, Update job, and Queue batch.
+function _prepareAndValidateVideoForm(fd, opts) {
+  opts = opts || {};
+  const sayWarn = (msg) => {
+    if (typeof phosToast === 'function') phosToast(msg, { kind: 'warn', duration: 6500 });
+    else alert(msg);
+  };
+  const eng = String(fd.get('engine') || 'ltx');
+  const modeNow = String(fd.get('mode') || (typeof currentMode !== 'undefined' ? currentMode : '') || 't2v');
+
+  if (!opts.skipAvoidWarn
+      && (fd.get('negative_prompt') || '').toString().trim()
       && typeof avoidIsIgnored === 'function' && avoidIsIgnored()
       && typeof phosToast === 'function') {
     phosToast(T('queue.avoid_is_ignored_at_this', 'Avoid is ignored at this quality — it will not affect this render.'),
               { kind: 'warn', duration: 6000 });
   }
 
-  // ---- engine payload scrub ------------------------------------------------
-  // Hidden LTX controls retain values in FormData. Drop only fields H3
-  // cannot use; character identity now routes pictures and a voice pass.
-  if ((fd.get('engine') || 'ltx') === 'h3') {
-    fd.set('negative_prompt', '');   // guidance-distilled: no unconditional branch
-    fd.set('schedule_preset', '');   // an LTX-2.5 distilled schedule; H3 has its own axes
-    fd.set('i2v_reference_mode', 'anchor');  // an LTX-2.5 sampler behaviour
-    // `loras` IS NOT SCRUBBED, and the line that used to scrub it said "the H3
-    // runner stacks nothing" — true when it was written, false since the H3
-    // LoRA import shipped in 3.7.0. H3 takes ONE adapter from its own family
-    // through the same `--lora` flag Turbo rides, the picker offers exactly
-    // that family (it filters on the engine's own `lora_tag`, "video:h3"), and
-    // `h3_lora_slot` exists for the sole purpose of deciding whether that slot
-    // spends on Turbo or on the user's pick. Blanking the field here made the
-    // whole picker a control that renders, accepts a selection, and posts
-    // nothing — the silent-no-op class this release keeps closing.
-    //
-    // Cross-lane safety is the SERVER's job and it already does it: make_job
-    // filters the stack by the directory each file lives in and logs
-    // "Dropped N LoRA(s) that belong to the other video engine". That is
-    // strictly better than blanking here, because the user is told why.
+  if (eng === 'h3') {
+    fd.set('negative_prompt', '');
+    fd.set('schedule_preset', '');
+    fd.set('i2v_reference_mode', 'anchor');
   }
 
-  // LTX Upscale needs a clip. With none picked the job used to queue, wait its
-  // turn, and fail with "source clip for Upscale ×2 not found: ''" (fleet
-  // 4.12.3). Say it before anything is queued.
-  const _upMode = String(fd.get('mode') || (typeof currentMode !== 'undefined' ? currentMode : '') || '');
-  if (_upMode === 'upscale' && !String(fd.get('upscale_source_path') || '').trim()) {
-    const _msg = T('queue.pick_the_clip_to_fix', 'Pick the clip to fix first — choose it in the list, or press Upscale & Face Fix on a clip in Outputs.');
-    alert(_msg);
-    return;
+  if (modeNow === 'upscale' && !String(fd.get('upscale_source_path') || '').trim()) {
+    sayWarn(T('queue.pick_the_clip_to_fix', 'Pick the clip to fix first — choose it in the list, or press Upscale & Face Fix on a clip in Outputs.'));
+    return false;
   }
 
-  // H3 Flex picked but not ready: refuse rather than quietly render plain H3.
-  if ((fd.get('engine') || 'ltx') === 'h3' && typeof h3FlexSubmitBlock === 'function') {
+  if (eng === 'h3' && typeof h3FlexSubmitBlock === 'function') {
     const _flexMsg = h3FlexSubmitBlock();
-    if (_flexMsg) {
-      if (typeof phosToast === 'function') phosToast(_flexMsg, { kind: 'warn', duration: 6000 });
-      else alert(_flexMsg);
-      return;
-    }
+    if (_flexMsg) { sayWarn(_flexMsg); return false; }
   }
 
-  // Disable the Generate button while we POST to /queue/add so a fast
-  // double-click doesn't queue the same job twice. The button is
-  // re-enabled after poll() returns (or on error). Keep this ABOVE the
-  // LoRA-orphan confirm() so a user who cancels the confirm doesn't
-  // leave the button stuck disabled.
-  const genBtn = document.getElementById('genBtn');
-  const reenable = () => { if (genBtn) genBtn.disabled = false; };
-
-  // LAST LINE OF DEFENCE. FormData reads the hidden #mode input directly —
-  // it never consults currentMode — so every guard above this point is a
-  // guard on how #mode got its value, and this is the only one that reads
-  // what is actually about to be POSTed. Cheap, and it is the assertion the
-  // other three are trying to keep true.
   if (fd.get('mode') === 'ingredients' && !ingredientsServed()) {
     alert(T('queue.ingredients_needs_the_ltx_2_2', 'Ingredients needs the LTX-2.3 generation — its reference adapter ')
         + T('queue.has_no_2_5_release', 'has no 2.5 release yet, so on 2.5 the references are ignored and ')
         + T('queue.the_clip_costs_full_two', 'the clip costs full two-stage time.\n\n')
         + T('queue.for_reference_guided_work_on', 'For reference-guided work on 2.5, use Image mode with Inspire — ')
         + T('queue.or_install_the_2_3', 'or install the 2.3 pack from the Train tab.'));
-    reenable();
-    return;
+    return false;
+  }
+  if (modeNow === 'ingredients') {
+    let ingList = [];
+    try { ingList = JSON.parse(String(fd.get('ingredient_images_json') || '[]')); } catch (_) { ingList = []; }
+    if (!Array.isArray(ingList) || ingList.filter(Boolean).length < 2) {
+      sayWarn(T('queue.ingredients_needs_two_images', 'Ingredients needs at least 2 reference images — drop or pick 2–8 pictures above.'));
+      return false;
+    }
   }
 
-  // Image mode with nothing in the Image slot used to queue, fail on the
-  // server, and show up as a red card — one person hit it six times in a
-  // row (fleet, 2026-09-02). Say it before the click costs anything.
-  const _modeNow = String(fd.get('mode') || '');
-  if ((_modeNow === 'i2v' || _modeNow === 'i2v_clean_audio')
-      && !String(fd.get('image') || '').trim()) {
-    alert(T('queue.image_mode_needs_a_reference', 'Image mode needs a reference image — drop one into the Image slot, ')
+  if ((modeNow === 'i2v' || modeNow === 'i2v_clean_audio') && !String(fd.get('image') || '').trim()) {
+    sayWarn(T('queue.image_mode_needs_a_reference', 'Image mode needs a reference image — drop one into the Image slot, ')
         + T('queue.or_switch_to_text_mode', 'or switch to Text mode and render from the prompt alone.'));
-    reenable();
+    return false;
+  }
+  if (modeNow === 'i2v_clean_audio' && !String(fd.get('audio') || '').trim()) {
+    sayWarn(T('queue.i2v_audio_needs_file', 'Pick an audio file for External audio mode, or switch I2V audio source back to Joint audio.'));
+    return false;
+  }
+  if (modeNow === 'control' && !String(fd.get('control_video_path') || '').trim()) {
+    sayWarn(T('queue.control_needs_a_clip_to', 'Control needs a clip to follow — pick one in the Control video picker, ')
+        + T('queue.or_switch_to_text_mode_2', 'or switch to Text mode.'));
+    return false;
+  }
+  if (modeNow === 'restore' && !String(fd.get('restore_video_path') || '').trim()) {
+    sayWarn(T('queue.restore_needs_a_clip', 'Colorize needs a source clip — pick one in Source video to colorize, or switch to Text mode.'));
+    return false;
+  }
+  if (modeNow === 'extend' && !String(fd.get('video_path') || '').trim()) {
+    sayWarn(T('queue.extend_needs_a_clip', 'Extend needs a clip to continue — pick one in Source video, or press Extend on a clip in Outputs.'));
+    return false;
+  }
+  if (modeNow === 'v2a' && !String(fd.get('video_path') || '').trim()) {
+    sayWarn(T('queue.v2a_needs_a_clip', 'Add sound needs a clip — pick one in Clip to add sound to, or choose one from Outputs.'));
+    return false;
+  }
+
+  // H3 LoRA stack & single-slot speed-adapter conflict validation
+  if (eng === 'h3' && !(typeof _h3RefsOn === 'function' && _h3RefsOn())) {
+    const h3LorasCfg = (globalThis.H3 && globalThis.H3.loras) || {};
+    const maxStack = Number(h3LorasCfg.max_stack || 1);
+    let parsedLoras = [];
+    try { parsedLoras = JSON.parse(String(fd.get('loras') || '[]')); } catch (_) { parsedLoras = []; }
+    const userCount = Array.isArray(parsedLoras) ? parsedLoras.length : 0;
+    if (userCount > maxStack) {
+      sayWarn(T('queue.h3_lora_stack_limit', 'Hailuo H3 stacks up to {max} LoRA(s) per render ({n} active). Un-pick extra LoRAs first.', { max: maxStack, n: userCount }));
+      return false;
+    }
+    const userLora = (typeof globalThis._h3ActiveUserLora === 'function' ? globalThis._h3ActiveUserLora() : null)
+      || (userCount > 0 ? parsedLoras[0] : null);
+    if (userLora && maxStack <= 1) {
+      const turboOn = String(fd.get('h3_turbo') || '0') === '1';
+      const tristepOn = String(fd.get('h3_tristep') || '0') === '1';
+      const flexOn = String(fd.get('h3_flex') || '0') === '1' || String(fd.get('h3_flex_turbo') || '0') === '1';
+      if (tristepOn) {
+        sayWarn(T('queue.h3_fast_lora_conflict', "Fast (3-step) and your LoRA both need H3's single adapter slot — switch Speed to 'Best' in Shot setup, or un-pick the LoRA."));
+        return false;
+      }
+      if (flexOn) {
+        sayWarn(T('queue.h3_flex_lora_conflict', "Pika Flex and your LoRA both need H3's single adapter slot — switch Speed to 'Best' in Shot setup, or un-pick the LoRA."));
+        return false;
+      }
+      if (turboOn && String(fd.get('h3_lora_slot') || 'turbo') !== 'user') {
+        sayWarn(T('queue.h3_turbo_lora_conflict', "Turbo and your LoRA share H3's single adapter slot — switch Adapter to 'My LoRA' in Shot setup, or un-pick the LoRA."));
+        return false;
+      }
+    }
+  }
+
+  // Voice route readiness: separate h3_reference (sample + Refs + <=2 pics) vs voice_pass / LTX (trained adapter)
+  const voiceChoice = String(fd.get('voice_id') || 'inherit').trim();
+  const voiceMethod = String(fd.get('voice_method') || 'voice_pass').trim();
+  const noVoiceChecked = !!(document.getElementById('noVoice') && document.getElementById('noVoice').checked);
+  if (!noVoiceChecked && voiceChoice !== 'default' && typeof globalThis.voicesLookup === 'function') {
+    const charForVoice = String(fd.get('voice_character_id') || fd.get('character_id') || '').trim();
+    const vRec = globalThis.voicesLookup(voiceChoice, charForVoice);
+    if (vRec) {
+      if (eng === 'h3' && voiceMethod === 'h3_reference') {
+        const refsActive = String(fd.get('h3_refs') || '') === 'on' || (typeof _h3RefsOn === 'function' && _h3RefsOn());
+        if (!refsActive) {
+          sayWarn(T('queue.voice_ref_needs_refs', "Voice sample guidance needs H3 References in Text mode — add another picture, or switch How to 'After render · closest match'."));
+          return false;
+        }
+        const picCount = ['h3_reference', 'h3_reference2', 'h3_reference3']
+          .filter(k => String(fd.get(k) || '').trim()).length;
+        if (picCount > 2) {
+          sayWarn(T('queue.voice_ref_max_two_pics', "A voice sample and pictures share 3 reference slots — remove one picture, or switch How to 'After render · closest match'."));
+          return false;
+        }
+        if (vRec.hasSample === false) {
+          sayWarn(T('queue.voice_ref_no_sample', "This voice has no reference sample on disk — switch How to 'After render · closest match'."));
+          return false;
+        }
+      } else if (!vRec.ready) {
+        sayWarn(T('queue.voice_needs_training', 'Train "{name}" in Voices before rendering, or switch Voice to "No saved voice".', { name: vRec.name }));
+        return false;
+      }
+    }
+  }
+
+  // Keyframe validation & serialization
+  if (modeNow === 'keyframe') {
+    const startImg = (fd.get('start_image') || '').toString().trim();
+    const endImg = (fd.get('end_image') || '').toString().trim();
+    const kfOnH3 = eng === 'h3';
+    if (kfOnH3 ? !endImg : (!startImg || !endImg)) {
+      sayWarn(kfOnH3
+        ? T('queue.pick_the_end_frame_the', 'Pick the end frame — the still the clip should land on. The start frame is optional on Hailuo H3.')
+        : T('queue.pick_both_a_start_frame', 'Pick both a start frame and an end frame before generating.'));
+      return false;
+    }
+    const frames = parseInt((fd.get('frames') || '121').toString(), 10) || 121;
+    if (window._kfMode >= 3) {
+      renderKeyframeDynamicSlots();
+      const slots = [
+        { image: startImg, frame: 0, label: 'Start' },
+        ...keyframeTimingSlots().map(slot => ({
+          image: (document.getElementById(slot.imageKey)?.value || '').toString().trim(),
+          frameId: slot.frameId,
+          label: slot.label,
+        })),
+        { image: endImg, frame: frames - 1, label: T('queue.end', 'End') },
+      ];
+      const missing = slots.filter(s => !s.image && !(kfOnH3 && s.label === 'Start'))
+        .map(s => s.label || 'Start/End');
+      if (missing.length) {
+        sayWarn(`Pick all ${window._kfMode} keyframe images before generating: ` + missing.join(', '));
+        return false;
+      }
+      syncKeyframeTiming();
+      const kfList = slots.map(slot => {
+        const idx = (slot.frame != null)
+          ? slot.frame
+          : parseInt((document.getElementById(slot.frameId)?.value || '').toString(), 10);
+        return { image_path: slot.image, frame_index: idx };
+      });
+      const idxs = kfList.map(k => k.frame_index);
+      if (idxs.some(i => !Number.isFinite(i)) || idxs.some((i, n) => n > 0 && i <= idxs[n - 1])) {
+        sayWarn(T('queue.keyframe_times_must_be_strictly', 'Keyframe times must be strictly increasing. Check the Beat at(s) values.'));
+        return false;
+      }
+      fd.set('keyframes_json', JSON.stringify(kfList));
+      fd.set('keyframes_total_frames', String(frames));
+      fd.set('keyframe_count', String(window._kfMode));
+    } else {
+      fd.delete('keyframes_json');
+      fd.delete('keyframes_total_frames');
+      fd.delete('keyframe_count');
+    }
+  }
+
+  // Prompt constraints ("No music" + "No voice")
+  if (!opts.batch) {
+    const hasCast = !!(fd.get('character_id') || '');
+    fd.set('prompt', _augmentPromptConstraints(fd.get('prompt') || '', eng, hasCast));
+  }
+  if (eng === 'h3' && globalThis._h3ChainCompleteList) {
+    try {
+      const now = JSON.parse(String(fd.get('h3_chain_prompts') || '[]'));
+      if (Array.isArray(now) && JSON.stringify(now.map(x => String(x == null ? '' : x))) === globalThis._h3ChainCompleteList) {
+        fd.set('h3_chain_prompts_complete', '1');
+      }
+    } catch (_) {}
+  }
+  const noMusic = document.getElementById('noMusic');
+  if (noMusic && noMusic.checked && eng === 'h3') {
+    const cpRaw = String(fd.get('h3_chain_prompts') || '');
+    if (cpRaw.trim()) {
+      try {
+        const cps = JSON.parse(cpRaw);
+        if (Array.isArray(cps)) {
+          fd.set('h3_chain_prompts', JSON.stringify(cps.map(x => {
+            const t = String(x == null ? '' : x);
+            if (!t.trim() || t.toLowerCase().includes('non_diegetic_music')) return t;
+            return t.trim() + '\n\nnon_diegetic_music: N/A';
+          })));
+        }
+      } catch (_) {}
+    }
+  }
+
+  // STG "detail guidance"
+  {
+    const q = (fd.get('quality') || '').toString();
+    const stgEl = document.getElementById('stgScale');
+    if (_qualityUsesHq(q) && stgEl) {
+      fd.set('stg_scale', stgEl.value || '0');
+    } else {
+      fd.delete('stg_scale');
+    }
+  }
+
+  // Hailuo H3 explicit cell geometry & extend fields
+  if (eng === 'h3') {
+    const t = (typeof h3CellFor === 'function')
+      ? (h3CellFor((fd.get('h3_quality') || '').toString(),
+                   (fd.get('h3_length') || '').toString())
+         || h3TierByKey((fd.get('h3_tier') || '').toString()))
+      : null;
+    if (t) {
+      fd.set('h3_tier', String(t.key));
+      fd.set('h3_quality', String(t.quality));
+      fd.set('h3_length', String(t.length));
+      fd.set('width', String(t.width));
+      fd.set('height', String(t.height));
+      fd.set('frames', String(t.frames));
+      fd.set('steps', String(t.steps));
+    }
+    fd.set('h3_continuity', _h3ContinuityRecipe);
+    if (modeNow === 'extend') {
+      fd.set('h3_extend_seconds', (document.getElementById('extend_seconds') || {}).value || '5');
+      fd.set('extend_direction', 'after');
+    }
+  }
+
+  return true;
+}
+
+document.getElementById('genForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  if (fd.get('mode') === 'upscale' && !(document.getElementById('upscale_source_path')?.value || '').trim()) {
+    const msg = T('queue.pick_the_clip_to_fix', 'Pick the clip to fix first — choose it in the list, or press Upscale & Face Fix on a clip in Outputs.');
+    if (typeof phosToast === 'function') phosToast(msg, { kind: 'warn', duration: 6500 });
+    else alert(msg);
     return;
   }
-  // Same class of silent failure for Control: seven installs queued it with
-  // no clip and got "control video not found" as a red card (fleet, 2026-09-07).
-  if (_modeNow === 'control' && !String(fd.get('control_video_path') || '').trim()) {
-    alert(T('queue.control_needs_a_clip_to', 'Control needs a clip to follow — pick one in the Control video picker, ')
-        + T('queue.or_switch_to_text_mode_2', 'or switch to Text mode.'));
+  if ((fd.get('negative_prompt') || '').toString().trim()
+      && typeof avoidIsIgnored === 'function' && avoidIsIgnored()
+      && typeof phosToast === 'function') {
+    phosToast(T('queue.avoid_is_ignored_at_this', 'Avoid is ignored at this quality — it will not affect this render.'),
+              { kind: 'warn', duration: 6000 });
+  }
+  // engine payload scrub and shared pre-submit validation
+  const genBtn = document.getElementById('genBtn');
+  const reenable = () => { if (genBtn) genBtn.disabled = false; };
+
+  if (!_prepareAndValidateVideoForm(fd, { skipAvoidWarn: true })) {
     reenable();
     return;
   }
 
   // Safety net: if the prompt mentions a trigger word from a LoRA the user
   // has installed but NOT toggled active for this render, ask before
-  // submitting. The #1 silent-failure mode is "I typed my LoRA's trigger
-  // word but forgot to switch on the picker chip" — the render then runs
-  // without fusion, and the face/style doesn't reproduce. Compare prompt
-  // vs. (_knownUserLoras minus _activeLoras) and surface a confirm() so
-  // the mismatch isn't invisible.
+  // submitting.
   try {
     const promptRaw = (fd.get('prompt') || '').toString();
     const promptLower = promptRaw.toLowerCase();
-    // Skipped on H3: the scrub above already dropped the LoRA stack, so the
-    // confirm would be warning about fusion that was never going to happen on
-    // an engine that stacks nothing.
     if (promptLower.trim() &&
         (fd.get('engine') || 'ltx') !== 'h3' &&
         Array.isArray(_knownUserLoras) &&
         Array.isArray(_activeLoras)) {
-      // COVERED-NESS IS A PROPERTY OF THE TRIGGER, NOT OF A PATH. Two blind
-      // spots made this warn about triggers that were fully attached:
-      //
-      //   1. It only looked at _activeLoras — the user-LoRA picker. A CAST
-      //      CHARACTER's stack is expanded server-side from character_id and
-      //      never appears there, so casting bizarrotrn and writing
-      //      "bizarrotrn" warned that bizarrotrn was not attached while it was
-      //      about to be fused first in the stack.
-      //   2. It matched attached-ness by PATH. A library holding two entries
-      //      for one trigger — the bundle copy and a "bizarrotrn (high)" variant
-      //      — flagged the one the user had NOT toggled even though the trigger
-      //      was already covered by the one they had.
-      //
-      // So: build the set of triggers ANY attached source carries, and only
-      // warn about a trigger that appears in none of them.
       const coveredTriggers = new Set();
       const addTrigger = (w) => {
         const t = String(w || '').toLowerCase().trim();
@@ -9709,25 +11163,23 @@ document.getElementById('genForm').addEventListener('submit', async e => {
       };
       for (const l of _activeLoras) {
         for (const w of (l.trigger_words || [])) addTrigger(w);
-        // A user LoRA row may carry only a path; recover its triggers from the
-        // library entry so an attached-by-path LoRA still covers its words.
         const known = (_knownUserLoras || []).find(k => k.path === l.path);
         if (known) for (const w of (known.trigger_words || [])) addTrigger(w);
       }
-      // The cast character's own trigger(s) — the registry knows them, and the
-      // backend expands them into the stack, so they are attached by definition.
-      const castId = (fd.get('character_id') || '').toString().trim();
-      if (castId) {
+      const castIds = (typeof globalThis.selectedManualCharacterIds === 'function')
+        ? globalThis.selectedManualCharacterIds()
+        : ((fd.get('character_id') || '').toString().trim() ? [(fd.get('character_id') || '').toString().trim()] : []);
+      const chars = (typeof _manualCharacters !== 'undefined' && Array.isArray(_manualCharacters))
+        ? _manualCharacters : [];
+      for (const castId of castIds) {
         addTrigger(castId);
-        const chars = (typeof _manualCharacters !== 'undefined' && Array.isArray(_manualCharacters))
-          ? _manualCharacters : [];
         const cast = chars.find(c => c && c.id === castId);
         if (cast) {
           addTrigger(cast.trigger);
           for (const w of (cast.trigger_words || [])) addTrigger(w);
         }
       }
-      const orphans = [];   // [{name, trigger}]
+      const orphans = [];
       const seenTrigger = new Set();
       const wordRe = /[a-z0-9]+/g;
       const promptTokens = new Set(promptLower.match(wordRe) || []);
@@ -9735,13 +11187,13 @@ document.getElementById('genForm').addEventListener('submit', async e => {
         for (const w of (ul.trigger_words || [])) {
           if (!w) continue;
           const wLower = String(w).toLowerCase().trim();
-          if (!wLower || wLower.length < 4) continue;   // skip 1-3 char tokens, too common
-          if (coveredTriggers.has(wLower)) continue;    // attached by SOME source
-          if (seenTrigger.has(wLower)) continue;        // one warning per trigger
+          if (!wLower || wLower.length < 4) continue;
+          if (coveredTriggers.has(wLower)) continue;
+          if (seenTrigger.has(wLower)) continue;
           if (promptTokens.has(wLower)) {
             seenTrigger.add(wLower);
             orphans.push({ name: ul.name || ul.filename || ul.path.split('/').pop(), trigger: w });
-            break;   // one match per LoRA is enough
+            break;
           }
         }
       }
@@ -9759,169 +11211,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   } catch (_) { /* never block submit on this check */ }
 
   if (genBtn) genBtn.disabled = true;
-
-  const noMusic = document.getElementById('noMusic');
-  if (noMusic && noMusic.checked) {
-    const original = fd.get('prompt') || '';
-    const lower = original.toLowerCase();
-    if ((fd.get('engine') || 'ltx') === 'h3') {
-      // H3's trained mechanism, not LTX's phrasing. `non_diegetic_music` is one
-      // of the three fields its encoder was trained on and `N/A` is the trained
-      // value for "no score" (H3_PROMPTING_GUIDE §2.5, and §7.4 lists it as one
-      // of the three ways a refusal can work at all on a model with no
-      // unconditional branch). Appending a CFG-era "no music, no soundtrack, no
-      // score" list here would be the wrong idiom AND would spend prompt budget
-      // naming the thing we don't want — which §7.6 warns can summon it.
-      // Skipped when the prompt already sets the field: a user writing the
-      // three-field format owns that line, and a second one would contradict it.
-      if (!lower.includes('non_diegetic_music')) {
-        fd.set('prompt', original.trim() + '\n\nnon_diegetic_music: N/A');
-      }
-      // A chained length sends its own prompt per window, and a WRITTEN box
-      // replaces the main prompt for that window — so the field has to ride
-      // in every written box too (blank boxes inherit the main prompt above).
-      const cpRaw = String(fd.get('h3_chain_prompts') || '');
-      if (cpRaw.trim()) {
-        try {
-          const cps = JSON.parse(cpRaw);
-          if (Array.isArray(cps)) {
-            fd.set('h3_chain_prompts', JSON.stringify(cps.map(x => {
-              const t = String(x == null ? '' : x);
-              if (!t.trim() || t.toLowerCase().includes('non_diegetic_music')) return t;
-              return t.trim() + '\n\nnon_diegetic_music: N/A';
-            })));
-          }
-        } catch (_) { /* not JSON (a hand-rolled ' ||| ' string): leave it */ }
-      }
-    } else {
-      const constraint = ' Audio: voice and ambient sounds only, no music, no soundtrack, no score, no melody.';
-      if (!lower.includes('no music')) {
-        fd.set('prompt', original.trim() + constraint);
-      }
-    }
-  }
-  // No voice — drops the character's audio LoRA server-side (see
-  // make_job character_id branch) AND nudges the prompt toward ambient
-  // audio so the model doesn't fill the silence with generic speech.
-  // GATED on a cast character: "only visible when a character is selected"
-  // was the old justification for not checking, and the journey audit
-  // showed the hidden checkbox could stay checked across a mode switch —
-  // quietly rewriting a plain T2V prompt with a no-speech constraint.
-  const noVoice = document.getElementById('noVoice');
-  if (noVoice && noVoice.checked && (fd.get('character_id') || '')) {
-    const original = fd.get('prompt') || '';
-    const constraint = ' Audio: ambient sounds and environmental noise only, no speech, no dialogue, no narration.';
-    if (!original.toLowerCase().includes('no speech') &&
-        !original.toLowerCase().includes('no dialogue')) {
-      fd.set('prompt', original.trim() + constraint);
-    }
-  }
   try {
-    // Keyframe mode: FFLF keeps the legacy start/end shape. Dynamic
-    // multi-anchor mode serializes all anchors to keyframes_json so the
-    // helper's native multi-keyframe path receives explicit frame indices.
-    const kfMode = (fd.get('mode') || '').toString();
-    if (kfMode === 'keyframe') {
-      const startImg = (fd.get('start_image') || '').toString().trim();
-      const endImg = (fd.get('end_image') || '').toString().trim();
-      const _kfOnH3 = (fd.get('engine') || '').toString() === 'h3';
-      if (_kfOnH3 ? !endImg : (!startImg || !endImg)) {
-        // H3 needs only the end frame (its last-frame task); LTX needs both.
-        const _msg = _kfOnH3
-          ? T('queue.pick_the_end_frame_the', 'Pick the end frame — the still the clip should land on. The start frame is optional on Hailuo H3.')
-          : T('queue.pick_both_a_start_frame', 'Pick both a start frame and an end frame before generating.');
-        if (typeof phosToast === 'function') phosToast(_msg, { kind: 'warn', duration: 6000 });
-        else alert(_msg);
-        reenable();
-        return;
-      }
-      const frames = parseInt((fd.get('frames') || '121').toString()) || 121;
-      if (window._kfMode >= 3) {
-        renderKeyframeDynamicSlots();
-        const slots = [
-          { image: startImg, frame: 0, label: 'Start' },
-          ...keyframeTimingSlots().map(slot => ({
-            image: (document.getElementById(slot.imageKey)?.value || '').toString().trim(),
-            frameId: slot.frameId,
-            label: slot.label,
-          })),
-          { image: endImg, frame: frames - 1, label: T('queue.end', 'End') },
-        ];
-        const missing = slots.filter(s => !s.image && !(_kfOnH3 && s.label === 'Start'))
-          .map(s => s.label || 'Start/End');
-        if (missing.length) {
-          alert(`Pick all ${window._kfMode} keyframe images before generating: ` + missing.join(', '));
-          reenable();
-          return;
-        }
-        syncKeyframeTiming();
-        const kfList = slots.map((slot, i) => {
-          const idx = (slot.frame != null)
-            ? slot.frame
-            : parseInt((document.getElementById(slot.frameId)?.value || '').toString(), 10);
-          return { image_path: slot.image, frame_index: idx };
-        });
-        const idxs = kfList.map(k => k.frame_index);
-        if (idxs.some(i => !Number.isFinite(i)) || idxs.some((i, n) => n > 0 && i <= idxs[n - 1])) {
-          alert(T('queue.keyframe_times_must_be_strictly', 'Keyframe times must be strictly increasing. Check the Beat at(s) values.'));
-          reenable();
-          return;
-        }
-        fd.set('keyframes_json', JSON.stringify(kfList));
-        fd.set('keyframes_total_frames', String(frames));
-        fd.set('keyframe_count', String(window._kfMode));
-      } else {
-        fd.delete('keyframes_json');
-        fd.delete('keyframes_total_frames');
-        fd.delete('keyframe_count');
-      }
-    }
-    // STG "detail guidance" — explicit fd.set so the value is unambiguous
-    // and so it only rides along when it can actually do something. STG acts
-    // only on the Q8 HQ path (quality=high); the Q4 distilled paths ignore it
-    // entirely (DistilledPipeline runs no guider). On any non-high quality we
-    // drop the field so a stale slider value can't reach the worker. The range
-    // input already carries name="stg_scale", but the FormData copy is
-    // post-processed here so this set() wins regardless of input order.
-    {
-      const _q = (fd.get('quality') || '').toString();
-      const _stgEl = document.getElementById('stgScale');
-      if (_qualityUsesHq(_q) && _stgEl) {
-        fd.set('stg_scale', _stgEl.value || '0');
-      } else {
-        fd.delete('stg_scale');
-      }
-    }
-    // Hailuo H3: send the selected CELL's geometry explicitly. make_job
-    // re-stamps it server-side too (a stale tab must never win), but posting the
-    // truth means the queue card is right the instant the job lands, and it
-    // can't carry an LTX 8k+1 frame count into a runner that snaps to 17n+5.
-    // The cell is looked up from the two axes — the same resolution order
-    // make_job uses — and the composite `h3_tier` is re-set from it so the three
-    // fields can never disagree on the wire.
-    if ((fd.get('engine') || 'ltx').toString() === 'h3') {
-      const _t = (typeof h3CellFor === 'function')
-        ? (h3CellFor((fd.get('h3_quality') || '').toString(),
-                     (fd.get('h3_length') || '').toString())
-           || h3TierByKey((fd.get('h3_tier') || '').toString()))
-        : null;
-      if (_t) {
-        fd.set('h3_tier', String(_t.key));
-        fd.set('h3_quality', String(_t.quality));
-        fd.set('h3_length', String(_t.length));
-        fd.set('width', String(_t.width));
-        fd.set('height', String(_t.height));
-        fd.set('frames', String(_t.frames));
-        fd.set('steps', String(_t.steps));
-      }
-      // 4.19: Extend on H3 adds whole seconds after the clip (its own
-      // field — LTX's extend_frames counts 8-frame latents).
-      fd.set('h3_continuity', _h3ContinuityRecipe);
-      if ((fd.get('mode') || '').toString() === 'extend') {
-        fd.set('h3_extend_seconds', (document.getElementById('extend_seconds') || {}).value || '5');
-        fd.set('extend_direction', 'after');
-      }
-    }
     const _added = await api('/queue/add','POST',fd);
     _queueAddNote(_added);
     window._liveStageReviewPath = null;
@@ -10120,6 +11410,8 @@ function draftAutosaveInstall() {
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
   openFailedJobInForm, engineRepairStart, h3RepairStart,
+  bpToggleFold, bpSetFolded, bpDockSync,
+  picturesActive, picturesSync, picturesTakeCharacter,
   refreshFaceFixPlan,
   speedupQuietRetry,
   notifyJobsDone, notifyOneJob, playDoneChime,
@@ -10147,6 +11439,7 @@ Object.assign(globalThis, {
   queueSharpExport, sharpExportActive, queueVerticalExport, verticalExportActive, verticalHintDismiss, useLastFramePath, useLastFrameActive,
   revealClipInFinder, revealActive, shareClip, shareActive, openClipInEditor, openActiveInEditor, kebabToggle,
   reorderQueuedJob, editQueuedJob, cancelEditingQueuedJob, updateQueuedJob, fmtEtaCompact,
+  plainAuthoringPrompt: _plainAuthoringPrompt,
   showEnhancePanel, acceptEnhance, undoEnhance, keepMineEnhance,
   h3WritePrompt, h3WriteSetup, h3WriteSeconds,
   updateLangHint, promptLooksNonLatin,
@@ -10438,6 +11731,7 @@ async function revoiceUpload(file) {
 async function revoiceUseSource(path, name) {
   REVOICE.path = path;
   REVOICE.name = revoiceDisplayName(name || path);
+  if (typeof clipPickMarkAll === 'function') clipPickMarkAll();
   revoiceShowSource(path);
   revoiceUsePlayerOffer();
   await revoiceFind();
@@ -10672,3 +11966,6 @@ function revoiceWeakText(weak) {
     one: 'Line {lines} may look out of sync: {why}.',
     other: 'Lines {lines} may look out of sync: {why}.'}, {lines, why});
 }
+Object.assign(globalThis, { picturesPickedChars, _h3RefsOn });
+// Feedback 6: the recent-clips picker, and two helpers the keyframe grid (boot.js) uses.
+Object.assign(globalThis, { clipPickRenderAll, clipPickMarkAll, clipPickChoose, clipPickUpload, clipPickVideos, _thumbUrl, deleteUpload });

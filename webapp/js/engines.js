@@ -913,10 +913,19 @@ function renderH3Turbo() {
     });
   }
   const speedMeta = document.querySelector('#h3SpeedRow .qs-meta');
-  if (speedMeta) speedMeta.hidden = flexPicked;
   const speedName = document.querySelector('#h3SpeedRow .qs-name');
-  if (speedName) speedName.textContent = !flexPicked ? T('engines.speed', 'Speed')
-    : (h3SpeedPref() === 'flex_turbo' ? T('engines.h3_flex_turbo_faster_draft', 'H3 Flex Turbo (faster draft, Pro)') : T('engines.h3_flex_preview', 'H3 Flex (preview)'));
+  // Feedback 3: once tips.js turned the explanation into a "?" pop, only the "?" follows Flex; the
+  // sentence itself stays folded until the user opens it.
+  const speedDot = speedName && speedName.querySelector('.help-dot');
+  if (speedMeta) {
+    if (speedMeta.dataset.helpified) { if (speedDot) speedDot.hidden = flexPicked; if (flexPicked) speedMeta.hidden = true; }
+    else speedMeta.hidden = flexPicked;
+  }
+  if (speedName) {
+    speedName.textContent = !flexPicked ? T('engines.speed', 'Speed')
+      : (h3SpeedPref() === 'flex_turbo' ? T('engines.h3_flex_turbo_faster_draft', 'H3 Flex Turbo (faster draft, Pro)') : T('engines.h3_flex_preview', 'H3 Flex (preview)'));
+    if (speedDot) speedName.appendChild(speedDot);
+  }
   _h3SyncSamplerTitles();
   _h3ApplySpeed();
   _h3RenderFlexNote();
@@ -1181,7 +1190,15 @@ function _h3SpeedRepriced() {
 
 // Set the speed ('fast' | 'best'). Remembered per browser.
 function setH3Speed(v) {
-  _h3SetSpeedPref((v === 'best' || v === 'flex' || v === 'flex_turbo') ? v : 'fast');
+  const next = (v === 'best' || v === 'flex' || v === 'flex_turbo') ? v : 'fast';
+  _h3SetSpeedPref(next);
+  // Fast HD forces Fast server-side; choosing Best/Flex steps off Fast HD to High (or Standard) so the speed switch actually takes effect.
+  const curCell = (typeof h3CurrentCell === 'function') ? h3CurrentCell() : null;
+  if (next !== 'fast' && curCell && curCell.fast_hd && typeof setH3Quality === 'function') {
+    const targetQ = ((H3.qualities || []).find(q => q.key === 'high' && q.offered !== false) || { key: 'standard' }).key;
+    setH3Quality(targetQ);
+    return;
+  }
   _h3ApplySpeed();
   _h3SpeedRepriced();
 }
@@ -2346,7 +2363,9 @@ function _tierChipHtml(engine, kind, item, cell, active) {
   // unavailable one, with the plain reason (h3CellTakesFlex is the server's).
   const flexLocked = engine === 'h3' && !!cell && cell.available !== false
     && typeof h3FlexPickedAny === 'function' && h3FlexPickedAny() && !h3CellTakesFlex(cell);
-  const ok = !cell ? false : (cell.available !== false && !flexLocked);
+  const refsLocked = engine === 'h3' && kind === 'length' && !!cell && cell.available !== false
+    && typeof globalThis._h3RefsOn === 'function' && globalThis._h3RefsOn() && Number(cell.seconds || 0) > 5;
+  const ok = !cell ? false : (cell.available !== false && !flexLocked && !refsLocked);
   // NEEDS-INSTALL is a third state, distinct from unavailable: the cell is
   // renderable on this Mac, the weights just aren't here yet. It reads as a
   // CTA (dashed + download glyph via .needs-install) and its third slot names
@@ -2355,10 +2374,12 @@ function _tierChipHtml(engine, kind, item, cell, active) {
   const cls = 'q-chip pill-btn pill-quality'
     + (active ? ' active' : '') + (ok ? '' : ' unavailable')
     + (flexLocked ? ' flex-locked' : '')
+    + (refsLocked ? ' refs-locked' : '')
     + (needsInstall ? ' needs-install' : '');
   const spec = (kind === 'quality') ? E.qualitySpec(item, cell)
                                     : E.lengthSpec(item, cell);
   const foot = flexLocked ? T('engines.h3_only', 'H3 only')
+             : refsLocked ? T('engines.refs_5s_only', '5 s with Refs')
              : !ok ? 'unavailable'
              : needsInstall ? E.installLabel(cell)
              : E.eta(cell);
@@ -2370,17 +2391,29 @@ function _tierChipHtml(engine, kind, item, cell, active) {
     ? (engine === 'h3' ? h3CellEtaBasis : ltxCellEtaBasis) : null;
   const basis = (ok && basisFn) ? basisFn(cell) : '';
   const title = flexLocked ? H3_FLEX_CELL_TIP
+    : refsLocked ? T('engines.refs_length_tip', 'References makes 5-second clips. Remove extra pictures or the place for 10 s or 15 s.')
     : ok
     ? basis
     : cellUnavailableReason(cell) || 'Not available on this install.';
   const attr = (kind === 'quality') ? (E.qAttr || `${engine}-quality`)
                                     : (E.lAttr || `${engine}-length`);
+  // Feedback 4 (owner, 22 Nov 2026): the option shows its name and ONE small estimate; the size,
+  // frames, the full estimate, where it comes from and any Pro figure go in the tooltip. The
+  // estimate's tail (" · High detail", " · batch", a note) moves to the tooltip too, so the
+  // small line never outgrows the name.
+  const footShort = (ok && !needsInstall) ? String(foot || '').split(' · ')[0] : foot;
+  const proTip = (ok && !needsInstall && kind === 'quality' && typeof proEstTip === 'function') ? proEstTip(cell) : '';
+  const tipLines = [`${item.label}: ${spec}`];
+  if (ok && foot) tipLines.push(String(foot));
+  if (title) tipLines.push(title);
+  if (ok && kind === 'quality' && cell && cell.note) tipLines.push(String(cell.note));
+  if (proTip) tipLines.push(proTip);
+  const fullTitle = tipLines.filter(Boolean).join('\n');
   return `
     <button type="button" class="${cls}" data-${attr}="${escapeHtml(item.key)}"
-            ${ok ? '' : 'aria-disabled="true"'} title="${escapeHtml(title)}">
-      <span class="ql-name">${escapeHtml(item.label)}</span>
-      <span class="q-spec ql-spec sub">${escapeHtml(spec)}</span>
-      <span class="ql-tier">${escapeHtml(foot)}</span>
+            ${ok ? '' : 'aria-disabled="true"'} title="${escapeHtml(fullTitle)}">
+      <span class="ql-name">${escapeHtml(String(item.label || '').replace(' · ', ' '))}</span>
+      <span class="ql-tier">${escapeHtml(footShort)}</span>
     </button>`;
 }
 // The shipped name, kept as a one-line shim so every H3 call site is unchanged.
@@ -2424,6 +2457,11 @@ function renderTierAxes(engine) {
     : 'repeat(auto-fit, minmax(90px, 1fr))';
   lStrip.innerHTML = lengths.map(l =>
     _tierChipHtml(engine, 'length', l, E.cellFor(curQ, l.key), l.key === curL)).join('');
+  // Feedback 4: name-only options fit five to a row; past five, rows share the options evenly so no
+  // row is left with an empty stretch (panel.css reads --q-per-row).
+  const perRow = (n) => (n <= 5 ? Math.max(1, n) : Math.ceil(n / Math.ceil(n / 5)));
+  if (qStrip.style && typeof qStrip.style.setProperty === 'function') qStrip.style.setProperty('--q-per-row', String(perRow(qualities.length)));
+  if (lStrip.style && typeof lStrip.style.setProperty === 'function') lStrip.style.setProperty('--q-per-row', String(perRow(lengths.length)));
 
   const qAttr = E.qAttr || `${engine}-quality`;
   const lAttr = E.lAttr || `${engine}-length`;
@@ -2452,6 +2490,7 @@ function renderTierAxes(engine) {
     // one that can state the DURATION a raw frame count works out to — the
     // number the user actually wanted to know when they typed it.
     const custom = !cell || cell.length === '';
+    if (meta.classList) meta.classList.toggle('is-custom', custom);
     meta.textContent = custom
       ? (E.customMeta ? E.customMeta() : '')
       : `${cell.width}×${cell.height} · ${cell.frames}f · ${E.eta(cell)}`;
@@ -2543,10 +2582,15 @@ function ltxCurrentCell() {
 // custom duration, which by definition has no cell.
 // Pro active (data-pro set by proStatusRefresh): add the honest estimate the server computed from the
 // fleet p75 x the worst measured Pro/Free ratio. Free: nothing.
-function proEstSuffix(fr) {
+// Feedback 4 (owner, 22 Nov 2026): never a Pro-vs-Free pair of times on screen. The visible estimate
+// is one number; the Pro estimate (a Pro member's own, an estimate until measured) lives in the
+// option's tooltip only. proEstSuffix stays as the shipped name and adds nothing to visible text.
+function proEstSuffix(fr) { return ''; }
+function proEstTip(cell) {
   try {
+    const fr = cell && cell.fleet_range;
     if (!document.documentElement.dataset.pro || !fr || !fr.pro_est) return '';
-    return ' · Pro ' + fr.pro_est.label;
+    return T('engines.pro_est_tip', 'With Pro speed-up: {label}', {label: fr.pro_est.label});
   } catch (e) { return ''; }
 }
 function ltxCellEta(cell) {
@@ -2695,6 +2739,7 @@ function setH3Length(key) {
   if (!l) return;
   _h3ApplyShape(h3CurrentQuality(), l.key);
 }
+globalThis.setH3Length = setH3Length;
 
 // The nearest renderable cell to one this install can't serve. Mirrors
 // h3_fallback_tier() in Python exactly — keep the CANVAS, give up length, never
@@ -2793,6 +2838,13 @@ function _h3ApplyShape(qualityKey, lengthKey, opts) {
   // and h3FlexFit (queued from renderH3Turbo) moves it to the nearest cell.
   if (!opts.fallback && typeof h3FlexPickedAny === 'function' && h3FlexPickedAny() && !h3CellTakesFlex(cell)) {
     if (typeof phosToast === 'function') phosToast(H3_FLEX_CELL_TIP, { kind: 'info' });
+    renderH3Axes();
+    return;
+  }
+  if (!opts.fallback && typeof globalThis._h3RefsOn === 'function' && globalThis._h3RefsOn() && Number(cell.seconds || 0) > 5) {
+    if (typeof phosToast === 'function') {
+      phosToast(T('engines.refs_length_tip', 'References makes 5-second clips. Remove extra pictures or the place for 10 s or 15 s.'), { kind: 'info' });
+    }
     renderH3Axes();
     return;
   }
@@ -2918,10 +2970,13 @@ function renderH3WindowPrompts() {
   }
   const windows = h3ChainWindows();
   const engineIsH3 = (((document.getElementById('engine') || {}).value) === 'h3');
+  const modeNow = (typeof currentMode !== 'undefined' && currentMode)
+    || ((document.getElementById('mode') || {}).value) || 't2v';
   // Three conditions, and each hides it for a different honest reason: a
-  // non-H3 engine has no windows, a 3 s / 5 s length is ONE window (the box
-  // would change nothing), and a pack without --chain-prompts cannot use one.
-  const show = engineIsH3 && windows > 1 && h3ChainPromptsSupported();
+  // non-H3 engine has no windows, Extend/Add sound do not take --chain-prompts,
+  // a 3 s / 5 s length is ONE window, and a pack without --chain-prompts cannot use one.
+  const show = engineIsH3 && modeNow !== 'extend' && modeNow !== 'v2a'
+    && windows > 1 && h3ChainPromptsSupported();
   row.hidden = !show;
   if (!show) { _h3SerializeWindowPrompts(); return; }
   const hint = document.getElementById('h3WinPromptsHint');
@@ -3058,31 +3113,42 @@ function h3InsertPromptStructure() {
 function h3InsertDialogueLine() {
   const ta = document.getElementById('prompt');
   if (!ta) return;
-  const lang = (document.getElementById('h3DialogueLang') || {}).value || 'English';
   const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : ta.value.length;
   const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
   const before = ta.value.slice(0, start);
   const after = ta.value.slice(end);
-  const needsLeadingSpace = before && !/[\s\n]$/.test(before);
-  const speaker = T('engines.name_s1_says', 'NAME (S1) says: ');
-  const line = `${needsLeadingSpace ? ' ' : ''}${speaker}<d>[${lang}] line here</d> `
-    + T('engines.exactly_as_the_line_ends', 'Exactly as the line ends, NAME\'s mouth settles closed.');
+  const pxChars = (typeof globalThis.picturesPickedChars === 'function') ? globalThis.picturesPickedChars() : [];
+  const manualIds = (typeof globalThis.selectedManualCharacterIds === 'function') ? globalThis.selectedManualCharacterIds() : [];
+  const allChars = Array.isArray(globalThis._manualCharacters) ? globalThis._manualCharacters : [];
+  const manualFirst = manualIds.map(id => allChars.find(c => c && c.id === id)).find(Boolean);
+  const rvVal = (document.getElementById('renderVoice') || {}).value || '';
+  const standaloneVoice = (rvVal && rvVal !== 'inherit' && rvVal !== 'default' && typeof globalThis.voicesLookup === 'function')
+    ? globalThis.voicesLookup(rvVal, '')
+    : null;
+  const rawVoiceName = standaloneVoice && standaloneVoice.name
+    ? String(standaloneVoice.name).replace(/\s*\([^)]*\)\s*$/, '').trim()
+    : '';
+  const who = (pxChars[0] && pxChars[0].name)
+    || (manualFirst && manualFirst.name)
+    || rawVoiceName
+    || T('engines.speaker_name_placeholder', 'Speaker');
+  const prefix = (before && !/\n$/.test(before)) ? '\n' : '';
+  const speaker = `${who}: `;
+  const placeholder = T('engines.line_here', 'line here');
+  const line = `${prefix}${speaker}${placeholder}`;
   ta.value = before + line + after;
-  // Select "line here" so typing the actual words is one keystroke away.
-  // Numeric, always: `before && …` is '' at position 0, and '' + 1 + … used to
-  // concatenate into a string offset that selected nothing (Codex H3-9).
-  const selStart = before.length + (needsLeadingSpace ? 1 : 0) + speaker.length
-    + `<d>[${lang}] `.length;
-  const selEnd = selStart + T('engines.line_here', 'line here').length;
+  const selStart = before.length + prefix.length + speaker.length;
+  const selEnd = selStart + placeholder.length;
   ta.focus();
   try { ta.setSelectionRange(selStart, selEnd); } catch (e) {}
   ta.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof globalThis.refreshNoVoiceAuto === 'function') { try { globalThis.refreshNoVoiceAuto(); } catch (_) {} }
 }
 
-// Every <d>[Lang] …</d> tag's word count against this shape's budget
-// (H3.speech_words_per_sec — the SAME number storyboard's own validator
-// uses, so the two can't disagree), and a warning when prose quotes appear
-// with no tag at all — the exact silent-failure this control exists for.
+// Word count across spoken lines against this shape's budget
+// (H3.speech_words_per_sec — the SAME number storyboard's own validator uses).
+// Counts both plain `Name: words` lines and legacy `<d>...</d>` spans so
+// users never write tags.
 function h3SyncPromptHelper() {
   const ta = document.getElementById('prompt');
   const countEl = document.getElementById('h3DialogueWordCount');
@@ -3095,15 +3161,24 @@ function h3SyncPromptHelper() {
     tagCount++;
     words += (m[1].trim().match(/\S+/g) || []).length;
   }
+  const plainLineRe = /^\s*([\p{L}\p{N}_][\p{L}\p{M}\p{N}_ .'-]{0,60}?)\s*:\s*(.+?)\s*$/gmu;
+  const skipKeys = new Set(['integrated_multimodal_description', 'overall_soundscape', 'non_diegetic_music', 'audio', 'sound']);
+  let plainLines = 0;
+  if (!tagCount) {
+    let pm;
+    while ((pm = plainLineRe.exec(text))) {
+      const k = pm[1].trim().toLowerCase();
+      if (skipKeys.has(k)) continue;
+      plainLines++;
+      words += (pm[2].trim().replace(/^["“”]+|["“”]+$/g, '').match(/\S+/g) || []).length;
+    }
+  }
   if (countEl) {
-    if (tagCount) {
+    if (tagCount || plainLines) {
       const cell = (typeof h3CurrentCell === 'function') ? h3CurrentCell() : null;
       const windows = Math.max(1, (cell && cell.chain_windows) || 1);
       const perWindowSec = (cell && cell.seconds) ? (cell.seconds / windows) : 5;
       const rate = (H3 && H3.speech_words_per_sec) || 2.4;
-      // ONE window's speaking time, however many tags share it: splitting the
-      // same words into more tags used to raise the allowance (Codex H3-8).
-      // The main prompt's dialogue is window 1's; later windows have boxes.
       const budget = Math.max(1, Math.round(perWindowSec * rate));
       countEl.hidden = false;
       countEl.textContent = `${words}/${budget} dialogue words`;
@@ -3113,17 +3188,24 @@ function h3SyncPromptHelper() {
     }
   }
   if (warnEl) {
-    // A "-marked quote whose position falls outside every <d>…</d> span.
-    const tagSpans = [];
-    tagRe.lastIndex = 0;
-    while ((m = tagRe.exec(text))) tagSpans.push([m.index, m.index + m[0].length]);
-    const quoteRe = /["“”]/g;
-    let hasStrayQuote = false;
-    let q;
-    while ((q = quoteRe.exec(text))) {
-      if (!tagSpans.some(([s, e]) => q.index >= s && q.index < e)) { hasStrayQuote = true; break; }
+    const pxChars = (typeof globalThis.picturesPickedChars === 'function') ? globalThis.picturesPickedChars() : [];
+    if (tagCount) {
+      const tagSpans = [];
+      tagRe.lastIndex = 0;
+      while ((m = tagRe.exec(text))) tagSpans.push([m.index, m.index + m[0].length]);
+      const quoteRe = /["“”]/g;
+      let hasStrayQuote = false;
+      let q;
+      while ((q = quoteRe.exec(text))) {
+        if (!tagSpans.some(([s, e]) => q.index >= s && q.index < e)) { hasStrayQuote = true; break; }
+      }
+      warnEl.hidden = !hasStrayQuote;
+    } else {
+      // Plain dialogue handles 1 speaker in quotes automatically; only warn when 2+ characters
+      // are picked and quotes appear with no `Name: line` speaker label.
+      const hasQuotes = /["“”][^"“”\n]{2,}["“”]/.test(text);
+      warnEl.hidden = !(pxChars.length > 1 && hasQuotes && !plainLines);
     }
-    warnEl.hidden = !hasStrayQuote;
   }
 }
 document.getElementById('prompt') && document.getElementById('prompt')

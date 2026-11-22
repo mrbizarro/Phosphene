@@ -32,6 +32,8 @@ function _wireModeGroupTabSemantics() {
 // Translate the markup first (docs/TRANSLATING.md) — a no-op in English —
 // so every later startup step reads the page in its final language.
 applyI18n(document);
+// Feedback 3: static Video-form explanations become a "?" (tips.js), after the page is translated.
+if (typeof helpifyHints === 'function') helpifyHints();
 i18nFillLanguageMenu();
 studioMotionInit();
 // Licence screens (4.19.8): wrap fetch() first, so a 451 licence_required
@@ -204,6 +206,10 @@ try { if (typeof applyAppearance === 'function') applyAppearance(); } catch (e) 
 // The player scales to leave the Outputs pane a header and a row of cards on
 // every screen (queue.js, fitStagePlayer).
 initStagePlayerFit();
+// Mode tiles share their rows out evenly, so no row is left with one tile (boot.js).
+try { modeBarBalanceInstall(); } catch (e) {}
+// Easy / Advanced: the remembered choice, applied before anyone looks (boot.js).
+try { formLevelInstall(); } catch (e) {}
 // install_step `first_use`: one report the first time anyone clicks or types
 // on the page (health.js).
 try { armFirstUseReport(); } catch (e) {}

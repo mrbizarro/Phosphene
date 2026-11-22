@@ -156,13 +156,17 @@ function osRenderEngine() {
 }
 // What the top Model picker reads on the One Shot tab.
 function osCurrentEngine() { return OS.engine; }
+// The One Shot character, for the voice field (characters.js voicesSyncRenderField).
+function osCharacterId() { return OS.character || ''; }
 function osRenderLengths() {
   const g = osEl('osLengthGroup');
   if (!g) return;
   const part = osPartSeconds();
   g.innerHTML = OS_SECONDS.map(s => {
-    return `<button type="button" class="q-chip pill-btn pill-quality${s === OS.seconds ? ' active' : ''}" data-os-seconds="${s}" title="${osLengthLabel(s)}, one continuous shot: ${s / 5} beats of 5 s" aria-label="${osLengthLabel(s)}">
-      <span class="ql-name">${osLengthLabel(s)}</span><span class="q-spec ql-spec sub">${s / 5} beats</span><span class="ql-tier">${osPartsShort(s)}</span></button>`;
+    // Feedback 4 (owner, 22 Nov 2026): the option is its name; the beats and parts are its tooltip.
+    const tip = T('oneshot.length_tip', '{len}, one continuous shot: {beats} beats of 5 s · {parts}', { len: osLengthLabel(s), beats: s / 5, parts: osPartsShort(s) });
+    return `<button type="button" class="q-chip pill-btn pill-quality${s === OS.seconds ? ' active' : ''}" data-os-seconds="${s}" title="${osEsc(tip)}" aria-label="${osLengthLabel(s)}">
+      <span class="ql-name">${osLengthLabel(s)}</span></button>`;
   }).join('');
   g.querySelectorAll('[data-os-seconds]').forEach(b => b.onclick = () => osSetSeconds(parseInt(b.dataset.osSeconds, 10)));
   const meta = osEl('osLengthMeta');
@@ -187,8 +191,11 @@ function osRenderQualities() {
   if (!rows.length) { g.innerHTML = ''; g.hidden = true; return; }
   g.hidden = false;
   g.style.gridTemplateColumns = `repeat(${Math.min(rows.length, 5)}, minmax(0, 1fr))`;
-  g.innerHTML = rows.map(q => `<button type="button" class="q-chip pill-btn pill-quality${q.key === cur ? ' active' : ''}" data-os-quality="${osEsc(q.key)}">
-      <span class="ql-name">${osEsc(q.label)}</span><span class="q-spec ql-spec sub">${osEsc(q.sub)}</span></button>`).join('');
+  // Feedback 4: the name and one small estimate (a size goes in the tooltip, not on the option).
+  const small = (q) => (String(q.sub || '').indexOf(' min') >= 0 ? String(q.sub).split(' a part')[0] : '');
+  const tierHtml = (q) => (small(q) ? '<span class="ql-tier">' + osEsc(small(q)) + '</span>' : '');
+  g.innerHTML = rows.map(q => `<button type="button" class="q-chip pill-btn pill-quality${q.key === cur ? ' active' : ''}" data-os-quality="${osEsc(q.key)}" title="${osEsc([q.label, q.sub].filter(Boolean).join(' · '))}">
+      <span class="ql-name">${osEsc(q.label)}</span>${tierHtml(q)}</button>`).join('');
   g.querySelectorAll('[data-os-quality]').forEach(b => b.onclick = () => osSetQuality(b.dataset.osQuality));
   const meta = osEl('osQualityMeta');
   if (meta) {
@@ -204,8 +211,16 @@ function osRenderCharacters() {
   const chars = ((OS.options || {}).characters || []);
   const pills = [{ id: '', name: T('oneshot.nobody_in_particular', 'Nobody in particular'), sub: T('oneshot.the_prompt_describes_them', 'the prompt describes them') }]
     .concat(chars.map(c => ({ id: c.id, name: c.name || c.id, sub: c.has_voice ? T('oneshot.face_voice', 'face + voice') : 'face' })));
-  g.innerHTML = pills.map(c => `<button type="button" class="pill-btn${c.id === OS.character ? ' active' : ''}" data-os-character="${osEsc(c.id)}">
-      <span>${osEsc(c.name)}</span><span class="sub">${osEsc(c.sub)}</span></button>`).join('');
+  // Feedback 4: a name per option, the voice as a small mark (its menu sets this shot's voice).
+  const all = Array.isArray(globalThis._manualCharacters) ? globalThis._manualCharacters : [];
+  const mark = (c) => {
+    if (!c.id || typeof voiceMarkHtml !== 'function') return '';
+    const full = all.find(x => x && x.id === c.id) || Object.assign({ id: c.id, name: c.name }, chars.find(x => x.id === c.id) || {});
+    return voiceMarkHtml(full, c.id === OS.character, 'osVoice');
+  };
+  g.innerHTML = pills.map(c => `<button type="button" class="pill-btn${c.id === OS.character ? ' active' : ''}" data-os-character="${osEsc(c.id)}" title="${osEsc(c.name + ' · ' + c.sub)}">
+      <span>${osEsc(c.name)}</span>${mark(c)}</button>`).join('');
+  if (typeof voicesSyncRenderField === 'function') { try { voicesSyncRenderField(); } catch (e) {} }
   g.querySelectorAll('[data-os-character]').forEach(b => b.onclick = () => osSetCharacter(b.dataset.osCharacter));
   const meta = osEl('osCharacterMeta');
   if (meta) meta.textContent = chars.length
@@ -215,7 +230,7 @@ function osRenderCharacters() {
   if (note) {
     note.hidden = !OS.character;
     note.textContent = OS.character
-      ? T('oneshot.quality_is_now_the_character', 'Quality is now the character\'s own set, and "Hand off where the line ends" is on so the next part starts while the mouth still moves — both can be changed below.')
+      ? T('oneshot.char_note_short', "Quality uses the character's set; Hand off where the line ends is on.")
       : '';
   }
 }
@@ -617,7 +632,8 @@ function oneshotOpenFromParams(p) {
   else if (OS.character) OS.quality.character = p.quality_choice || OS.quality.character;
   else OS.quality.ltx = p.quality || OS.quality.ltx;
   const prompt = osEl('osPrompt'); if (prompt) prompt.value = String(p.prompt || '');
-  const beats = (take.beats || take.beat_prompts || []);
+  // Queued takes keep a count in take.beats and the prompts in take.beat_prompts (Codex r6-7 #7).
+  const beats = Array.isArray(take.beats) ? take.beats : (Array.isArray(take.beat_prompts) ? take.beat_prompts : []);
   OS.beats = Array.isArray(beats) ? beats.map(b => String(b || '').replace(/\s+Continuity:.*$/, '')) : [];
   const cam = osEl('osCamera'); if (cam) cam.value = String(take.camera || '');
   // VA-28: a random parent seed (-1) drew a fresh random seed per part, and
@@ -664,7 +680,7 @@ function osWire() {
 // ---- published to the page --------------------------------------------------
 Object.assign(globalThis, {
   oneshotTabEnter, oneshotTabLeave, oneshotOpenFromParams, osWire,
-  osSetEngine, osCurrentEngine, osSetSeconds, osSetQuality, osSetCharacter, osToggle,
+  osSetEngine, osCurrentEngine, osCharacterId, osSetSeconds, osSetQuality, osSetCharacter, osToggle,
   osBeatsInput, osSplitPrompt, osPlanBeats, osGenerate, osDocument, osBeatsList, osSetBeats, osRenderBeats,
   osLengthLabel, osPartSeconds, osPartsText, osPartsShort, osClock, osVerdict, osPaintStatus,
 });

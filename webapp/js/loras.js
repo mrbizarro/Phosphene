@@ -409,6 +409,39 @@ function setLoraStrength(path, strength) {
   _serializeLoras();
 }
 
+function stepLoraStrength(path, delta) {
+  const e = _activeLoras.find(l => l.path === path);
+  if (!e) return;
+  const next = Math.round((Number(e.strength || 0) + Number(delta || 0)) * 20) / 20;
+  setLoraStrength(path, Math.max(-2, Math.min(2, next)));
+  renderLorasList();
+}
+
+function _renderActiveLorasStrip(activeRows) {
+  const strip = document.getElementById('lorasActiveStrip');
+  if (!strip) return;
+  const rows = Array.isArray(activeRows) ? activeRows : [];
+  if (!rows.length) {
+    strip.hidden = true;
+    strip.innerHTML = '';
+    return;
+  }
+  strip.innerHTML = rows.map(r => {
+    const pathAttr = escapeHtml(JSON.stringify(r.path));
+    const nm = escapeHtml(r.name || String(r.path || '').split('/').pop().replace(/\.safetensors$/, ''));
+    const st = Number(r.strength != null ? r.strength : 1);
+    const stText = (st >= 0 ? '' : '') + st.toFixed(2);
+    return `<span class="lora-active-pill" title="${escapeHtml(r.path || '')}">
+      <span class="lora-pill-name">${nm}</span>
+      <button type="button" class="lora-step-btn" title="${TA('loras.lower_strength', 'Lower strength')}" onclick="stepLoraStrength(${pathAttr}, -0.1)">−</button>
+      <span class="lora-step-val">${escapeHtml(stText)}</span>
+      <button type="button" class="lora-step-btn" title="${TA('loras.raise_strength', 'Raise strength')}" onclick="stepLoraStrength(${pathAttr}, 0.1)">+</button>
+      <button type="button" class="lora-pill-x" title="${TA('loras.remove_lora', 'Remove LoRA')}" onclick="removeLoraFromActive(${pathAttr})">×</button>
+    </span>`;
+  }).join('');
+  strip.hidden = false;
+}
+
 // --- Ingredients × Character picker -------------------------------------
 // Fills the optional character dropdown in Ingredients mode from the trained
 // characters in _knownUserLoras (kind=train_character). Selecting one stacks
@@ -752,6 +785,7 @@ function renderLorasList() {
     if (empty) empty.style.display = '';
     if (filterRow) filterRow.style.display = 'none';
     if (banner) banner.textContent = '';
+    _renderActiveLorasStrip([]);
     return;
   }
   if (empty) empty.style.display = 'none';
@@ -804,6 +838,7 @@ function renderLorasList() {
   const modeFilteredCount = rows.length;
   const modeFilteredActiveRows = rows.filter(r => r.active);
   const modeFilteredActive = modeFilteredActiveRows.length;
+  _renderActiveLorasStrip(modeFilteredActiveRows);
   // Surface the filter input only when 5+ LoRAs (post-mode-filter)
   // remain; below that it's just visual noise.
   if (filterRow) filterRow.style.display = (rows.length >= 5) ? '' : 'none';
@@ -1260,48 +1295,66 @@ async function deleteLora(path, name) {
 // its compose state still works exactly as before, and the bundles it
 // reads come from the SAME /characters endpoint this picker calls.
 globalThis._manualCharacters = [];     // [{id, name, trigger, has_voice, sample_image_url, ...}]
-globalThis._selectedCharacterId = '';  // '' means none selected
+globalThis._selectedCharacterId = '';  // primary selected character ('' means none)
+globalThis._selectedCharacterIds = []; // multi-character cast selection on LTX & non-Pictures modes
+
+function selectedManualCharacterIds() {
+  if (Array.isArray(globalThis._selectedCharacterIds) && globalThis._selectedCharacterIds.length) {
+    return globalThis._selectedCharacterIds.slice();
+  }
+  return globalThis._selectedCharacterId ? [globalThis._selectedCharacterId] : [];
+}
+
+function _syncCharacterHiddenInputs() {
+  const ids = Array.isArray(globalThis._selectedCharacterIds) ? globalThis._selectedCharacterIds.filter(Boolean) : [];
+  globalThis._selectedCharacterIds = ids;
+  globalThis._selectedCharacterId = ids[0] || '';
+  const inp = document.getElementById('characterIdInput');
+  if (inp) inp.value = globalThis._selectedCharacterId;
+  const multi = document.getElementById('characterIdsInput');
+  if (multi) {
+    multi.disabled = ids.length <= 1 || !!(inp && inp.disabled);
+    multi.value = ids.length > 1 ? JSON.stringify(ids) : '';
+  }
+}
 
 function _updateCharsPickerVisibility(mode) {
-  // 2026-05-17 (Codex C+ pass 3): the chip strip lives in 'character'
-  // mode only — its own pill in the mode bar. T2V no longer hosts it
-  // (clean separation: T2V is for non-character text-to-video; Character
-  // is for the trained-LoRA face/voice cascade).
-  // Hide on every other mode — Image / FFLF / Extend / Train / Studio
-  // hide #genForm or have a different mental model anyway, but the
-  // helper stays in sync defensively.
-  const show = (mode === 'character');
+  // Show Who's in it / Who speaks across cast-capable modes (CSS hides it when H3 Pictures is active).
+  const castModes = ['t2v', 'character', 'i2v', 'i2v_clean_audio', 'keyframe', 'extend', 'v2a'];
+  const show = castModes.includes(mode);
   const slot = document.getElementById('manualCharactersPickerSlot');
   const divider = document.getElementById('charactersPickerDivider');
   if (slot) slot.classList.toggle('show', show);
   if (divider) divider.classList.toggle('show', show);
-  // When hidden, don't carry a stale selection on submit — clear the
-  // hidden input. The user can re-select when they next visit T2V.
+  const headLabel = document.getElementById('charsHeadLabel');
+  const headHint = document.getElementById('charsHeadHint');
+  const textLike = (mode === 't2v' || mode === 'character');
+  if (headLabel) {
+    headLabel.textContent = textLike
+      ? T('characters.dynamic_who_is_in_it', "Who's in it")
+      : T('characters.who_speaks', 'Who speaks');
+  }
+  if (headHint) {
+    headHint.textContent = textLike
+      ? T('characters.dynamic_pick_one_or_more', 'pick one or more characters')
+      : T('characters.pick_speakers_for_lines', 'pick characters for their voices');
+  }
   if (!show) {
-    _selectedCharacterId = '';
-    const inp = document.getElementById('characterIdInput');
-    if (inp) inp.value = '';
-    // Re-render the avatar strip so the .active ring drops in lockstep with
-    // the cleared selection. Without this the old avatar stayed highlighted;
-    // returning to Character mode then showed a character that LOOKED selected
-    // while the hidden field was empty -> Generate shipped character_id="" ->
-    // plain T2V with no LoRA (the desync bug, present since fd59a2c).
+    globalThis._selectedCharacterIds = [];
+    _syncCharacterHiddenInputs();
     if (typeof _renderManualCharactersList === 'function') {
       try { _renderManualCharactersList(); } catch (_) {}
     }
     _renderCharsAppliedNote();
-    // Restore the default quality strip when leaving T2V — the
-    // character-only strip should never be visible in I2V / FFLF /
-    // Extend (no character context).
     if (typeof _applyCharacterQualityStripVisibility === 'function') {
       try { _applyCharacterQualityStripVisibility(); } catch (_) {}
     }
+  } else {
+    _renderCharsAppliedNote();
   }
 }
 
 async function refreshManualCharacters() {
-  // /characters returns { characters: [...] } — same payload the Characters
-  // tab consumes, so the source of truth stays single.
   let data;
   try {
     data = await (await fetch('/characters')).json();
@@ -1309,16 +1362,14 @@ async function refreshManualCharacters() {
     return;
   }
   _manualCharacters = (data && Array.isArray(data.characters)) ? data.characters : [];
-  // If the previously-selected character is no longer on disk (renamed,
-  // deleted), drop the selection silently rather than carrying a stale
-  // id that would 404 the lookup at submit.
-  if (_selectedCharacterId &&
-      !_manualCharacters.some(c => c.id === _selectedCharacterId)) {
-    _selectedCharacterId = '';
-    const inp = document.getElementById('characterIdInput');
-    if (inp) inp.value = '';
-  }
+  const valid = new Set(_manualCharacters.map(c => c.id));
+  const kept = selectedManualCharacterIds().filter(id => valid.has(id));
+  globalThis._selectedCharacterIds = kept;
+  _syncCharacterHiddenInputs();
   _renderManualCharactersList();
+  if (typeof globalThis.voicesSyncRenderField === 'function') {
+    try { globalThis.voicesSyncRenderField(); } catch (_) {}
+  }
 }
 
 function _renderManualCharactersList() {
@@ -1344,8 +1395,9 @@ function _renderManualCharactersList() {
   // glance. The row wraps to multiple lines via flex-wrap on the
   // container, so 20+ characters stack cleanly without a horizontal-
   // scroll trap.
+  const selSet = new Set(selectedManualCharacterIds());
   for (const c of _manualCharacters) {
-    const active = (c.id === _selectedCharacterId);
+    const active = selSet.has(c.id);
     const name = c.name || c.trigger || c.id;
     const trigger = c.trigger || c.id || '';
     const initial = (name || '?').charAt(0).toUpperCase();
@@ -1353,150 +1405,158 @@ function _renderManualCharactersList() {
       ? `<img class="chars-avatar-img" src="${escapeHtml(c.sample_image_url)}" alt="">`
       : `<span class="chars-avatar-ph">${escapeHtml(initial)}</span>`;
     const hasVoice = !!c.has_voice;
-    // Voice indicator — a small music-note badge for characters that
-    // have a voice LoRA. Silent characters get no badge (absence reads
-    // as 'silent' more cleanly than a gray badge fighting for
-    // attention). Tooltip on the avatar already mentions silent state.
     const voiceBadge = hasVoice
-      ? `<span class="chars-avatar-voice" title="${TA('loras.has_voice_lora_reference_clip', 'Has voice LoRA + reference clip')}"><svg class="ph"><use href="#ph-music-notes"/></svg></span>`
+      ? `<span class="chars-avatar-voice" title="${TA('loras.has_voice_lora_reference_clip', 'Has voice LoRA + reference clip')}"><svg class="ph"><use href="#ph-microphone"/></svg></span>`
       : '';
     const idAttr = escapeHtml(JSON.stringify(c.id));
-    const tt = `${escapeHtml(name)} · ${escapeHtml(trigger)}${hasVoice ? T('loras.has_voice', ' · has voice') : T('loras.silent', ' · silent')}${active ? T('loras.click_to_deselect', ' · click to deselect') : ''}`;
+    const tt = `${escapeHtml(name)}${c.face_lora_path ? ' · ' + escapeHtml(trigger) : T('loras.picture_char', ' · picture')}${hasVoice ? T('loras.has_voice', ' · voice') : T('loras.silent', ' · silent')}${active ? T('loras.click_to_deselect', ' · click to remove') : T('loras.click_to_add', ' · click to add')}`;
     chips.push(`
       <button type="button" class="chars-avatar-chip ${active ? 'active' : ''}"
+              aria-pressed="${active}"
               onclick="selectManualCharacter(${idAttr})"
               title="${tt}">
         ${avatar}
         <span class="chars-avatar-name">${escapeHtml(name)}</span>
-        ${voiceBadge}
+        ${typeof voiceMarkHtml === 'function' ? voiceMarkHtml(c, active) : voiceBadge}
       </button>
     `);
   }
   wrap.innerHTML = chips.join('');
   if (meta) {
-    if (_selectedCharacterId) {
-      const cur = _manualCharacters.find(c => c.id === _selectedCharacterId);
-      meta.textContent = cur ? `selected: ${cur.name || cur.trigger}` : T('loras.1_selected', '1 selected');
+    const chosen = selectedManualCharacterIds().map(id => _manualCharacters.find(c => c.id === id)).filter(Boolean);
+    if (chosen.length) {
+      meta.textContent = `selected: ${chosen.map(c => c.name || c.trigger).join(', ')}`;
     } else {
       meta.textContent = `${_manualCharacters.length} available`;
     }
   }
-  // Strength row stays in the DOM as a hidden carrier; the actual
-  // slider lives inline inside charsAppliedNote (rendered by
-  // _renderCharsAppliedNote). This keeps the picker compact — no
-  // separate full-width strength row pushing other controls down.
   const strengthRow = document.getElementById('charsStrengthRow');
-  if (strengthRow) strengthRow.hidden = !_selectedCharacterId;
+  if (strengthRow) strengthRow.hidden = !selSet.size;
   _renderCharsAppliedNote();
 }
 
 function _renderCharsAppliedNote() {
-  // Compact under-strip meta line (2026-05-18 redesign). Shows:
-  //   <name> · <trigger> · [strength slider 0-2] · [silent? indicator]
-  // The inline strength slider replaces the old full-width chars-
-  // strength-row; everything fits on one tight horizontal line under
-  // the avatars. Hidden when no character is selected.
-  //
-  // Side effect: keeps the No-voice toggle visibility in sync with the
-  // selection. The pill only makes sense for characters that HAVE a
-  // voice LoRA in the first place; for silent characters there's no
-  // voice to skip.
   const note = document.getElementById('charsAppliedNote');
   const voicePill = document.getElementById('noVoicePill');
-  // A hidden No-voice pill must never keep a live checkbox: leaving the
-  // check behind let a character-mode "No voice" ride into a later PLAIN
-  // render's prompt as a no-speech constraint (journey audit, High). The
-  // silent-character branch below already cleared it; these two paths —
-  // no selection, selection no longer on disk — did not.
   const _clearNoVoice = () => {
     const cb = document.getElementById('noVoice');
     if (cb) cb.checked = false;
   };
   if (!note) return;
-  if (!_selectedCharacterId) {
+  const ids = selectedManualCharacterIds();
+  const picked = ids.map(id => _manualCharacters.find(x => x.id === id)).filter(Boolean);
+  if (!picked.length) {
     note.hidden = true;
     note.innerHTML = '';
     if (voicePill) { voicePill.hidden = true; _clearNoVoice(); }
     return;
   }
-  const c = _manualCharacters.find(x => x.id === _selectedCharacterId);
-  if (!c) {
-    note.hidden = true;
-    note.innerHTML = '';
-    if (voicePill) { voicePill.hidden = true; _clearNoVoice(); }
-    return;
-  }
-  // Show the No-voice pill only when the active character actually has
-  // a voice LoRA. Silent characters can't be made more silent. Also
-  // reset the checkbox when hiding so a stale check from a previous
-  // selection doesn't accidentally suppress voice on a silent character.
+  const anyVoice = picked.some(c => c.has_voice);
   if (voicePill) {
-    voicePill.hidden = !c.has_voice;
+    voicePill.hidden = !anyVoice;
     if (voicePill.hidden) {
-      const cb = document.getElementById('noVoice');
-      if (cb) cb.checked = false;
+      _clearNoVoice();
     } else if (typeof refreshNoVoiceAuto === 'function') {
-      // Casting a character with a voice is the moment the default becomes
-      // meaningful, so evaluate it here as well as on prompt input.
       refreshNoVoiceAuto();
     }
   }
-  const name = escapeHtml(c.name || c.trigger || c.id);
-  const triggerCode = c.trigger
-    ? ` ${T('loras.trigger', '· trigger')} <code>${escapeHtml(c.trigger)}</code>`
-    : '';
-  const silentBadge = (!c.has_voice)
-    ? ` · <em title="${TA('loras.no_audio_lora_on_disk', 'No audio LoRA on disk — face only')}">silent</em>`
-    : '';
-  if (currentEngine() !== 'ltx' || !c.face_lora_path) {
-    note.innerHTML = `<strong>${name}</strong>`;
-    note.hidden = false;
-    return;
+  const onLtx = currentEngine() === 'ltx';
+  const modeNow = (typeof currentMode !== 'undefined' && currentMode) || (document.getElementById('mode') || {}).value || 't2v';
+  const trainedFaces = picked.filter(c => c.face_lora_path);
+  const picOnly = picked.filter(c => !c.face_lora_path && Array.isArray(c.pictures) && c.pictures.length);
+  const voiced = picked.filter(c => c.has_voice);
+  const parts = [];
+  // Feedback 3 (owner, 22 Nov 2026): explanations sit behind a "?" next to the buttons, never as a line.
+  const helpDot = (id, text) => [`<button type="button" class="help-dot" data-help="${id}" aria-expanded="false" aria-label="${TA('characters.more_info', 'More info')}">?</button>`,
+    `<div class="help-pop" id="${id}" hidden>${escapeHtml(text)}</div>`];
+
+  // Summary of selected cast
+  const namesHtml = picked.map(c => {
+    const nm = escapeHtml(c.name || c.trigger || c.id);
+    const trig = (onLtx && c.face_lora_path && c.trigger)
+      ? ` <code title="${TA('loras.trigger_word', 'Trigger word')}">${escapeHtml(c.trigger)}</code>` : '';
+    return `<strong>${nm}</strong>${trig}`;
+  }).join(' · ');
+
+  if (onLtx && trainedFaces.length) {
+    const cur = parseFloat(document.getElementById('characterStrength')?.value || '1.0');
+    const voi = parseFloat(document.getElementById('characterVoiceStrength')?.value || '1.0');
+    const singleNativeVoice = picked.length === 1 && !!picked[0].audio_lora_path;
+    const splitLabel = (Math.abs(voi - cur) > 0.001)
+      ? `split · ${cur.toFixed(1)} / ${voi.toFixed(1)}`
+      : 'split';
+    parts.push(`
+      <div class="chars-applied-top">
+        <span>${namesHtml}</span>
+        <span class="chars-inline-strength">
+          <span>strength</span>
+          <input type="range" min="0" max="2" step="0.05" value="${cur.toFixed(2)}"
+                 oninput="setCharStrength('face', this.value)">
+          <output id="charFaceOut">${cur.toFixed(1)}</output>
+          ${singleNativeVoice ? `<button type="button" class="chars-split-toggle" id="charSplitBtn"
+                  aria-expanded="false" aria-controls="charSplitRow"
+                  title="${TA('loras.set_the_face_and_the', 'Set the face and the voice separately')}"
+                  onclick="toggleCharSplit()">${escapeHtml(splitLabel)}</button>` : ''}
+        </span>
+      </div>
+      ${singleNativeVoice ? `
+      <div class="chars-split" id="charSplitRow" hidden>
+        <div class="chars-split-line">
+          <span>face</span>
+          <input type="range" min="0" max="2" step="0.05" value="${cur.toFixed(2)}"
+                 oninput="setCharStrength('face', this.value)">
+          <output id="charFaceSplitOut">${cur.toFixed(1)}</output>
+        </div>
+        <div class="chars-split-line">
+          <span>voice</span>
+          <input type="range" min="0" max="2" step="0.05" value="${voi.toFixed(2)}"
+                 oninput="setCharStrength('voice', this.value)">
+          <output id="charVoiceOut">${voi.toFixed(1)}</output>
+          <button type="button" class="help-dot" id="charVoiceHelpBtn" aria-expanded="false"
+                  aria-controls="charVoiceHelpNote" title="${TA('loras.why_the_voice_has_its', 'Why the voice has its own number')}"
+                  onclick="toggleCharVoiceHelp()">?</button>
+        </div>
+        <div class="h3-winhelp" id="charVoiceHelpNote" hidden></div>
+      </div>` : ''}
+    `);
   }
-  const cur = parseFloat(document.getElementById('characterStrength')?.value || '1.0');
-  const voi = parseFloat(document.getElementById('characterVoiceStrength')?.value || '1.0');
-  const hasVoice = !!c.audio_lora_path;
-  // ONE slider stays the default surface; the split lives one disclosure down.
-  // A character is two files, but the panel is not asking anyone to think about
-  // two numbers before they have a reason to. `split` is a text affordance, not
-  // a chevron — it sits inside a one-line control — and its label carries the
-  // pair once they differ, so a non-default voice is visible without opening it.
-  const splitLabel = (Math.abs(voi - cur) > 0.001)
-    ? `split · ${cur.toFixed(1)} / ${voi.toFixed(1)}`
-    : 'split';
-  note.innerHTML = `
-    <span><strong>${name}</strong>${triggerCode}${silentBadge}</span>
-    <span class="chars-inline-strength">
-      <span>strength</span>
-      <input type="range" min="0" max="2" step="0.05" value="${cur.toFixed(2)}"
-             oninput="setCharStrength('face', this.value)">
-      <output id="charFaceOut">${cur.toFixed(1)}</output>
-      ${hasVoice ? `<button type="button" class="chars-split-toggle" id="charSplitBtn"
-              aria-expanded="false" aria-controls="charSplitRow"
-              title="${TA('loras.set_the_face_and_the', 'Set the face and the voice separately')}"
-              onclick="toggleCharSplit()">${escapeHtml(splitLabel)}</button>` : ''}
-    </span>
-    ${hasVoice ? `
-    <div class="chars-split" id="charSplitRow" hidden>
-      <div class="chars-split-line">
-        <span>face</span>
-        <input type="range" min="0" max="2" step="0.05" value="${cur.toFixed(2)}"
-               oninput="setCharStrength('face', this.value)">
-        <output id="charFaceSplitOut">${cur.toFixed(1)}</output>
-      </div>
-      <div class="chars-split-line">
-        <span>voice</span>
-        <input type="range" min="0" max="2" step="0.05" value="${voi.toFixed(2)}"
-               oninput="setCharStrength('voice', this.value)">
-        <output id="charVoiceOut">${voi.toFixed(1)}</output>
-        <button type="button" class="help-dot" id="charVoiceHelpBtn" aria-expanded="false"
-                aria-controls="charVoiceHelpNote" title="${TA('loras.why_the_voice_has_its', 'Why the voice has its own number')}"
-                onclick="toggleCharVoiceHelp()">?</button>
-      </div>
-      <div class="h3-winhelp" id="charVoiceHelpNote" hidden></div>
-    </div>` : ''}
-  `;
-  note.hidden = false;
+  // (No strength control: the picked chips above already name the cast, so no second line of names.)
+
+  // Known LTX 2-face LoRA bleed warning: 1 plain line, never a block.
+  if (onLtx && trainedFaces.length >= 2) {
+    parts.push(`<div class="chars-blend-note">${escapeHtml(T('characters.ltx_two_faces_blend', 'Two trained looks in one LTX shot can blend; for two clear faces use shot and reverse shot, or Hailuo H3.'))}</div>`);
+  }
+
+  // Picture-only character(s) on LTX: offer "Start from <Name>'s picture", never a dead end.
+  if (onLtx && picOnly.length && (modeNow === 't2v' || modeNow === 'character' || modeNow === 'i2v')) {
+    const startBtns = picOnly.map(c => {
+      const nm = c.name || c.id;
+      const idAttr = escapeHtml(JSON.stringify(c.id));
+      return `<button type="button" class="ghost-btn small" onclick="startFromCharacterPicture(${idAttr})">${escapeHtml(T('characters.start_from_pic', "Start from {name}'s picture", {name: nm}))}</button>`;
+    }).join(' ');
+    const explain = picOnly.length === 1
+      ? T('characters.pic_only_ltx_one', '{name} has pictures (no trained LTX look yet) — start from their picture, or train an LTX look in Train Character.', {name: picOnly[0].name || picOnly[0].id})
+      : T('characters.pic_only_ltx_many', 'Picture characters have no trained LTX look yet — start from a picture here, or switch to Hailuo H3 to use up to 3 pictures.');
+    const [dot, pop] = helpDot('charsPicOnlyHelp', explain);
+    parts.push(`<div class="chars-piconly-row"><span class="chars-line-btns">${startBtns}</span>${dot}</div>${pop}`);
+  }
+
+  // Quick "+ <Name>'s line" buttons when voiced characters are picked (plain Name: line, zero tags).
+  if (voiced.length) {
+    const lineExplain = voiced.length === 1
+      ? T('characters.ltx_voice_one', "{name}'s voice is active. Write {name}: Hello. for spoken lines.", {name: voiced[0].name || voiced[0].id})
+      : T('characters.ltx_voice_many', 'Each character speaks their own lines (like {name}: Hello.).', {name: voiced[0].name || voiced[0].id});
+    const lineBtns = voiced.map(c => {
+      const nm = c.name || c.id;
+      const nmAttr = escapeHtml(JSON.stringify(nm));
+      return `<button type="button" class="ghost-btn small" onclick="insertCharacterLine(${nmAttr})">${escapeHtml(T('pictures.add_line', "+ {name}'s line", {name: nm}))}</button>`;
+    }).join(' ');
+    const [dot, pop] = helpDot('charsLinesHelp', lineExplain);
+    parts.push(`<div class="chars-lines-row"><span class="chars-lines-label">${escapeHtml(T('pictures.lines_short', 'Lines'))}</span><span class="chars-line-btns">${lineBtns}</span>${dot}</div>${pop}`);
+  }
+
+  note.innerHTML = parts.join('');
+  note.hidden = !parts.length;
 }
 
 // The character strip, filled from the server-resolved table. LTX-2.3 gets the
@@ -1516,6 +1576,7 @@ function renderCharacterStrip() {
   const current = keys.includes(previous) ? previous
     : (keys.includes(cfg.default) ? cfg.default : keys[0]);
   group.style.gridTemplateColumns = `repeat(${rows.length}, 1fr)`;
+  if (group.style && typeof group.style.setProperty === 'function') group.style.setProperty('--q-per-row', String(rows.length <= 5 ? rows.length : Math.ceil(rows.length / Math.ceil(rows.length / 5))));
   group.innerHTML = rows.map(row => {
     const needsInstall = typeof ltxCellNeedsInstall === 'function'
       && ltxCellNeedsInstall(row);
@@ -1531,10 +1592,9 @@ function renderCharacterStrip() {
               data-height="${Number(row.height || 576)}"
               data-pack="${escapeHtml(row.pack || 'q8')}"
               data-pipeline="${escapeHtml(row.pipeline || '')}"
-              title="${escapeHtml(row.title || '')}">
+              title="${escapeHtml([(row.label || row.key) + ': ' + Number(row.width) + '×' + Number(row.height), foot, row.title || ''].filter(Boolean).join('\n'))}">
         <span class="ql-name">${escapeHtml(row.label || row.key)}</span>
-        <span class="q-spec ql-spec sub">${Number(row.width)}×${Number(row.height)}</span>
-        <span class="ql-tier">${escapeHtml(foot)}</span>
+        <span class="ql-tier">${escapeHtml(needsInstall ? foot : ((String(foot).split(' · ').find(x => /\d/.test(x)) || foot).split(' / ')[0]))}</span>
       </button>`;
   }).join('');
 }
@@ -1546,13 +1606,14 @@ function renderCharacterStrip() {
 Object.assign(globalThis, {
   ltxLorasDirText,
   checkLoraUpdates, updateLora, writeLoraGuide,
-  _currentLoraModeFilter, _syncLoraPickerForEngine, importH3Lora, renderH3LoraSlot,
+  _currentLoraModeFilter, _syncLoraPickerForEngine, importH3Lora, renderH3LoraSlot, _h3ActiveUserLora,
   setH3LoraSlot, _serializeLoras, imageLorasForSubmit, enhanceLoraPaths, addLoraToActive, populateIngredientCharLoras,
   onIngredientCharChange, onIngredientCharStrength, refreshLoras, _loraGenerationCompatible,
   renderLorasList, appendTriggerToPrompt, _updateCharsPickerVisibility, refreshManualCharacters,
   _renderManualCharactersList, _renderCharsAppliedNote, renderCharacterStrip,
+  selectedManualCharacterIds, _syncCharacterHiddenInputs,
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)
   deleteLora, downloadLora, removeLoraFromActive, renameLora,
-  setLoraStrength, toggleLora,
+  setLoraStrength, stepLoraStrength, toggleLora,
 });
