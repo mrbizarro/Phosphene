@@ -1678,10 +1678,27 @@ def _install_split_prompt_encode_patch() -> None:
     PE = _blocks.PromptEncoder
     _orig_load, _orig_encode = PE.load, PE.encode
 
+    def _text_encoder_poisoned(te) -> bool:
+        # Real GemmaLanguageModel initialises _model=_tokenizer=None; if load()
+        # failed after assigning self._text_encoder, either stays None and every
+        # later call hits "Model not loaded. Call load() first." (H69).
+        if te is None:
+            return False
+        if hasattr(te, "_model") and te._model is None:
+            return True
+        if hasattr(te, "_tokenizer") and te._tokenizer is None:
+            return True
+        return False
+
     def _load_text_model(self):
+        if _text_encoder_poisoned(self._text_encoder):
+            self._text_encoder = None
         if self._text_encoder is None:
-            self._text_encoder = _blocks.GemmaLanguageModel()
-            self._text_encoder.load(self.gemma_model_id)
+            # Load, then publish: a failed load must never leave a half-built
+            # GemmaLanguageModel cached on PromptEncoder (H69).
+            cand = _blocks.GemmaLanguageModel()
+            cand.load(self.gemma_model_id)
+            self._text_encoder = cand
             _blocks.aggressive_cleanup()
 
     def _read_connector_now(fx):
@@ -1736,7 +1753,18 @@ def _install_split_prompt_encode_patch() -> None:
 
     def load(self):
         if not split_prompt_encode_wanted():
-            _orig_load(self)
+            if _text_encoder_poisoned(getattr(self, "_text_encoder", None)):
+                self._text_encoder = None
+            try:
+                _orig_load(self)
+            except Exception:
+                # Upstream PromptEncoder.load() assigns self._text_encoder
+                # before .load() succeeds; drop any half-loaded encoder so a
+                # retry after the model pack lands reloads cleanly (H69).
+                if _text_encoder_poisoned(getattr(self, "_text_encoder", None)):
+                    self._text_encoder = None
+                    self._feature_extractor = None
+                raise
             _read_connector_now(getattr(self, "_feature_extractor", None))
             return None
         # Text model only: the connector loads after it is gone (encode).
@@ -4453,6 +4481,13 @@ for line in sys.__stdin__:
             })
         except Exception as exc:
             _last_activity = time.time()
+            # Drop any half-loaded cached pipeline so the next retry reloads
+            # cleanly instead of hitting "Model not loaded. Call load() first." (H69).
+            try:
+                with _pipe_lock:
+                    release_pipelines(None)
+            except Exception:
+                pass
             emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
         finally:
             # Always clear the per-call TeaCache config so a future
@@ -4582,6 +4617,11 @@ for line in sys.__stdin__:
             })
         except Exception as exc:
             _last_activity = time.time()
+            try:
+                with _pipe_lock:
+                    release_pipelines(None)
+            except Exception:
+                pass
             emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
         finally:
             _is_busy = False
@@ -4761,6 +4801,11 @@ for line in sys.__stdin__:
             })
         except Exception as exc:
             _last_activity = time.time()
+            try:
+                with _pipe_lock:
+                    release_pipelines(None)
+            except Exception:
+                pass
             emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
         finally:
             _is_busy = False
@@ -4894,6 +4939,11 @@ for line in sys.__stdin__:
             })
         except Exception as exc:
             _last_activity = time.time()
+            try:
+                with _pipe_lock:
+                    release_pipelines(None)
+            except Exception:
+                pass
             emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
         finally:
             _is_busy = False

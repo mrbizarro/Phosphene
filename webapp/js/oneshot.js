@@ -498,6 +498,11 @@ async function osGenerate() {
   try {
     const r = await fetch('/oneshot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) });
     const d = await r.json();
+    if ((!r.ok || !d.ok) && d && d.code === 'pack_missing' && d.what === 'base_models'
+        && typeof _videoModelOfferDownloadModal === 'function'
+        && _videoModelOfferDownloadModal(d.error, { downloading: !!d.downloading })) {
+      return;
+    }
     if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
     OS.lastSubmitted = d.id;
     if (est) {

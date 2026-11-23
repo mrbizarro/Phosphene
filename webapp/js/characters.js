@@ -2460,6 +2460,11 @@ async function charactersGenerate() {
       body: fd.toString(),
     });
     const j = await r.json();
+    if ((!r.ok || !j.ok) && j && j.code === 'pack_missing' && j.what === 'base_models'
+        && typeof _videoModelOfferDownloadModal === 'function'
+        && _videoModelOfferDownloadModal(j.error, { downloading: !!j.downloading })) {
+      return;
+    }
     if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
     if (toast) {
       toast.hidden = false;

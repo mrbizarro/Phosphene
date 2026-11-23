@@ -607,6 +607,11 @@ def post_queue_retry(h, path, qs, ctype) -> None:
         _weights = P.train_weights_refusal()
         if _weights:
             h._json({"error": _weights, "code": "train_models"}, 409); return
+    # H71: refuse before queueing when the base video model is missing so the UI
+    # can offer a one-click download instead of failing after its turn.
+    _base = P.base_models_refusal(new_job.get("params") or {})
+    if _base:
+        h._json(_base, 400); return
     _lic = P.job_licence_refusal(new_job["params"])
     if _lic:
         h._json(_lic, 451); return
@@ -658,10 +663,18 @@ def post_queue_batch(h, path, qs, ctype) -> None:
             _h3_ref = P.h3_job_settings_refusal(job.get("params") or {})
             _code = _h3_ref[0] if (_h3_ref and _h3_ref[1] == refusal) else "input_missing"
             h._json({"error": refusal, "code": _code}, 400); return
+    for job in built[:1]:            # the form is shared; one base-model check
+        _base = P.base_models_refusal(job.get("params") or {})
+        if _base:
+            h._json(_base, 400); return
     for job in built[:1]:            # the form is shared; one licence screen
         _lic = P.job_licence_refusal(job.get("params") or {})
         if _lic:
             h._json(_lic, 451); return
+    for job in built[:1]:            # the form is shared; one References check
+        _refs = P.h3_refs_refusal(job.get("params") or {})
+        if _refs:
+            h._json(_refs, 400); return
     for job in built[:1]:            # the form is shared; one install offer
         refusal = P.a2v_stem_refusal(job["params"])
         if refusal:
@@ -1017,6 +1030,11 @@ def post_run(h, path, qs, ctype) -> None:
     _lic = P.job_licence_refusal(job.get("params") or {})
     if _lic:
         h._json(_lic, 451); return
+    # H62: References needs its own model; refuse before enqueueing so the UI
+    # can offer the one-click download instead of failing after its turn.
+    _refs = P.h3_refs_refusal(job.get("params") or {})
+    if _refs:
+        h._json(_refs, 400); return
     # 4.17 Codex EST-10: a follow-up that can never queue is refused NOW,
     # not discovered in the log after a long Extend render.
     refusal = P.extend_face_fix_refusal(job["params"])
@@ -1531,6 +1549,10 @@ def post_queue_newtake(h, path, qs, ctype) -> None:
         "started_at": None, "finished_at": None, "elapsed_sec": None,
         "params": new_params, "raw_path": None, "output_path": None, "error": None,
     }
+    # H71: refuse before queueing when the base video model is missing.
+    _base = P.base_models_refusal(new_job.get("params") or {})
+    if _base:
+        h._json(_base, 400); return
     # 4.19.8: a model whose licence asks for an "I accept" (model_licences.py).
     _lic = P.job_licence_refusal(new_job.get("params") or {})
     if _lic:
@@ -1665,6 +1687,10 @@ def post_take_resume(h, path, qs, ctype) -> None:
         "started_at": None, "finished_at": None, "elapsed_sec": None,
         "params": base_params, "raw_path": None, "output_path": None, "error": None,
     }
+    # H71: refuse before queueing when the base video model is missing.
+    _base = P.base_models_refusal(new_job.get("params") or {})
+    if _base:
+        h._json(_base, 400); return
     # 4.19.8: a model whose licence asks for an "I accept" (model_licences.py).
     _lic = P.job_licence_refusal(new_job.get("params") or {})
     if _lic:

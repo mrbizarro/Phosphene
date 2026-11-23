@@ -208,6 +208,19 @@ function rmRenderReady(st) {
   }
 }
 
+// The promo clip only plays while the promo is on screen. It has no autoplay and no src in the markup: an
+// autoplaying clip in the hidden Remote page kept decoding in the background and made the main player stutter (L211).
+function rmPromo(on) {
+  const v = document.querySelector('#rmPro video[data-src]');
+  if (!v) return;
+  if (on) {
+    if (!v.getAttribute('src')) { v.src = v.dataset.src; v.preload = 'metadata'; }
+    if (v.paused) v.play().catch(() => {});
+  } else if (v.getAttribute('src')) {
+    try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+  }
+}
+
 function rmRender() {
   const st = state;
   if (!st) return;
@@ -216,6 +229,8 @@ function rmRender() {
   // A Pro member never sees the upsell: no Remote module yet = a status line instead.
   const member = rmIsMember(st);
   pro.hidden = !gated || member;
+  const section = $('remoteSection');
+  rmPromo(!pro.hidden && !(section && section.hidden));
   if (wait) { wait.hidden = !gated || !member; if (!wait.hidden) rmRenderWait(st); }
   main.hidden = gated;
   const [cls, text] = rmConnection(st);
@@ -354,6 +369,7 @@ function remoteTabEnter() {
 }
 function remoteTabLeave() {
   if (poll) { clearInterval(poll); poll = null; }
+  rmPromo(false);
 }
 
 Object.assign(globalThis, { remoteTabEnter, remoteTabLeave, rmPartsRetry, rmStartInApp });

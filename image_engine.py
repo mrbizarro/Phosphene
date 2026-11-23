@@ -88,6 +88,7 @@ import distribution as _dist   # Pinokio vs the Mac app wording
 #      in the finally — so a normal exit doesn't leave a stale entry.
 _ACTIVE_PROC_LOCK = threading.Lock()
 _ACTIVE_PROCS: set = set()  # set[subprocess.Popen]
+_STOPPED_PIDS: set[int] = set()
 
 
 def _clean_subprocess_env() -> dict:
@@ -452,12 +453,30 @@ def _unregister_active_proc(proc) -> None:
         _ACTIVE_PROCS.discard(proc)
 
 
-def kill_active_image_procs() -> int:
-    """Terminate every in-flight image subprocess.
+def _consume_stopped_pid(pid: int | None) -> bool:
+    if pid is None:
+        return False
+    with _ACTIVE_PROC_LOCK:
+        if pid in _STOPPED_PIDS:
+            _STOPPED_PIDS.discard(pid)
+            return True
+    return False
+
+
+def snapshot_active_image_procs() -> list:
+    """Return a snapshot of currently registered image subprocesses."""
+    with _ACTIVE_PROC_LOCK:
+        return list(_ACTIVE_PROCS)
+
+
+def kill_active_image_procs(procs: list | None = None) -> int:
+    """Terminate in-flight image subprocesses.
 
     Returns the number of processes signaled. Called from the panel's
     `stop_current_job` so /stop covers both video (HELPER) and image
-    (these) generation paths uniformly.
+    (these) generation paths uniformly. When `procs` is supplied (snapshotted
+    under LOCK alongside cancel_requested), only those processes are signaled
+    so a successor job cannot be hit by a stale /stop (H70).
 
     Sends SIGTERM to each proc's whole process group (which is why the
     Popens use `start_new_session=True`). Caller is responsible for
@@ -465,10 +484,19 @@ def kill_active_image_procs() -> int:
     """
     import os
     import signal
-    with _ACTIVE_PROC_LOCK:
-        procs = list(_ACTIVE_PROCS)
+    if procs is None:
+        with _ACTIVE_PROC_LOCK:
+            procs = list(_ACTIVE_PROCS)
+    else:
+        procs = list(procs)
     killed = 0
     for p in procs:
+        pid = getattr(p, "pid", None)
+        if pid is not None and p.poll() is None:
+            with _ACTIVE_PROC_LOCK:
+                if len(_STOPPED_PIDS) > 64:
+                    _STOPPED_PIDS.clear()
+                _STOPPED_PIDS.add(pid)
         try:
             pgid = os.getpgid(p.pid)
             os.killpg(pgid, signal.SIGTERM)
@@ -1919,6 +1947,8 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     last_lines: collections.deque[str] = collections.deque(maxlen=64)
     stderr_tail = ""
     timed_out = False
+    cancelled = False
+    stopped_by_panel = False
     image_diagnostics.attempt(diagnostic, "spawn", cmd)
     _spawned_at = time.time()
     proc = subprocess.Popen(
@@ -2095,8 +2125,9 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             cancelled = bool(_CANCEL_CHECK and _CANCEL_CHECK())
         except Exception:
             cancelled = False
+        stopped_by_panel = _consume_stopped_pid(getattr(proc, "pid", None))
         image_diagnostics.attempt(diagnostic, "finish",
-            "cancelled" if cancelled else "timeout" if timed_out else
+            "cancelled" if (cancelled or stopped_by_panel) else "timeout" if timed_out else
             "completed" if getattr(proc, "returncode", None) == 0 else "failed",
             getattr(proc, "returncode", None))
         _unregister_active_proc(proc)
@@ -2116,10 +2147,23 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # word of why. The tail still follows in full for the user and the Logs.
     cause = _subprocess_cause_line(last_lines)
     cause_note = f"; last line: {cause[:220]}" if cause else ""
-    # SIGTERM/SIGKILL → user hit /stop. Surface as a typed cancellation
-    # so the queue worker marks the job 'cancelled' rather than 'failed'.
+    # SIGTERM/SIGKILL: only classify as /stop when this job was cancelled or
+    # signaled by kill_active_image_procs() (or outside the panel where
+    # _CANCEL_CHECK is unset). Otherwise an external SIGTERM or macOS memory
+    # kill (SIGKILL) must not be mislabeled "cancelled by /stop" (H70).
     if rc in (-15, 143, -9, 137):
-        raise ImageJobCancelled(f"{bin_name} cancelled by /stop (rc={rc})")
+        if cancelled or stopped_by_panel or _CANCEL_CHECK is None:
+            raise ImageJobCancelled(f"{bin_name} cancelled by /stop (rc={rc})")
+        if rc in (-9, 137):
+            raise RuntimeError(
+                f"{bin_name} was stopped by macOS memory pressure or an external "
+                f"SIGKILL (rc={rc}){cause_note}. Close other apps or pick a "
+                f"smaller picture engine and press Retry."
+            )
+        raise RuntimeError(
+            f"{bin_name} was stopped from outside Phosphene (SIGTERM, rc={rc})"
+            f"{cause_note}. Nothing is wrong with your settings — press Retry."
+        )
     if rc != 0:
         # Detect MLX/Metal `abort()` from the GPU completion thread (issue #2:
         # @Akossimon's three crashes in 2 minutes were all this exact

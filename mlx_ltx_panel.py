@@ -5932,7 +5932,8 @@ def job_needs_ltx_base(params: dict | None) -> bool:
         return True
     if str(p.get("mode") or "t2v").strip().lower() in _NO_LTX_BASE_MODES:
         return False
-    return (str(p.get("engine") or "ltx").strip().lower()) not in _NO_LTX_BASE_ENGINES
+    eng = str(p.get("engine") or (p.get("take") or {}).get("engine") or "ltx").strip().lower()
+    return eng not in _NO_LTX_BASE_ENGINES
 
 
 def base_models_refusal(params: dict | None) -> dict | None:
@@ -11225,7 +11226,7 @@ def _h3image_mem_mode(setting: str, asked: bool) -> str:
 # 4.19.6: the non-watchdog GPU aborts in prompt encoding that pass on a later,
 # fresh start (fleet 4.19.2+: M2 Max / macOS 15.x, M1 Max / macOS 26.6) - see
 # WarmHelper.run. Re-run once, in a fresh helper, after this pause.
-METAL_ABORT_RETRY_LINES = ("gpu_internal", "gpu_victim", "gpu_other")
+METAL_ABORT_RETRY_LINES = ("gpu_internal", "gpu_victim", "gpu_oom", "gpu_other")
 try:
     METAL_ABORT_COOLDOWN_SEC = max(0, int(os.environ.get("LTX_METAL_ABORT_COOLDOWN_SEC") or 45))
 except ValueError:
@@ -16088,6 +16089,65 @@ def h3_refs_install(push_log) -> dict:
     return h3_refs.start(root, spec, H3_ROOT, paths.get("python"), push_log,
                          free_gb=_h3_refs_free_gb(root), ram_gb=float(SYSTEM_RAM_GB or 0) or None,
                          gate=_h3_refs_build_gate)
+
+
+def h3_refs_refusal(params: dict | None) -> dict | None:
+    """Submit-time refusal for /queue/add and /queue/batch when a job asks for
+    References before its model is ready on this Mac (H62). Returns None when
+    the job does not use References or is ready; otherwise a 400 payload whose
+    `code` lets the UI offer the one-click download instead of failing later."""
+    p = params or {}
+    if str(p.get("engine") or "ltx").strip().lower() != "h3":
+        return None
+    if not p.get("h3_refs") or str(p.get("mode") or "t2v").strip().lower() not in h3_refs.MODES:
+        return None
+    spec = h3_refs_spec()
+    if not spec:
+        return {
+            "error": (f"{h3_refs.NAME} is part of Phosphene Pro, and Pro is not active "
+                      "on this Mac. Switch References off to render with Face to keep."),
+            "code": "h3_refs_unavailable",
+        }
+    floor = h3_refs.min_ram_gb(spec)
+    if SYSTEM_RAM_GB and float(SYSTEM_RAM_GB) + 0.5 < floor:
+        return {
+            "error": (f"{h3_refs.NAME} needs a Mac with {floor:.0f} GB of memory or more; "
+                      f"this Mac has {float(SYSTEM_RAM_GB):.0f} GB. Switch References off to "
+                      "render with Face to keep."),
+            "code": "h3_refs_ram",
+        }
+    if h3_available() and not h3_supports_reference():
+        return {
+            "error": (f"{h3_refs.NAME} needs a newer Hailuo H3. "
+                      + _dist.say("Press Update in Pinokio (your downloads stay), then come back.",
+                                  "Phosphene updates it by itself; if this stays, quit and reopen Phosphene.")),
+            "code": "h3_refs_runner",
+        }
+    paths = h3_refs_paths(spec)
+    if paths["files_ok"]:
+        return None
+    st = h3_refs.state()
+    installing = st.get("status") == "running"
+    root = _h3_refs_models_root()
+    pl = h3_refs.plan(root, spec, _h3_refs_free_gb(root), float(SYSTEM_RAM_GB or 0) or None)
+    if installing:
+        error = (f"{h3_refs.NAME} is still downloading and setting up on this Mac. "
+                 "Generate again when it finishes, or switch References off.")
+    elif pl.get("disk_ok") is False:
+        need = round(pl.get("disk_need_gb") or 66)
+        error = (f"The models disk has {pl.get('free_gb')} GB free; {h3_refs.NAME} needs "
+                 f"about {need} GB free while it builds. Free some space on it, then come back.")
+    else:
+        error = (f"{h3_refs.NAME} is not downloaded yet: "
+                 + "; ".join(paths["missing"])
+                 + ". Click Get References to download it once.")
+    return {
+        "error": error,
+        "code": "h3_refs_missing",
+        "installing": installing,
+        "can_install": (not installing) and (pl.get("disk_ok") is not False),
+        "have_gb": pl.get("have_gb") or 0,
+    }
 
 
 H3_REFS_BUILD_HOLD = ("Queue held: References is being set up on this Mac (about 10 minutes). "
@@ -24204,8 +24264,9 @@ def _star_prompt_after_job(job: dict) -> None:
 PRO_HINT_MAX_DISMISSALS = 3
 PRO_HINT_GAP_SEC = 48 * 3600
 PRO_HINT_WHERE = ("topbar", "remote_hint", "remote_panel", "pro_modal", "star_card",
-                  "speedup_line", "feature_gate", "settings", "whats_new",
-                  "whats_new_speed", "your_pro")
+                  "speedup_line", "fast_draft_line", "vertical_hint", "feature_gate",
+                  "settings", "whats_new", "whats_new_speed", "how_take",
+                  "your_pro", "china_renew")
 # pro_click (docs/ANALYTICS.md): `open` the Pro window opened, `get` a Get Pro / plan link pressed,
 # and inside the window `restore` (Restore Pro), `key` (a licence key submitted; never the key), `close`.
 PRO_CLICK_ACTIONS = ("open", "get", "restore", "key", "close")
@@ -28989,6 +29050,19 @@ class WarmHelper:
                         and self._crash_line in METAL_ABORT_RETRY_LINES
                         and self._last_phase == "encode"
                         and not self.is_alive()):
+                    with LOCK:
+                        cancelled = bool(job is not None
+                                         and job.get("cancel_requested"))
+                    if cancelled:
+                        raise
+                    # H72 (fleet, 5.0.80 M2 Pro 16 GB): Metal OutOfMemory in
+                    # prompt encoding skipped both the memory hold and the
+                    # automatic retry. Wait for free memory on small Macs
+                    # first (H43/#206), or refuse plainly with what to close.
+                    if (self._crash_line == "gpu_oom"
+                            and small_mac_for_encode_hold()):
+                        metal_watchdog_mark_mac_encode_kill()
+                        ltx_encode_memory_hold(job)
                     abort_retry_used = True
                     if self._abort_cooldown(job):
                         raise
@@ -29575,10 +29649,16 @@ def reap_orphan_subprocesses() -> None:
 
 
 def _kill_image_procs() -> None:
-    """Atexit hook — SIGTERM any in-flight image-engine subprocesses
-    (HiDream BF16 helper, mflux per-family binaries). Each engine registers
-    its Popen via _register_active_proc; kill_active_image_procs walks
-    the set and SIGTERMs each process group."""
+    """Atexit hook — mark any running job cancelled before SIGTERMing in-flight
+    image-engine subprocesses (H70, mirroring _kill_helper_at_exit). Quitting
+    Phosphene mid-picture is not a failed render."""
+    try:
+        with LOCK:
+            cur = STATE.get("current")
+            if cur is not None:
+                cur["cancel_requested"] = True
+    except Exception:                                  # noqa: BLE001
+        pass
     try:
         agent_image_engine.kill_active_image_procs()
     except Exception:
@@ -30140,6 +30220,7 @@ def stop_current_job(timeout: float = 5.0, expect_id: str | None = None) -> bool
         h3_pgid = STATE.get("h3_pgid")
         music_pgid = STATE.get("music_pgid")
         speech_pgid = STATE.get("speech_pgid")
+        image_procs = agent_image_engine.snapshot_active_image_procs()
     push("Stop requested — killing helper + ffmpeg post-process + training subprocess to abort current job.")
     HELPER.kill()
     if music_pgid:
@@ -30148,11 +30229,12 @@ def stop_current_job(timeout: float = 5.0, expect_id: str | None = None) -> bool
         _stop_speech_proc(pgid=speech_pgid)
     # Image-engine subprocesses (HiDream's BF16 helper, mflux's per-family
     # binaries) live outside HELPER. Without this they would run to
-    # completion regardless of /stop. Each engine registers its Popen via
-    # _register_active_proc; kill_active_image_procs sends SIGTERM to the
-    # whole process group of each.
+    # completion regardless of /stop. Snapshotted under LOCK alongside
+    # cancel_requested so a next picture job starting during HELPER.kill()
+    # is never hit by this /stop (H70).
     try:
-        n_killed = agent_image_engine.kill_active_image_procs()
+        n_killed = (agent_image_engine.kill_active_image_procs(image_procs)
+                    if image_procs else 0)
         if n_killed:
             push(f"SIGTERM sent to {n_killed} image subprocess(es)")
     except Exception as e:        # noqa: BLE001
@@ -33392,6 +33474,9 @@ def _sb_enqueue(job_form: dict) -> str:
     _h3_ref = h3_job_settings_refusal(job.get("params") or {})
     if _h3_ref:
         raise CharacterRequestError(_h3_ref[1])
+    _base = base_models_refusal(job.get("params") or {})
+    if _base:
+        raise CharacterRequestError(_base["error"])
     job["params"]["source"] = "storyboard"
     with QUEUE_COND:
         STATE["queue"].append(job)

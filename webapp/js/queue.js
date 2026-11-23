@@ -2594,6 +2594,57 @@ async function h3RefsGet() {
     _h3RefsUpdate();
   }
 }
+function _h3RefsFocusGet() {
+  const b = document.getElementById('h3RefsBlock');
+  if (b && typeof b.scrollIntoView === 'function') b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function _h3RefsOfferDownloadModal(bodyText, opts) {
+  if (typeof _phModalShow !== 'function') return false;
+  const resume = !!(opts && opts.resume);
+  return _phModalShow({
+    kicker: T('queue.needs_a_download', 'Needs a download'),
+    title: T('queue.h3_refs_not_downloaded_title', 'References is not downloaded yet'),
+    body: bodyText,
+    primaryLabel: resume ? T('queue.h3_refs_resume', 'Resume') : T('queue.h3_refs_get', 'Get References'),
+    onPrimary: () => { _h3RefsFocusGet(); h3RefsGet(); },
+    secondaryLabel: T('queue.not_now', 'Not now'),
+  });
+}
+function h3RefsSubmitBlock(fd) {
+  const eng = fd ? String(fd.get('engine') || 'ltx') : String(document.body.dataset.engine || 'ltx');
+  const mode = fd ? String(fd.get('mode') || '') : String(currentMode || '');
+  if (eng !== 'h3' || !['t2v', 'character'].includes(mode)) return false;
+  const sw = document.getElementById('h3_refs');
+  const wants = !!(sw && sw.checked) || !!(fd && fd.get('h3_refs'));
+  if (!wants) return false;
+  const info = _h3RefsInfo();
+  if (!info.offered || info.locked || info.available) return false;
+  const pl = info.plan || {};
+  const warn = (m) => {
+    if (typeof phosToast === 'function') phosToast(m, { kind: 'warn', duration: 6000 });
+    else alert(m);
+  };
+  if (info.installing) {
+    _h3RefsFocusGet();
+    warn(T('queue.h3_refs_submit_installing', 'References is still downloading and setting up on this Mac. Generate again when it finishes, or switch References off.'));
+    return true;
+  }
+  if (info.reason === 'runner' || pl.ram_ok === false || pl.disk_ok === false) {
+    _h3RefsUpdate();
+    _h3RefsFocusGet();
+    const chk = document.getElementById('h3RefsCheck');
+    const msg = (chk && chk.textContent) || T('queue.h3_refs_not_ready', 'References cannot run on this Mac right now.');
+    warn(msg);
+    return true;
+  }
+  const resume = !!info.error || Number(pl.have_gb || 0) > 0.5;
+  const msg = _h3RefsPlanText(pl);
+  if (!_h3RefsOfferDownloadModal(msg, { resume })) {
+    _h3RefsFocusGet();
+    warn(msg);
+  }
+  return true;
+}
 
 globalThis.PICKERS = [
   'image',
@@ -6418,6 +6469,10 @@ async function retryJob(jobId, opts) {
         if (typeof workflowSwitch === 'function') workflowSwitch('train');
         return;
       }
+      if (data.code === 'pack_missing' && data.what === 'base_models'
+          && _videoModelOfferDownloadModal(data.error, { downloading: !!data.downloading })) {
+        return;
+      }
       alert(T('queue.retry_failed', 'Retry failed: ') + (data.error || ('HTTP ' + r.status)));
       return;
     }
@@ -8996,6 +9051,10 @@ async function newTakeFromPath(path, opts) {
   catch (e) { r = { ok: false, error: String(e) }; }
   const name = String(path).split('/').pop();
   if (!r || !r.ok) {
+    if (r && r.code === 'pack_missing' && r.what === 'base_models'
+        && _videoModelOfferDownloadModal(r.error, { downloading: !!r.downloading })) {
+      return r;
+    }
     phosToast((r && r.error) || 'New take could not be queued.',
               { kind: 'danger', duration: 7000 });
     return r;
@@ -9225,6 +9284,10 @@ async function takeResumeFromPath(path) {
   try { r = await (await fetch('/take/resume', { method: 'POST', body: fd })).json(); }
   catch (e) { r = { ok: false, error: String(e) }; }
   if (!r || !r.ok) {
+    if (r && r.code === 'pack_missing' && r.what === 'base_models'
+        && _videoModelOfferDownloadModal(r.error, { downloading: !!r.downloading })) {
+      return;
+    }
     phosToast((r && r.error) || 'Could not resume this One Shot.', { kind: 'danger', duration: 7000 });
     return;
   }
@@ -10816,7 +10879,22 @@ async function queueBatch() {
   // or every take comes back identical. -1 is the panel's "random", resolved
   // per job at render time and recorded as seed_used.
   if (_batchMode === 'seeds') fd.set('seed', '-1');
-  const r = await api('/queue/batch', 'POST', fd);
+  if (typeof h3RefsSubmitBlock === 'function' && h3RefsSubmitBlock(fd)) return;
+  let r;
+  try {
+    r = await api('/queue/batch', 'POST', fd);
+  } catch (e) {
+    if (e && e.code === 'h3_refs_missing' && e.body && e.body.can_install
+        && _h3RefsOfferDownloadModal(e.message, { resume: Number(e.body.have_gb || 0) > 0.5 })) {
+      return;
+    }
+    if (e && e.code === 'pack_missing' && e.body && e.body.what === 'base_models'
+        && _videoModelOfferDownloadModal(e.message, { downloading: !!e.body.downloading })) {
+      return;
+    }
+    alert(T('queue.batch_error', 'Batch error: ') + ((e && e.message) || e));
+    return;
+  }
   if (r && r.error) { alert(T('queue.batch_error', 'Batch error: ') + r.error); return; }
   if (r && r.added) {
     if (_batchMode === 'prompts') {
@@ -10972,6 +11050,9 @@ function _prepareAndValidateVideoForm(fd, opts) {
     const _flexMsg = h3FlexSubmitBlock();
     if (_flexMsg) { sayWarn(_flexMsg); return false; }
   }
+  // H62: References switched on before its model is downloaded — refuse up front
+  // and offer the one-click download instead of queueing a job that fails later.
+  if (typeof h3RefsSubmitBlock === 'function' && h3RefsSubmitBlock(fd)) return;
 
   if (fd.get('mode') === 'ingredients' && !ingredientsServed()) {
     alert(T('queue.ingredients_needs_the_ltx_2_2', 'Ingredients needs the LTX-2.3 generation — its reference adapter ')
@@ -11324,6 +11405,14 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     // not "offline" — show its sentence, and for a missing download offer
     // the place to get it, before anything renders.
     if (e && e.status) {
+      if (e.code === 'h3_refs_missing' && e.body && e.body.can_install
+          && _h3RefsOfferDownloadModal(e.message, { resume: Number(e.body.have_gb || 0) > 0.5 })) {
+        return;
+      }
+      if (e.code === 'pack_missing' && e.body && e.body.what === 'base_models'
+          && _videoModelOfferDownloadModal(e.message, { downloading: !!e.body.downloading })) {
+        return;
+      }
       const _pk = e.body && e.body.pinokio;
       const shown = (e.code === 'pack_missing' && typeof _phModalShow === 'function'
                      && typeof openModelsModal === 'function')
@@ -11709,9 +11798,29 @@ function proHintDismiss(job) {
   document.querySelectorAll('.pro-hint-row').forEach(el => { if (el.dataset.proHint === job) el.remove(); });
 }
 
+function _videoModelOfferDownloadModal(bodyText, opts) {
+  if (typeof _phModalShow !== 'function') return false;
+  const downloading = !!(opts && opts.downloading);
+  const canStart = !downloading && typeof downloadFirstVideo === 'function';
+  return _phModalShow({
+    kicker: T('queue.needs_a_download', 'Needs a download'),
+    title: T('queue.video_model_not_downloaded_title', 'Video model is not downloaded yet'),
+    body: bodyText,
+    primaryLabel: canStart
+      ? T('queue.download_video_model', 'Download the video model')
+      : T('queue.open_models', 'Open Models'),
+    onPrimary: canStart
+      ? () => downloadFirstVideo()
+      : () => { if (typeof openModelsModal === 'function') openModelsModal(); },
+    secondaryLabel: T('queue.not_now', 'Not now'),
+  });
+}
+
 Object.assign(globalThis, {proHintSee, proHintDismiss});
 Object.assign(globalThis, {h3AppInstallStart, h3AppInstallStop, h3AppInstallRender});
-Object.assign(globalThis, {_h3RefsUpdate, _h3RefsRestore, h3RefsGet, h3RefsChanged, _h3RefsEtaMin});
+Object.assign(globalThis, {_h3RefsUpdate, _h3RefsRestore, h3RefsGet, h3RefsChanged, _h3RefsEtaMin,
+  _h3RefsFocusGet, _h3RefsOfferDownloadModal, h3RefsSubmitBlock,
+  _videoModelOfferDownloadModal});
 
 
 // ===== Re-voice (Pro) =====

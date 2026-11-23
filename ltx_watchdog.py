@@ -16,11 +16,25 @@ import sys
 import hostinfo
 
 TOKEN_CHUNK = 128
+TOKEN_CHUNK_SHORT = 64
 
 
 @lru_cache(maxsize=1)
 def _affected_host() -> bool:
     return hostinfo.IS_MAC and hostinfo.chip_brand() in ("Apple M2 Pro", "Apple M2 Max")
+
+
+def _low_ram_stream() -> bool:
+    return (os.environ.get("LTX_LOW_RAM_STREAM") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def _short_gpu_steps() -> bool:
+    return (os.environ.get("MLX_MAX_OPS_PER_BUFFER") or "").strip() == "1"
+
+
+def _chunk_size() -> int:
+    return TOKEN_CHUNK_SHORT if _short_gpu_steps() else TOKEN_CHUNK
 
 
 def enabled() -> bool:
@@ -29,7 +43,9 @@ def enabled() -> bool:
     force = os.environ.get("PHOSPHENE_TEST_LTX_WATCHDOG")
     if force in ("0", "1"):
         return force == "1"
-    return _affected_host()
+    if not hostinfo.IS_MAC:
+        return False
+    return _affected_host() or _low_ram_stream() or _short_gpu_steps()
 
 
 def project(linear, inputs):
@@ -43,9 +59,10 @@ def project(linear, inputs):
     length = inputs.shape[-2]
     if length == 0:
         return linear(inputs)
+    chunk = _chunk_size()
     parts = []
-    for start in range(0, length, TOKEN_CHUNK):
-        part = linear(inputs[..., start:start + TOKEN_CHUNK, :])
+    for start in range(0, length, chunk):
+        part = linear(inputs[..., start:start + chunk, :])
         mx.eval(part)
         parts.append(part)
     return parts[0] if len(parts) == 1 else mx.concatenate(parts, axis=-2)

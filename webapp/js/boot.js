@@ -89,19 +89,28 @@ function siteLinkApply(a) {
 (function wireSiteLinks() {
   const go = () => document.querySelectorAll('a[data-utm-campaign]').forEach(siteLinkApply);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
-  document.addEventListener('click', (e) => {
+  const onLink = (e) => {
+    if (e.type === 'auxclick' && e.button !== 1) return;
     const a = e.target && e.target.closest ? e.target.closest('a[data-utm-campaign]') : null;
     if (a) siteLinkApply(a);
-    // Anonymous count of Get Pro clicks and which surface (owner, 8 Nov 2026); opt-out is the server's.
-    if (a && a.dataset.utmCampaign === 'get-pro' && typeof _uiEvent === 'function') {
-      // data-pro-where names the surface when utm_content carries something else (What's new: the version).
-      const where = (a.dataset.proWhere || a.dataset.utmContent || '').replace(/-/g, '_');
-      // The Pro window's plan buttons and What's new's offer links also say which plan (monthly, yearly, founding);
-      // nothing else rides along.
-      const plan = (where === 'pro_modal' || where === 'whats_new') && ['monthly', 'yearly', 'founding'].includes(a.dataset.plan) ? a.dataset.plan : null;
-      if (where && where !== 'speedup_line') _uiEvent('pro_click', plan ? {where, action: 'get', plan} : {where, action: 'get'});
+    // Anonymous count of every Get Pro / pricing link click and which surface (owner, 8 Nov 2026;
+    // widened 22 Nov 2026 so upgrade, pricing and every /pricing link report a press); opt-out is the server's.
+    if (a && typeof _uiEvent === 'function') {
+      const cmp = a.dataset.utmCampaign || '';
+      const href = a.getAttribute('href') || '';
+      const isPricingLink = SITE_PRO_CAMPAIGNS.includes(cmp) || /\/pricing(?:[/?#]|$)/.test(href);
+      if (isPricingLink) {
+        // data-pro-where names the surface when utm_content carries something else (What's new: the version).
+        const where = (a.dataset.proWhere || a.dataset.utmContent || '').replace(/-/g, '_');
+        // The Pro window's plan buttons and What's new's offer links also say which plan (monthly, yearly, founding);
+        // nothing else rides along.
+        const plan = (where === 'pro_modal' || where === 'whats_new') && ['monthly', 'yearly', 'founding'].includes(a.dataset.plan) ? a.dataset.plan : null;
+        if (where && where !== 'speedup_line') _uiEvent('pro_click', plan ? {where, action: 'get', plan} : {where, action: 'get'});
+      }
     }
-  }, true);
+  };
+  document.addEventListener('click', onLink, true);
+  document.addEventListener('auxclick', onLink, true);
 })();
 // Developer-only text (environment variables, file paths, docs pages) is marked
 // data-hide-mac-app in the page: the Mac app's person never sees it.

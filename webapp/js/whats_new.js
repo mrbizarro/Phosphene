@@ -159,7 +159,7 @@ function wnProSec(r, proUser, opts) {
   if (full && !proUser) {
     body += wnShowcase(r.showcase)
       + `<div class="wn-ask"><p>${wnEsc(WN_ASK)}</p>`
-      + `<a class="wn-ask-link" href="${wnEsc(r.pricing_url || 'https://phosphene.video/pricing/')}" data-utm-campaign="support" data-utm-content="whats-new" target="_blank" rel="noopener">${T('whatsnew.support_phosphene', 'Support Phosphene')} <span aria-hidden="true">↗</span></a></div>`;
+      + `<a class="wn-ask-link" href="${wnEsc(r.pricing_url || 'https://phosphene.video/pricing/')}" data-utm-campaign="get-pro" data-utm-content="whats-new" target="_blank" rel="noopener">${T('whatsnew.support_phosphene', 'Support Phosphene')} <span aria-hidden="true">↗</span></a></div>`;
   }
   return `<section class="wn-sec wn-sec-pro">${wnSecHead(T('whatsnew.new_in_pro', 'New in Pro'), 'is-pro', (r.pro || []).length)}${body}</section>`;
 }
@@ -386,9 +386,19 @@ function wnWire(root) {
   try { root.querySelectorAll('a[data-utm-campaign]').forEach(a => { if (typeof siteLinkApply === 'function') siteLinkApply(a); }); } catch (e) {}
 }
 
+// A clip that leaves the screen must stop decoding: pause it and drop its source. WebKit keeps decoding a removed or
+// replaced <video> until it is garbage-collected, and that background decoding made the main player stutter (L211).
+function wnUnload(root) {
+  if (!root) return;
+  root.querySelectorAll('video').forEach(v => {
+    try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+  });
+}
+
 function wnPaint() {
   const box = WN.el && WN.el.querySelector('.dlg');
   if (!box) return;
+  wnUnload(box);
   box.innerHTML = wnRender(WN.data);
   wnWire(box);
 }
@@ -407,7 +417,7 @@ function wnKey(e) {
 
 function wnClose() {
   if (WN.io) { WN.io.disconnect(); WN.io = null; }
-  if (WN.el) { WN.el.remove(); WN.el = null; }
+  if (WN.el) { wnUnload(WN.el); WN.el.remove(); WN.el = null; }
   document.removeEventListener('keydown', wnKey, true);
   window._phModalOpen = false;
   wnMarkSeen();

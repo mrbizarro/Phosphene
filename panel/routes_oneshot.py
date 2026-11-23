@@ -76,6 +76,10 @@ def post_oneshot(h, path, qs, ctype) -> None:
     if not take:
         # make_job refused the take (it logs why) — say so instead of queueing a clip
         h._json({"ok": False, "error": "the request did not become a One Shot — check seconds and engine"}, 400); return
+    # H71: refuse before queueing when the base video model is missing.
+    _base = P.base_models_refusal(job.get("params") or {})
+    if _base:
+        h._json({"ok": False, **_base}, 400); return
     # 4.19.8: a model whose licence asks for an "I accept" (model_licences.py).
     _lic = P.job_licence_refusal(job.get("params") or {})
     if _lic:

@@ -2012,7 +2012,7 @@ function proRenewalNoticeRender(notice) {
     banner.textContent = `${lead} · ${cta}`;
     banner.hidden = false;
   }
-  const html = `${escapeHtml(lead)} · <a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(cta)}</a>`;
+  const html = `${escapeHtml(lead)} · <a href="${escapeHtml(url)}" data-utm-campaign="upgrade" data-utm-content="china-renew" target="_blank" rel="noopener">${escapeHtml(cta)}</a>`;
   if (licBox) { licBox.innerHTML = html; licBox.hidden = false; }
   if (yourBox) { yourBox.innerHTML = html; yourBox.hidden = false; }
 }

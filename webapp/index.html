@@ -183,7 +183,7 @@
     <img class="brand-word" src="/assets/phosphene_wordtext.png" alt="Phosphene">
     <span id="proMark" class="pro-mark" hidden role="button" tabindex="0" title="Your Pro: what your licence turns on" onclick="openYourPro(event)" onkeydown="if(event.key==='Enter'||event.key===' ')openYourPro(event)" data-i18n-title="proMark.title.your_pro_what_your">Pro</span>
   </a>
-  <a id="proRenewBanner" class="pro-renew-banner" href="https://phosphene.video/zh/pricing/" data-utm-campaign="upgrade" target="_blank" rel="noopener" hidden></a>
+  <a id="proRenewBanner" class="pro-renew-banner" href="https://phosphene.video/zh/pricing/" data-utm-campaign="upgrade" data-utm-content="china-renew" target="_blank" rel="noopener" hidden></a>
   <!-- The standalone version badge is gone: #versionPill already carries the
        version in EVERY state it can be in — "Up to date · 4.2.0",
        "Update to 4.3.0", "Checking · 4.2.0", "4.2.0 · dev · <sha>",
@@ -437,7 +437,7 @@
           </div>
         </div>
         <div class="rm-pro-phone" aria-hidden="true">
-          <video src="/assets/remote/remote-film.mp4" poster="/assets/remote/remote-film.webp" muted loop autoplay playsinline preload="metadata"></video>
+          <video data-src="/assets/remote/remote-film.mp4" poster="/assets/remote/remote-film.webp" muted loop playsinline preload="none"></video>
         </div>
       </div>
 
