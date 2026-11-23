@@ -990,6 +990,100 @@ def _hf_unreachable_message(repo: str, exc: BaseException) -> str | None:
             "is online and can open huggingface.co, then make the clip again.")
 
 
+def _hf_source_mod():
+    """scripts/hf_source.py (the China mirror rule), or None when missing."""
+    import importlib
+    try:
+        return importlib.import_module("scripts.hf_source")
+    except ImportError:
+        pass
+    import sys as _sys
+    from pathlib import Path as _Path
+    here = _Path(__file__).resolve().parent / "scripts"
+    if here.is_dir() and str(here) not in _sys.path:
+        _sys.path.insert(0, str(here))
+    try:
+        return importlib.import_module("hf_source")
+    except ImportError:
+        return None
+
+
+def _hf_hub_root():
+    from pathlib import Path as _Path
+    explicit = os.environ.get("HF_HUB_CACHE") or os.environ.get("HUGGINGFACE_HUB_CACHE")
+    if explicit:
+        return _Path(explicit).expanduser()
+    home = os.environ.get("HF_HOME")
+    if home:
+        return _Path(home).expanduser() / "hub"
+    return _Path.home() / ".cache" / "huggingface" / "hub"
+
+
+def _hf_offline_env() -> bool:
+    return (os.environ.get("HF_HUB_OFFLINE") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _mirror_seed_hf_lora(repo_id: str, *, after_connect_error: bool = False) -> str | None:
+    """Seed a cataloged HF LoRA repo into the local Hugging Face hub cache via
+    scripts/hf_source.py (China mirror fallback, fleet H61).
+
+    Order:
+      1. Before snapshot_download (after_connect_error=False): only runs when the
+         session already chose the mirror (hf_source.use_mirror() is True).
+      2. After a connection failure on snapshot_download (after_connect_error=True):
+         marks Hugging Face unreachable for the session and falls back to the mirror.
+
+    Returns the verified local snapshot directory path when seeded, or None when
+    the mirror does not apply. Raises RuntimeError if the mirror download fails."""
+    if _hf_offline_env():
+        return None
+    hs = _hf_source_mod()
+    if hs is None or not hs.mirror_base() or hs.mode() == "hf":
+        return None
+    if after_connect_error:
+        if not hs.catalog_repo(repo_id):
+            return None
+        hs.mark_unreachable()
+    else:
+        if not hs.use_mirror():
+            return None
+        if not hs.catalog_repo(repo_id):
+            emit({"event": "log",
+                  "line": f"  Hugging Face cannot be reached and {repo_id} cannot come "
+                          f"from the China mirror ({hs.hf_only_reason(repo_id)})."})
+            return None
+    hub = _hf_hub_root()
+    last = {"pct": -10}
+
+    def say(msg):
+        emit({"event": "log", "line": f"  [download] {msg}"})
+
+    def prog(done, total):
+        pct = int(done * 100 / max(1, total))
+        if pct >= last["pct"] + 10:
+            last["pct"] = pct
+            say(f"{repo_id}: {done / 1e9:.2f} of {total / 1e9:.2f} GB from the China mirror")
+
+    try:
+        ok = hs.seed_hub_cache(repo_id, hub, log=say, progress=prog)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"Phosphene could not download {repo_id} from the China mirror "
+            f"(hf-mirror.com): {str(exc)[:200]}. What is downloaded is kept; "
+            f"make the clip again to continue."
+        ) from exc
+    if not ok:
+        return None
+    say(f"{repo_id}: every file checked against Hugging Face's checksums.")
+    rdir = hs._repo_dir(hub, repo_id)
+    try:
+        rev = (rdir / "refs" / "main").read_text(encoding="utf-8").strip()
+    except OSError:
+        rev = str(hs.catalog_repo(repo_id)["revision"])
+    snap = rdir / "snapshots" / rev
+    return str(snap) if snap.is_dir() else None
+
+
 def _resolve_lora_path(path: str) -> str:
     """Resolve a LoRA path to a local .safetensors file.
 
@@ -997,8 +1091,10 @@ def _resolve_lora_path(path: str) -> str:
     which calls `mx.load(path)` — that only accepts a local filesystem
     path, not a HuggingFace repo id. So when the panel sends a path that
     looks like an HF id (`<org>/<repo>` without a file extension), we
-    resolve it here via `snapshot_download` and pick the largest
-    .safetensors in the resulting directory (the LoRA weights file).
+    resolve it here via `snapshot_download` (falling back to the checked
+    China mirror via scripts/hf_source.py when Hugging Face cannot be
+    reached) and pick the largest .safetensors in the resulting directory
+    (the LoRA weights file).
 
     Cached files land in ~/.cache/huggingface/, so the second job using
     the same LoRA hits a no-op verify pass instead of a re-download."""
@@ -1016,66 +1112,77 @@ def _resolve_lora_path(path: str) -> str:
     # one forward slash and no path-traversal chars.
     if p.count("/") != 1 or ".." in p:
         raise FileNotFoundError(f"LoRA path neither a file nor an HF id: {p}")
-    emit({"event": "log",
-          "line": f"  resolving HF LoRA: {p} (snapshot_download …)"})
-    try:
-        from huggingface_hub import snapshot_download
-        from huggingface_hub.utils import GatedRepoError, RepositoryNotFoundError
-    except ImportError as exc:
-        raise RuntimeError(
-            f"need huggingface_hub to resolve HF LoRA {p}: {exc}"
-        ) from exc
-    try:
-        repo_dir = snapshot_download(repo_id=p, allow_patterns=["*.safetensors"])
-    except (ValueError, OSError) as exc:
-        # huggingface_hub's HFValidationError is a ValueError: "Repo id must be
-        # in the form 'repo_name' or 'namespace/repo_name'". A user never typed
-        # an id — the value is a LoRA path that no longer resolves (moved,
-        # renamed, a relative path with a space). Name the file, not the rule.
-        if type(exc).__name__ in ("HFValidationError",) or "Repo id must be" in str(exc):
-            raise FileNotFoundError(
-                f"LoRA file not found: {p} — it is not on disk and it is not a Hugging Face "
-                f"repo id. It was probably moved or deleted after it was picked; pick it again.") from exc
-        unreachable = _hf_unreachable_message(p, exc)
-        if unreachable:
-            raise RuntimeError(unreachable) from exc
-        raise
-    except GatedRepoError as exc:
-        # Most Lightricks LoRAs are gated — they require accepting a
-        # license on the model page AND an HF token authenticated with
-        # an account that has accepted. Translate the upstream traceback
-        # into something the user can act on.
-        raise RuntimeError(
-            f"This LoRA is gated on Hugging Face. To use it: "
-            f"(1) visit https://huggingface.co/{p} and click 'Agree and "
-            f"access repository' to accept the license. "
-            f"(2) get a token at https://huggingface.co/settings/tokens "
-            f"with read access. "
-            f"(3) run `hf auth login` in Terminal and paste the token. "
-            f"(4) restart the panel."
-        ) from None
-    except RepositoryNotFoundError:
-        raise RuntimeError(
-            f"Hugging Face repo not found: {p}. Check the repo id."
-        ) from None
-    except Exception as exc:
-        # Catch the generic 401 too — `snapshot_download` raises a
-        # different exception class for "not authenticated" (no token at
-        # all) than for "authenticated but not approved for this gated
-        # repo" (GatedRepoError). The string-match keeps both paths
-        # consistent for the user.
-        msg = str(exc)
-        unreachable = _hf_unreachable_message(p, exc)
-        if unreachable:
-            raise RuntimeError(unreachable) from exc
-        if "401" in msg or "gated" in msg.lower():
+    mirror_seed = globals().get("_mirror_seed_hf_lora")
+    repo_dir = mirror_seed(p) if mirror_seed else None
+    if repo_dir is None:
+        emit({"event": "log",
+              "line": f"  resolving HF LoRA: {p} (snapshot_download …)"})
+        try:
+            from huggingface_hub import snapshot_download
+            from huggingface_hub.utils import GatedRepoError, RepositoryNotFoundError
+        except ImportError as exc:
             raise RuntimeError(
-                f"Could not access HF LoRA {p} (401 Unauthorized). "
-                f"Accept the license at https://huggingface.co/{p} and "
-                f"run `hf auth login` in Terminal to set up your token, "
-                f"then restart the panel."
+                f"need huggingface_hub to resolve HF LoRA {p}: {exc}"
+            ) from exc
+        try:
+            repo_dir = snapshot_download(repo_id=p, allow_patterns=["*.safetensors"])
+        except (ValueError, OSError) as exc:
+            # huggingface_hub's HFValidationError is a ValueError: "Repo id must be
+            # in the form 'repo_name' or 'namespace/repo_name'". A user never typed
+            # an id — the value is a LoRA path that no longer resolves (moved,
+            # renamed, a relative path with a space). Name the file, not the rule.
+            if type(exc).__name__ in ("HFValidationError",) or "Repo id must be" in str(exc):
+                raise FileNotFoundError(
+                    f"LoRA file not found: {p} — it is not on disk and it is not a Hugging Face "
+                    f"repo id. It was probably moved or deleted after it was picked; pick it again.") from exc
+            unreachable = _hf_unreachable_message(p, exc)
+            if unreachable:
+                if mirror_seed and "HF_HUB_OFFLINE" not in unreachable:
+                    repo_dir = mirror_seed(p, after_connect_error=True)
+                if repo_dir is None:
+                    raise RuntimeError(unreachable) from exc
+            else:
+                raise
+        except GatedRepoError as exc:
+            # Most Lightricks LoRAs are gated — they require accepting a
+            # license on the model page AND an HF token authenticated with
+            # an account that has accepted. Translate the upstream traceback
+            # into something the user can act on.
+            raise RuntimeError(
+                f"This LoRA is gated on Hugging Face. To use it: "
+                f"(1) visit https://huggingface.co/{p} and click 'Agree and "
+                f"access repository' to accept the license. "
+                f"(2) get a token at https://huggingface.co/settings/tokens "
+                f"with read access. "
+                f"(3) run `hf auth login` in Terminal and paste the token. "
+                f"(4) restart the panel."
             ) from None
-        raise
+        except RepositoryNotFoundError:
+            raise RuntimeError(
+                f"Hugging Face repo not found: {p}. Check the repo id."
+            ) from None
+        except Exception as exc:
+            # Catch the generic 401 too — `snapshot_download` raises a
+            # different exception class for "not authenticated" (no token at
+            # all) than for "authenticated but not approved for this gated
+            # repo" (GatedRepoError). The string-match keeps both paths
+            # consistent for the user.
+            msg = str(exc)
+            unreachable = _hf_unreachable_message(p, exc)
+            if unreachable:
+                if mirror_seed and "HF_HUB_OFFLINE" not in unreachable:
+                    repo_dir = mirror_seed(p, after_connect_error=True)
+                if repo_dir is None:
+                    raise RuntimeError(unreachable) from exc
+            elif "401" in msg or "gated" in msg.lower():
+                raise RuntimeError(
+                    f"Could not access HF LoRA {p} (401 Unauthorized). "
+                    f"Accept the license at https://huggingface.co/{p} and "
+                    f"run `hf auth login` in Terminal to set up your token, "
+                    f"then restart the panel."
+                ) from None
+            else:
+                raise
     candidates = []
     for name in os.listdir(repo_dir):
         if name.lower().endswith(".safetensors"):
@@ -4934,6 +5041,14 @@ for line in sys.__stdin__:
             })
         except Exception as exc:
             _last_activity = time.time()
+            # A failed load/render can leave a half-loaded model cached.
+            # Reconnect and Retry must construct a fresh pipeline, just as
+            # the ordinary video action already does after a failure.
+            try:
+                with _pipe_lock:
+                    release_pipelines(None)
+            except Exception:
+                pass
             emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
         finally:
             # Clear so the next non-A2V action doesn't inherit a stale gate.
@@ -5028,6 +5143,14 @@ for line in sys.__stdin__:
             })
         except Exception as exc:
             _last_activity = time.time()
+            # A failed load/render can leave a half-loaded model cached.
+            # Reconnect and Retry must construct a fresh pipeline, just as
+            # the ordinary video action already does after a failure.
+            try:
+                with _pipe_lock:
+                    release_pipelines(None)
+            except Exception:
+                pass
             emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
         finally:
             _is_busy = False

@@ -5718,7 +5718,16 @@
   "yourProModal.close": "닫기",
   "yourProModal.title.close": "닫기",
   "yourProModal.your_licence": "내 라이선스",
-  "yourProTitle.your_pro": "내 Pro"
+  "yourProTitle.your_pro": "내 Pro",
+  "settings.updates": "업데이트",
+  "settings.update_automatically": "자동 업데이트",
+  "settings.update_automatically_help": "끄면 업데이트할 시점을 직접 선택할 수 있습니다. 직접 시작한 다운로드는 완료될 때까지 계속됩니다.",
+  "settings.update_app_for_control": "이 설정을 사용하려면 Mac 앱을 업데이트하세요.",
+  "settings.update_all_help": "Studio, Pro, Mac 앱에 적용됩니다. 끄면 업데이트할 시점을 직접 선택할 수 있습니다.",
+  "settings.update_available": "업데이트 가능 ({version})",
+  "settings.update": "업데이트",
+  "settings.whats_new": "새로운 기능",
+  "settings.update_choice_not_saved": "설정을 저장하지 못했습니다. 다시 시도해 주세요."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",

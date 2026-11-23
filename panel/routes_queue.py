@@ -598,7 +598,9 @@ def post_queue_retry(h, path, qs, ctype) -> None:
     # only fail again - say so now instead of after its turn in the queue.
     refusal = P.job_input_refusal(new_job["params"])
     if refusal:
-        h._json({"error": refusal, "code": "input_missing"}, 400); return
+        _h3_ref = P.h3_job_settings_refusal(new_job["params"])
+        _code = _h3_ref[0] if (_h3_ref and _h3_ref[1] == refusal) else "input_missing"
+        h._json({"error": refusal, "code": _code}, 400); return
     # Fleet 2 Nov 2026: Retry on a failed training run re-queued the same run
     # the trainer had just refused for want of its weights. Say it here.
     if str(new_job["params"].get("mode") or "") == "train":
@@ -653,7 +655,9 @@ def post_queue_batch(h, path, qs, ctype) -> None:
     for job in built:
         refusal = P.job_input_refusal(job.get("params") or {})
         if refusal:
-            h._json({"error": refusal, "code": "input_missing"}, 400); return
+            _h3_ref = P.h3_job_settings_refusal(job.get("params") or {})
+            _code = _h3_ref[0] if (_h3_ref and _h3_ref[1] == refusal) else "input_missing"
+            h._json({"error": refusal, "code": _code}, 400); return
     for job in built[:1]:            # the form is shared; one licence screen
         _lic = P.job_licence_refusal(job.get("params") or {})
         if _lic:
@@ -999,7 +1003,9 @@ def post_run(h, path, qs, ctype) -> None:
     # here, in the form's own words, instead of failing after its turn.
     refusal = P.job_input_refusal(job.get("params") or {})
     if refusal:
-        h._json({"error": refusal, "code": "input_missing"}, 400); return
+        _h3_ref = P.h3_job_settings_refusal(job.get("params") or {})
+        _code = _h3_ref[0] if (_h3_ref and _h3_ref[1] == refusal) else "input_missing"
+        h._json({"error": refusal, "code": _code}, 400); return
     # App review 10 Nov, row 4: no base video model on this Mac = not queued,
     # for the API exactly as for the page's Generate button.
     _base = P.base_models_refusal(job.get("params") or {})

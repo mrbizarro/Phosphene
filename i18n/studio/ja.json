@@ -5718,7 +5718,16 @@
   "yourProModal.close": "閉じる",
   "yourProModal.title.close": "閉じる",
   "yourProModal.your_licence": "ライセンス",
-  "yourProTitle.your_pro": "Proの内容"
+  "yourProTitle.your_pro": "Proの内容",
+  "settings.updates": "アップデート",
+  "settings.update_automatically": "自動更新",
+  "settings.update_automatically_help": "オフにすると、更新するタイミングを自分で選べます。手動で開始したダウンロードは完了まで続きます。",
+  "settings.update_app_for_control": "このスイッチを使うには、Mac アプリを更新してください。",
+  "settings.update_all_help": "Studio、Pro、Mac アプリに適用されます。オフにすると、更新するタイミングを自分で選べます。",
+  "settings.update_available": "アップデートがあります（{version}）",
+  "settings.update": "更新",
+  "settings.whats_new": "更新内容",
+  "settings.update_choice_not_saved": "設定を保存できませんでした。もう一度お試しください。"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",

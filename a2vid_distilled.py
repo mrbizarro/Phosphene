@@ -29,8 +29,21 @@ from ltx_core_mlx.utils.positions import (
 
 from ltx_pipelines_mlx.a2vid_two_stage import A2VidPipelineTwoStage
 from ltx_pipelines_mlx.scheduler import DISTILLED_SIGMAS, STAGE_2_SIGMAS
+try:
+    from ltx_pipelines_mlx.scheduler import resolve_stage2_sigmas, thin_sigmas
+except ImportError:
+    resolve_stage2_sigmas = None
+    thin_sigmas = None
 from ltx_pipelines_mlx.utils.helpers import create_noised_state
 from ltx_pipelines_mlx.utils.progress import phase
+try:
+    from ltx_pipelines_mlx.utils.sampler_choice import (
+        model_version_of,
+        resolve_diffusion_step,
+    )
+except ImportError:
+    model_version_of = None
+    resolve_diffusion_step = None
 from ltx_pipelines_mlx.utils.samplers import denoise_loop
 
 _materialize = getattr(mx, "eval")
@@ -94,9 +107,8 @@ class A2VidDistilledPipeline(A2VidPipelineTwoStage):
         """Generate audio-to-video using the distilled pipeline.
 
         Two-stage: half-res distilled -> upscale -> full-res refine.
-        Audio conditioning from the input file (frozen in stage 1,
-        denoised in stage 2). Original audio muxed into output for
-        maximum fidelity.
+        Audio conditioning from the input file (frozen in both stages).
+        Original audio muxed into output for maximum fidelity.
 
         Args:
             prompt: Text prompt.
@@ -228,8 +240,14 @@ class A2VidDistilledPipeline(A2VidPipelineTwoStage):
             positions=audio_positions,
         )
 
-        sigmas_1 = DISTILLED_SIGMAS[: stage1_steps + 1] if stage1_steps else DISTILLED_SIGMAS
+        if stage1_steps and thin_sigmas is not None:
+            sigmas_1 = thin_sigmas(DISTILLED_SIGMAS, stage1_steps, name="stage 1")
+        else:
+            sigmas_1 = DISTILLED_SIGMAS[: stage1_steps + 1] if stage1_steps else DISTILLED_SIGMAS
         x0_model = X0Model(self.dit)
+        # LTX-2.5 distilled expects ancestral sampling; LTX-2.3 gets None (plain Euler).
+        diffusion_step = resolve_diffusion_step(self.dit) if resolve_diffusion_step is not None else None
+        step_kwargs = {"diffusion_step": diffusion_step} if diffusion_step is not None else {}
 
         self._pre_denoise_flush(video_state_1, audio_state_1)
         output_1 = denoise_loop(
@@ -239,6 +257,7 @@ class A2VidDistilledPipeline(A2VidPipelineTwoStage):
             video_text_embeds=video_embeds,
             audio_text_embeds=audio_embeds,
             sigmas=sigmas_1,
+            **step_kwargs,
         )
         if self.low_memory:
             aggressive_cleanup()
@@ -279,7 +298,10 @@ class A2VidDistilledPipeline(A2VidPipelineTwoStage):
         # --- Stage 2: full resolution refine (no LoRA swap, already distilled) ---
         video_tokens, _ = self.video_patchifier.patchify(video_upscaled)
 
-        sigmas_2 = STAGE_2_SIGMAS[: stage2_steps + 1] if stage2_steps else STAGE_2_SIGMAS
+        if resolve_stage2_sigmas is not None and model_version_of is not None:
+            sigmas_2 = resolve_stage2_sigmas(model_version_of(self.dit), stage2_steps)
+        else:
+            sigmas_2 = STAGE_2_SIGMAS[: stage2_steps + 1] if stage2_steps else STAGE_2_SIGMAS
         start_sigma = sigmas_2[0]
 
         video_positions_2 = compute_video_positions(F, H_full, W_full, frame_rate=frame_rate)
@@ -295,14 +317,14 @@ class A2VidDistilledPipeline(A2VidPipelineTwoStage):
             legacy_scalar_blend=True,
         )
 
-        audio_state_2 = create_noised_state(
-            base_shape=audio_tokens.shape,
-            conditionings=[],
-            spatial_dims=(F, H_full, W_full),
+        # Keep input audio frozen in Stage 2 (denoise_mask=0), matching Stage 1:
+        # output always muxes the original audio, and re-noising audio at start_sigma
+        # hid the user's speech under Gaussian noise during Stage 2 video refinement.
+        audio_state_2 = LatentState(
+            latent=audio_tokens,
+            clean_latent=audio_tokens,
+            denoise_mask=mx.zeros((1, audio_tokens.shape[1], 1), dtype=mx.bfloat16),
             positions=audio_positions,
-            seed=seed + 2,
-            sigma=start_sigma,
-            initial_latent=audio_tokens,
         )
 
         self._pre_denoise_flush(video_state_2, audio_state_2)
@@ -313,6 +335,7 @@ class A2VidDistilledPipeline(A2VidPipelineTwoStage):
             video_text_embeds=video_embeds,
             audio_text_embeds=audio_embeds,
             sigmas=sigmas_2,
+            **step_kwargs,
         )
         if self.low_memory:
             aggressive_cleanup()

@@ -64,12 +64,33 @@ def plain_dialogue(prompt, names, default_speaker="", language="English"):
     `Bizarro: <d>[English] Did you hear that?</d>`, while structural `key:` lines like
     `overall_soundscape:` or `Audio:` are left alone. Also accepts LTX-expanded
     `Name says clearly: "words"` lines so replayed recipes round-trip cleanly.
+    Known names that share one line (`Ann: Hi. Mr. Bo: Hello.`) each get their own
+    line, and a quote that already names someone never borrows the picked voice.
     """
     if not prompt or re.search(r'<d>', prompt, re.I):
         return prompt
     cleaned = prompt[:-len(_LTX_AUDIO_CUE)] if prompt.endswith(_LTX_AUDIO_CUE) else prompt
     known = {_norm_key(n): str(n).strip() for n in names if str(n or "").strip()}
     tag = f"[{language}] " if language else ""
+    by_len = sorted(set(known.values()), key=len, reverse=True)
+    inner = (re.compile(r"(?<![\w])(" + "|".join(re.escape(n) for n in by_len) + r")\s*:\s*", re.I)
+             if by_len else None)
+
+    def _wrap(indent, who, text):
+        parts = [(who, text)]
+        found = list(inner.finditer(text)) if inner else []
+        if found:
+            parts = [(who, text[:found[0].start()])]
+            for i, mm in enumerate(found):
+                stop = found[i + 1].start() if i + 1 < len(found) else len(text)
+                parts.append((mm[1], text[mm.end():stop]))
+        lines = []
+        for w, t in parts:
+            t = t.strip().strip('"\u201c\u201d').strip()
+            if t:
+                lines.append(f"{indent}{w.strip()}: <d>{tag}{t}</d>")
+        return lines
+
     out, hit = [], False
     for line in cleaned.split("\n"):
         ms = _SAYS_LINE.match(line)
@@ -81,15 +102,27 @@ def plain_dialogue(prompt, names, default_speaker="", language="English"):
                 continue
         m = _COLON_LINE.match(line)
         if m and _is_speaker_label(m.group(2), known):
-            text = m.group(3).strip().strip('"\u201c\u201d').strip()
-            if text:
-                out.append(f"{m.group(1)}{m.group(2).strip()}: <d>{tag}{text}</d>")
+            wrapped = _wrap(m.group(1), m.group(2), m.group(3))
+            if wrapped:
+                out.extend(wrapped)
+                hit = True
+                continue
+        found = list(inner.finditer(line)) if inner else []
+        if found:
+            # A known name in the middle of a line ("The door opens. Ann: Hi.").
+            head = line[:found[0].start()]
+            wrapped = _wrap("", found[0][1], line[found[0].end():])
+            if wrapped:
+                if head.strip():
+                    out.append(head.rstrip())
+                out.extend(wrapped)
                 hit = True
                 continue
         out.append(line)
     if hit:
         return "\n".join(out)
-    if default_speaker:
+    # A named quote ("Mira: \"...\"") must never silently borrow the selected character's voice.
+    if default_speaker and not re.search(r"[\w][\w .'\u2019-]*:\s*[\"\u201c]", prompt):
         # On its own line, so the speaker reads as the line's name, not as the end of the sentence before it.
         quoted, n = _QUOTED.subn(lambda m: f"\n{default_speaker}: <d>{tag}{m.group(1).strip()}</d>\n", prompt)
         if n:
@@ -170,20 +203,40 @@ def untag_dialogue(prompt: str) -> tuple[str, str]:
     return "\n".join(lines), lang_found
 
 
+def _line_speaker(prefix):
+    """The `Name:` that opens the last line of `prefix`, keeping titles and initials (`Mr. Bizarro`)."""
+    m = re.search(r'(?:^|\n)[ \t]*([^\s:\n<>"\u201c\u201d][^\n<>"\u201c\u201d:]{0,80}?)\s*:\s*$', prefix)
+    if not m:
+        return None
+    cand = m[1].strip()
+    if re.search(r'\b(says|asks|replies)$', cand, re.I) or re.search(r'[!?]', cand):
+        return None
+    if not all(_is_word_or_mark(ch) or ch in " '\u2019-_." for ch in cand):
+        return None
+    toks = cand.split()
+    # A sentence before the name ("The door opens. Ann:") is not part of it; short dotted
+    # tokens are titles or initials.
+    if len(toks) > 4 or any(t.endswith(".") and len(t.rstrip(".")) > 3 for t in toks):
+        return None
+    return cand
+
+
 def dialogue_phrases(prompt):
     phrases = []
     previous = 0
     for match in re.finditer(r'<d>\s*(?:\[([^\]]+)\])?\s*(.*?)</d>', prompt, re.S | re.I):
         prefix = prompt[previous:match.start()]
+        whole = _line_speaker(prefix)
         speaker = re.search(r'(?:^|[\n.!?])\s*([^\s:\n.!?<>"\u201c\u201d][^\n.!?<>"\u201c\u201d:]{0,80}?)\s*:\s*$', prefix, re.I)
         if speaker:
             cand = speaker[1].strip()
             if (re.search(r'\b(says|asks|replies)$', cand, re.I)
-                    or not all(_is_word_or_mark(ch) or ch in " '-_." for ch in cand)):
+                    or not all(_is_word_or_mark(ch) or ch in " '\u2019-_." for ch in cand)):
                 speaker = None
         text = ' '.join(match[2].split())
         if text:
-            phrases.append({'speaker': speaker[1].strip() if speaker else '', 'text': text, 'language': match[1] or ''})
+            who = whole or (speaker[1].strip() if speaker else '')
+            phrases.append({'speaker': who, 'text': text, 'language': match[1] or ''})
         previous = match.end()
     return phrases
 

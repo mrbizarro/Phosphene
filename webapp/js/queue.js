@@ -1,3 +1,6 @@
+let faceFixPlanRequest = 0;
+let faceFixPlanPath = null;
+let faceFixPlanTimer = null;
 // webapp/js/queue.js — extracted verbatim from the panel page's inline
 // script block (slice 3 of docs/ARCHITECTURE.md). ES module: top-level
 // declarations are module-private; the publish block at the bottom is
@@ -1577,9 +1580,6 @@ function syncExtendDuration() {
   // something ELSE happens to call updateDerived().
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
 }
-let faceFixPlanRequest = 0;
-let faceFixPlanPath = null;
-let faceFixPlanTimer = null;
 async function refreshFaceFixPlan(force = false) {
   const hint = document.getElementById('faceFixPlan');
   const path = (document.getElementById('upscale_source_path') || {}).value || '';
@@ -2417,7 +2417,24 @@ function _h3RefsUpdate() {
     }
   }
   const hint = document.getElementById('h3RefsHint');
-  if (hint) hint.style.display = (on && info.available) ? '' : 'none';
+  if (hint) {
+    hint.style.display = (on && info.available) ? '' : 'none';
+    if (on && info.available && typeof h3SpeedPref === 'function') {
+      if (hint.dataset && !hint.dataset.baseText) hint.dataset.baseText = hint.textContent || '';
+      const skipped = [];
+      const sp = h3SpeedPref();
+      if (sp === 'fast') skipped.push(T('queue.h3_refs_item_fast', 'Fast'));
+      if (typeof h3CleanSoundPref === 'function' && h3CleanSoundPref()) skipped.push(T('queue.h3_refs_item_clean_sound', 'Clean up sound'));
+      const base = (hint.dataset && hint.dataset.baseText) || '';
+      if (sp === 'flex' || sp === 'flex_turbo') {
+        hint.textContent = base + ' ' + T('queue.h3_refs_flex_conflict', 'References runs on its own sampler and cannot use H3 Flex — switch to Hailuo H3, or turn References off.');
+      } else {
+        hint.textContent = skipped.length
+          ? (base + T('queue.h3_refs_sampler_note', ' Uses its own sampler — {items} stay off while References is on (your choices return when you switch it off).', { items: skipped.join(', ') }))
+          : base;
+      }
+    }
+  }
   const p1 = document.getElementById('h3RefsP1');
   if (p1) p1.hidden = !(on && info.available);
   // While References renders, the Speed row does not apply (its own sampler), and Picture 1 is any
@@ -4327,7 +4344,7 @@ async function repairModel(key) {
     });
     const data = await r.json();
     if (data.ok) {
-      alert(T('queue.repair_started_re_downloading', 'Repair started — re-downloading ') + ((data.deleted || []).length) + ' file(s). '
+      alert(T('queue.repair_started_re_downloading', 'Repair started — re-downloading ') + ((data.files || data.deleted || []).length) + ' file(s). '
         + T('queue.watch_the_download_progress_logs', 'Watch the download progress / Logs; the banner clears once the files verify clean.'));
     } else {
       alert(T('queue.repair_failed', 'Repair failed: ') + (data.error || r.status));
@@ -4449,6 +4466,36 @@ async function h3RepairStart() {
     }
   } catch (e) {
     if (typeof phosToast === 'function') phosToast(T('queue.setup_could_not_start', 'Setup could not start: ') + (e.message || e), { kind: 'danger' });
+  }
+  if (typeof poll === 'function') poll();
+}
+// H65: one-click Repair from an incomplete-model Now card — POST /models/repair
+// for that pack, re-downloading only the missing/wrong-size files verified by size.
+async function modelRepairStart(repoKey) {
+  if (!repoKey) { if (typeof openModelsModal === 'function') openModelsModal(); return; }
+  try {
+    const r = await fetch('/models/repair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'repo_key=' + encodeURIComponent(repoKey),
+    });
+    if (r.status === 451) return;
+    const res = await r.json().catch(() => ({}));
+    if (typeof phosToast === 'function') {
+      if (r.ok && res.nothing_to_repair) {
+        phosToast(T('queue.repair_model_already_ok', 'All files for this model are already verified. Press Retry or Generate.'),
+                  { kind: 'success', duration: 8000 });
+      } else if (r.ok) {
+        const n = (res.files || res.deleted || []).length;
+        phosToast(T('queue.repair_model_started', 'Repair started — re-downloading only the missing files and checking their sizes.') + (n ? ` (${n})` : ''),
+                  { kind: 'info', duration: 8000 });
+      } else {
+        phosToast(res.error || (T('queue.repair_failed', 'Repair failed: ') + r.status),
+                  { kind: 'danger', duration: 8000 });
+      }
+    }
+  } catch (e) {
+    if (typeof phosToast === 'function') phosToast(T('queue.repair_failed', 'Repair failed: ') + (e.message || e), { kind: 'danger' });
   }
   if (typeof poll === 'function') poll();
 }
@@ -4590,6 +4637,16 @@ function nowCardFailureActions(last, info) {
       `<span>${T('queue.retry_smaller', 'Retry smaller')}</span></button>` + dismiss;
   }
   if (refusedTier && action !== 'models') return dismiss;
+  const repairRepo = info && info.repairRepo;
+  if (action === 'models' && repairRepo) {
+    const dl = (typeof LAST_STATUS !== 'undefined' && LAST_STATUS && LAST_STATUS.download) || {};
+    const repairing = !!(dl.active && dl.key === repairRepo);
+    return `<button type="button" class="now-card-retry" data-action="repair-model" data-repo="${escapeHtml(repairRepo)}" ` +
+      (repairing ? 'disabled ' : '') +
+      `title="${escapeHtml(T('queue.repair_model_title', 'Re-download only the missing model files, verified by size'))}">` +
+      `<svg class="ph" aria-hidden="true"><use href="#ph-download-simple"/></svg>` +
+      `<span>${repairing ? T('queue.repairing_model', 'Repairing…') : T('queue.repair_model', 'Repair model')}</span></button>` + dismiss;
+  }
   return (action === 'models'
             ? `<button type="button" class="now-card-retry" onclick="openModelsModal()" ` +
               `title="A retry can't fix a missing file — finish the download instead">` +
@@ -4811,17 +4868,24 @@ function friendlyJobError(raw, engine) {
     };
   }
   if (/model is\s+incomplete\. Missing/i.test(raw)) {
-    const m = /Missing \d+ file\(s\) in [^:]+: ([^.]+)\./.exec(raw);
+    const m = /Missing \d+ file\(s\) in [^:]+:\s*(.+?)\.(?:\s+[A-Z]|$)/.exec(raw);
+    const is23 = /\bLTX-?2\.3\b/i.test(raw);
+    const is25 = /\bLTX-?2\.5\b/i.test(raw);
+    const qm = /\b(Q4|Q8)\s+model is\s+incomplete/i.exec(raw);
+    const repairRepo = /text encoder model is\s+incomplete/i.test(raw)
+      ? (is23 ? 'gemma' : (is25 ? 'gemma4_25' : ''))
+      : (qm ? (is23 ? qm[1].toLowerCase() : (is25 ? qm[1].toLowerCase() + '_25' : '')) : '');
     return {
       friendly: T('queue.stopped_before_rendering_the_model', 'Stopped before rendering — the model weights are incomplete.'),
       hint: (m ? T('queue.missing', 'Missing: ') + m[1].trim() + '. ' : '')
-          + T('queue.rendering_with_a_file_missing', 'Rendering with a file missing produces garbled "mosaic" video rather ')
-          + T('queue.than_an_error_so_phosphene', 'than an error, so Phosphene stops instead.'),
-      // SYS-11: a plain Retry here re-queues the identical job, which fails
-      // instantly the same way — the fix is finishing the download, not
-      // trying again. `action: 'models'` swaps the Now-card's Retry button
-      // for one that actually does that.
+          + (repairRepo
+            ? T('queue.repair_model_hint', 'Press Repair model to re-download only those files and verify them by size before your next render.')
+            : T('queue.rendering_with_a_file_missing', 'Rendering with a file missing produces garbled "mosaic" video rather ')
+              + T('queue.than_an_error_so_phosphene', 'than an error, so Phosphene stops instead.')),
+      // SYS-11 / H65: a plain Retry fails the same way — offer one-click
+      // Repair for the incomplete pack (re-downloads only missing files).
       action: 'models',
+      ...(repairRepo ? { repairRepo } : {}),
     };
   }
   // VC-24: this used to check the lowercased text for the two bare
@@ -4854,6 +4918,15 @@ function friendlyJobError(raw, engine) {
   if (/\(the q8 model\)|hardware tier\s*—/i.test(raw)) {
     return { friendly: T('queue.this_mode_needs_the_q8', 'This mode needs the Q8 model.'), hint: raw };
   }
+  // A failed integrity check proves the take is invalid, not why it failed.
+  if (/h3 render failed:.*latents became nan\/inf/i.test(raw)) {
+    return {
+      friendly: T('queue.h3_invalid_take', 'This take broke down partway through.'),
+      hint: T('queue.h3_invalid_take_guidance', 'The cause is unknown. Keep the failed take details for Report a bug. Try a new seed. If you added your own styles, try without them; if you changed the steps, try the defaults. Change one setting at a time.'),
+      details: _redactLocalPaths(raw) || raw,
+      action: 'reopen',
+    };
+  }
   // H3-22: neither "H3 render timed out — no output for 20 minutes" nor
   // "H3 render exited with code N" matches any branch above (no signal, no
   // "helper exited from"), so both fell to the generic fallback below — the
@@ -4861,13 +4934,16 @@ function friendlyJobError(raw, engine) {
   // containing the user's real name on macOS) shown verbatim on screen.
   if (/h3 render (timed out|exited with code)/i.test(raw)) {
     const timedOut = rawLower.includes('timed out');
+    const tm = timedOut ? /no output for (\d+) minutes(?: during ([^,]+))?/i.exec(raw) : null;
+    const mins = tm ? tm[1] : '20';
+    const where = tm && tm[2] ? ` (${tm[2].trim()})` : '';
     return {
       // The card shows two short lines of headline: keep it short, the rest goes in the hint.
       friendly: timedOut
         ? T('queue.hailuo_h3_stalled', 'Hailuo H3 stalled.')
         : T('queue.hailuo_h3_stopped', 'Hailuo H3 stopped.'),
       hint: timedOut
-        ? T('queue.no_progress_for_20_minutes', 'No progress for 20 minutes, most likely because the Mac ran out of memory. Try a shorter length or a smaller size, and close other apps.')
+        ? T('queue.h3_stall_unknown_cause', 'No output for {minutes} minutes{where}, so the render was stopped. The cause is unknown. Try again. If it happens again, try a shorter clip or smaller size and use Report a bug.', { minutes: mins, where })
         : T('queue.press_retry_if_it_stops_h3', 'Press Retry. If it stops again, try Fast or a shorter length, or press Report a bug at the top of the window.'),
       details: _redactLocalPaths(raw) || raw,
     };
@@ -10941,8 +11017,34 @@ function _prepareAndValidateVideoForm(fd, opts) {
     return false;
   }
 
+  // H3 References incompatible-settings validation before queueing (H68).
+  const _refsActiveNow = eng === 'h3' && (String(fd.get('h3_refs') || '') === 'on' || (typeof _h3RefsOn === 'function' && _h3RefsOn()));
+  if (_refsActiveNow) {
+    let parsedLoras = [];
+    try { parsedLoras = JSON.parse(String(fd.get('loras') || '[]')); } catch (_) { parsedLoras = []; }
+    if (Array.isArray(parsedLoras) && parsedLoras.length > 0) {
+      sayWarn(T('queue.h3_refs_lora_conflict', 'References runs on its own sampler and cannot use LoRAs — un-pick the LoRA(s), or switch References off.'));
+      return false;
+    }
+    const flexPicked = String(fd.get('h3_flex') || '0') === '1' || String(fd.get('h3_flex_turbo') || '0') === '1';
+    if (flexPicked) {
+      sayWarn(T('queue.h3_refs_flex_conflict', 'References runs on its own sampler and cannot use H3 Flex — switch to Hailuo H3, or turn References off.'));
+      return false;
+    }
+    const h3Len = String(fd.get('h3_length') || '5s');
+    if (h3Len && h3Len !== '5s') {
+      sayWarn(T('queue.h3_refs_length_conflict', 'References makes clips of up to 5 seconds for now — pick 5 s, or switch References off.'));
+      return false;
+    }
+    if (document.body && document.body.classList && document.body.classList.contains('h3-refs-on')) {
+      fd.set('h3_tristep', '0');
+      fd.set('h3_turbo', '0');
+      fd.set('h3_clean_sound', '0');
+    }
+  }
+
   // H3 LoRA stack & single-slot speed-adapter conflict validation
-  if (eng === 'h3' && !(typeof _h3RefsOn === 'function' && _h3RefsOn())) {
+  if (eng === 'h3' && !_refsActiveNow) {
     const h3LorasCfg = (globalThis.H3 && globalThis.H3.loras) || {};
     const maxStack = Number(h3LorasCfg.max_stack || 1);
     let parsedLoras = [];
@@ -11409,7 +11511,7 @@ function draftAutosaveInstall() {
 // Inline handlers in the markup and the other files resolve these through
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
-  openFailedJobInForm, engineRepairStart, h3RepairStart,
+  openFailedJobInForm, engineRepairStart, h3RepairStart, modelRepairStart,
   bpToggleFold, bpSetFolded, bpDockSync,
   picturesActive, picturesSync, picturesTakeCharacter,
   refreshFaceFixPlan,

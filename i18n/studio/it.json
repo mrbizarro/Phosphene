@@ -5762,7 +5762,16 @@
   "yourProModal.close": "Chiudi",
   "yourProModal.title.close": "Chiudi",
   "yourProModal.your_licence": "La tua licenza",
-  "yourProTitle.your_pro": "Il tuo Pro"
+  "yourProTitle.your_pro": "Il tuo Pro",
+  "settings.updates": "Aggiornamenti",
+  "settings.update_automatically": "Aggiorna automaticamente",
+  "settings.update_automatically_help": "Se disattivato, scegli tu quando aggiornare. I download che avvii possono terminare.",
+  "settings.update_app_for_control": "Aggiorna l’app per Mac per usare questa opzione.",
+  "settings.update_all_help": "Vale per Studio, Pro e l’app per Mac. Se disattivato, scegli tu quando aggiornare.",
+  "settings.update_available": "Aggiornamento disponibile ({version})",
+  "settings.update": "Aggiorna",
+  "settings.whats_new": "Novità",
+  "settings.update_choice_not_saved": "Impossibile salvare questa scelta. Riprova."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",

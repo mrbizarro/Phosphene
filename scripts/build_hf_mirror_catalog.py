@@ -60,6 +60,11 @@ def specs() -> list[tuple[str, str, "list[str] | None", str]]:
     out.append((g["repo"], g["revision"], sorted(set(mf.GENERATOR_FILES) | {"conversion.json"}),
                 "Music: YuE2 generator"))
     out.append((v["repo"], v["revision"], None, "Music: YuE2 decoder"))
+    # Control (Union) IC-LoRA: official, un-gated (fleet H61 China Control failures).
+    out.append(("Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control",
+                "20a580c8606c06a0988d40375a61309e0fe5893d",
+                ["ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"],
+                "Video: Control (Union IC-LoRA)"))
     return out
 
 

@@ -1056,6 +1056,16 @@ function audioStudioDurationChanged(val) {
         + T('characters.render_a_fully_silent_clip', 'render a fully silent clip. Pick a start under ') + fileLen.toFixed(1) + ' s.';
       return;
     }
+    if (typeof a2vEngineActive === 'function' && a2vEngineActive() === 'h3') {
+      const avail = fileLen - startSec;
+      if (avail > 30.25 && sec >= 30) {
+        warn.style.display = '';
+        warn.textContent = T('characters.h3_a2v_trim_warn',
+          'Hailuo H3 Lip-sync renders up to 30 s per clip ({avail} s left from {start} s). Move Start at later, switch to LTX for longer audio, or confirm trimming to 30 s when you press Generate.',
+          { avail: avail.toFixed(1), start: startSec.toFixed(1) });
+        return;
+      }
+    }
   }
   // A MEMORY LIMIT COMES FIRST. On a Compact-tier Mac the panel refuses an
   // a2v render past BOOT.a2v_max_frames (see a2v_max_frames() server-side):
@@ -1625,6 +1635,23 @@ async function audioStudioGenerate(opts) {
       + T('characters.s_is_past_the_end', ' s) is past the end of this file (') + AUDIO_STUDIO.audioDuration.toFixed(1) + ' s).';
     return;
   }
+  const _onH3Pre = typeof a2vEngineActive === 'function' && a2vEngineActive() === 'h3';
+  let _h3TrimConfirmed = false;
+  if (_onH3Pre && !draft && AUDIO_STUDIO.audioDuration != null) {
+    const _avail = AUDIO_STUDIO.audioDuration - audioStart;
+    if ((dur > 30 && _avail > 30.0) || (dur >= 30 && _avail > 30.25)) {
+      const ok = window.confirm(
+        T('characters.h3_a2v_trim_confirm',
+          'Hailuo H3 Lip-sync renders up to 30 s per clip. This audio has {avail} s left from {start} s and would be trimmed to 30 s.\n\nTrim to 30 s and generate? Press Cancel to keep your selection, move Start at, or switch to LTX.',
+          { avail: _avail.toFixed(1), start: audioStart.toFixed(1) })
+      );
+      if (!ok) {
+        if (status) status.textContent = T('characters.h3_a2v_trim_cancelled', 'Not queued — your audio selection is unchanged.');
+        return;
+      }
+      _h3TrimConfirmed = true;
+    }
+  }
 
   // "Listen to the voice only" on a Mac without the separator. 4.17.4: while
   // an install runs - or when the panel can start one - the job queues and
@@ -1659,6 +1686,7 @@ async function audioStudioGenerate(opts) {
       fd.set('engine', 'h3');
       fd.set('h3_quality', A2V_H3_QUALITY);
       fd.set('h3_length', '5s');
+      if (_h3TrimConfirmed) fd.set('h3_audio_trim_confirmed', '1');
     }
     if (a2vImagePath) {
       fd.set('image', a2vImagePath);
@@ -1692,14 +1720,27 @@ async function audioStudioGenerate(opts) {
       fd.set('loras', JSON.stringify(slim));
     }
     fd.set('preset_label', (draft ? 'Draft' : (prompt.slice(0, 40) || 'Lip-sync')));
-    const r = await fetch('/queue/add', { method: 'POST', body: fd });
+    let r = await fetch('/queue/add', { method: 'POST', body: fd });
     if (!r.ok) {
-      const txt = await r.text();
-      if (r.status === 400 && txt.indexOf('vocal_separator_missing') >= 0) {
-        A2V_SEPARATOR.ready = false;
-        audioStudioRefreshSeparator();
+      let txt = await r.text();
+      if (r.status === 400 && _onH3 && txt.indexOf('h3_audio_trim_required') >= 0) {
+        const errMsg = audioStudioSubmitError(r.status, txt);
+        if (window.confirm(errMsg + '\n\n' + T('characters.h3_a2v_trim_confirm_retry', 'Trim to 30 s and generate anyway?'))) {
+          fd.set('h3_audio_trim_confirmed', '1');
+          r = await fetch('/queue/add', { method: 'POST', body: fd });
+          if (!r.ok) txt = await r.text();
+        } else {
+          if (status) status.textContent = T('characters.h3_a2v_trim_cancelled', 'Not queued — your audio selection is unchanged.');
+          return;
+        }
       }
-      throw new Error(audioStudioSubmitError(r.status, txt));
+      if (!r.ok) {
+        if (r.status === 400 && txt.indexOf('vocal_separator_missing') >= 0) {
+          A2V_SEPARATOR.ready = false;
+          audioStudioRefreshSeparator();
+        }
+        throw new Error(audioStudioSubmitError(r.status, txt));
+      }
     }
     if (status) {
       status.textContent = (draft

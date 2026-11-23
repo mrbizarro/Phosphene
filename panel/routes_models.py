@@ -317,9 +317,18 @@ def post_models_repair(h, path, qs, ctype) -> None:
     for _b in _dv_bad:
         if _b.get("repo") == key and _b.get("file") not in bad:
             bad.append(_b["file"])
-    if not bad:
+    # H65: also include missing or wrong-size files (pack_file_ok decides) so
+    # one-click Repair works on an incomplete pack, not only a complete-but-
+    # corrupt one. Only these files are deleted (if partial) and re-downloaded.
+    target = P.Q8_LOCAL_PATH if key == "q8" else P.repo_dir(repo)
+    missing = P.pack_files_missing(P.Path(target), repo)
+    targets = list(dict.fromkeys(bad + missing))
+    if not targets:
         h._json({"ok": True, "nothing_to_repair": True,
-                    "note": f"no corrupt files detected for {key!r}"}); return
+                    "note": f"no missing or corrupt files detected for {key!r}"}); return
+    reason = P.model_path_problem(repo, write=True)
+    if reason:
+        h._json({"error": reason}, 409); return
     # Mac app: the app is fetching this pack itself (app_models.json). Two
     # fetchers writing (or a repair deleting) one folder is not safe - refuse.
     if P.app_models_owns(repo):
@@ -346,7 +355,6 @@ def post_models_repair(h, path, qs, ctype) -> None:
     # 4.19.10 (review): never delete files another process is writing (the
     # Mac app's own download): take the pack folder's one-writer lock for the
     # deletion, and give the slot back when it is held.
-    target = P.Q8_LOCAL_PATH if key == "q8" else P.repo_dir(repo)
     locks = []
     for folder in dict.fromkeys([P.Path(target), P.repo_dir(repo)]):
         fd = P.pack_folder_lock(folder)
@@ -368,7 +376,7 @@ def post_models_repair(h, path, qs, ctype) -> None:
             _dv["bad"] = [b for b in _dv["bad"] if b.get("repo") != key]
     deleted = []
     try:
-        for fname in bad:
+        for fname in targets:
             for cand in {P.Path(target) / fname, P.repo_dir(repo) / fname}:
                 try:
                     if cand.exists():
@@ -382,10 +390,11 @@ def post_models_repair(h, path, qs, ctype) -> None:
         P.pack_folder_unlock(locks)
     with P._INTEGRITY_LOCK:           # bust the cache so the next scan re-checks
         P._INTEGRITY_CACHE["ts"] = 0.0
-    P.push(f"[repair] {key}: deleted {len(deleted)} corrupt/partial file(s) "
-         f"({', '.join(deleted)}) — re-downloading.")
-    P.threading.Thread(target=P._download_thread, args=(repo,), daemon=True).start()
-    h._json({"ok": True, "deleted": deleted, "repo_id": repo["repo_id"]}, 202); return
+    P.push(f"[repair] {key}: re-downloading {len(targets)} file(s) "
+         f"({', '.join(targets)}; removed {len(deleted)} corrupt/partial).")
+    P.threading.Thread(target=P._download_thread, args=(repo, targets), daemon=True).start()
+    h._json({"ok": True, "deleted": deleted, "files": targets,
+             "missing": missing, "repo_id": repo["repo_id"]}, 202); return
 
 
 @post("/music/install")

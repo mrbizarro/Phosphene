@@ -189,7 +189,7 @@ def fetch_start(push: Callable[[str], None] = print,
                    "--repo", REPO_ID, "--revision", REVISION, "--bits", str(bits)]
             if gpu:
                 cmd.append("--wait-gpu")
-            proc = subprocess.Popen(cmd, cwd=str(ROOT), env=env or os.environ.copy(),
+            proc = subprocess.Popen(cmd, cwd=str(ROOT), env=_child_env(env),
                                     stdin=subprocess.PIPE if gpu else None,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                     text=True, errors="replace", bufsize=1)
@@ -301,5 +301,14 @@ def rewrite(prompt: str, seconds: Any = 5, one_shot: bool = False,
 
 def _run_child(cmd: list, stdin_text: str, timeout: int) -> "tuple[int, str, str]":
     proc = subprocess.run(cmd, input=stdin_text, capture_output=True, text=True,
-                          errors="replace", timeout=timeout, cwd=str(ROOT))
+                          errors="replace", timeout=timeout, cwd=str(ROOT), env=_child_env())
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _child_env(base=None):
+    """Use an explicit MLX child environment, including when base is empty."""
+    env = {k: v for k, v in (os.environ if base is None else base).items()
+           if k not in ("PYTORCH_ENABLE_MPS_FALLBACK", "PYTORCH_MPS_FAST_MATH")
+           and not k.startswith("Malloc")}
+    env["PYTHONUNBUFFERED"] = "1"
+    return env

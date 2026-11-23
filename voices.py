@@ -6,6 +6,7 @@ write is atomic; an interrupted import cannot become a selectable voice.
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 import math
 from pathlib import Path
 import re
@@ -19,6 +20,15 @@ import voice_identity
 
 MAX_UPLOAD_BYTES = 256 * 1024 * 1024
 _LOCK = threading.RLock()
+
+
+@lru_cache(maxsize=128)
+def _character_sample_profile(path, size, mtime_ns, version):
+    # File identity is part of the key: replacing a sample invalidates the profile.
+    try:
+        return voice_identity.profile(read_mono(Path(path)), 24000)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
 
 
 def safe_id(value: str) -> str:
@@ -276,10 +286,12 @@ def resolve_render_voice(library, form, characters, character_id=""):
             sample = Path(voice["sample_path"])
             if sample.is_file():
                 try:
-                    prof = voice_identity.profile(read_mono(sample), 24000)
+                    stat = sample.stat()
+                    prof = _character_sample_profile(str(sample.resolve()), stat.st_size, stat.st_mtime_ns,
+                                                     voice_identity.PROFILE_VERSION)
                 except (OSError, subprocess.SubprocessError):
                     prof = None
-                voice.update(identity=prof or {}, speaker=voice_identity.describe(prof))
+                voice.update(identity=dict(prof) if prof else {}, speaker=voice_identity.describe(prof))
             return voice
     # A character picker value is an inheritance request, not a library ID.
     # Normalize it before falling back to a picture-only character's saved voice.

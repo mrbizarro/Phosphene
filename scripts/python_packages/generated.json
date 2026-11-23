@@ -80,6 +80,6 @@
     "scripts/pinokio/a2v_stems_deps.sh": "bd7cb19d6d4b4c4c14213c303b9b641b31642935dcd7edce2a6a9bf6ae1b6619",
     "scripts/pinokio/flux3_env.py": "4ee3c6a63fcfb5e960acc3d2a3fa46099e23d82f79a1c202363e88b240b18c0e",
     "scripts/speech/speech_setup.sh": "113bcc580285bc9b44d6e83abc1eecced65a610d77526fb29c92ccb0df6390d8",
-    "mlx_ltx_panel.py": "b74d835869b3857b8402be432510af0155ffceac4517f84680123131369956b2"
+    "mlx_ltx_panel.py": "9d9736dc643d68fbf5d8eb812584e1e807ba8f984e8042b6da33d3e989f0a8c4"
   }
 }

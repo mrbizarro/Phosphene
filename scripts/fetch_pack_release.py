@@ -721,7 +721,8 @@ def check_pack(manifest: dict, dest_dir: Path) -> list[str]:
 
 
 def fetch_pack(repo_key: str, root: Path, dest: Path | None,
-               *, attempts: int, timeout: int, check_only: bool) -> int:
+               *, attempts: int, timeout: int, check_only: bool,
+               only_files: list[str] | None = None) -> int:
     repo = load_repo_entry(repo_key, root)
     mirror = dict(mirror_of(repo), hf_repo=hf_repo_of(repo))
     dest_dir = dest or (root / repo["local_dir"])
@@ -773,13 +774,23 @@ def fetch_pack(repo_key: str, root: Path, dest: Path | None,
             f"file_sizes for: {', '.join(drift)}"
         )
 
+    if only_files:
+        wanted_names = list(dict.fromkeys(only_files))
+        unknown = [f for f in wanted_names if f not in files]
+        if unknown:
+            raise SystemExit(
+                f"release manifest for {repo_key} does not declare requested "
+                f"--only file(s): {', '.join(unknown)}"
+            )
+        files = {f: files[f] for f in wanted_names}
+
     model_path_guard.require(model_root, dest_dir, write=not check_only,
                              allow_new=not configured and dest is None)
     if not check_only:
         model_path_guard.prepare_directory(model_root, dest_dir,
             allow_new=not configured and dest is None)
     if check_only:
-        bad = check_pack(manifest, dest_dir)
+        bad = check_pack({"files": files}, dest_dir)
         if bad:
             log(f"[fetch] {repo_key}: INCOMPLETE — {len(bad)} file(s): {', '.join(bad)}")
             return 1
@@ -870,10 +881,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--timeout", type=int, default=60)
     ap.add_argument("--check-only", action="store_true",
                     help="verify what is on disk against the published manifest; download nothing")
+    ap.add_argument("--only", action="append", default=None,
+                    help="fetch/verify only these declared file(s) (repeatable; single --repo-key only)")
     args = ap.parse_args(argv)
 
     if args.dest and len(args.repo_key) > 1:
         ap.error("--dest applies to a single --repo-key")
+    if args.only and len(args.repo_key) > 1:
+        ap.error("--only applies to a single --repo-key")
 
     rc = 0
     busy = False
@@ -881,7 +896,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             one = fetch_pack(key, args.root, args.dest,
                              attempts=args.attempts, timeout=args.timeout,
-                             check_only=args.check_only)
+                             check_only=args.check_only, only_files=args.only)
         except SystemExit:
             raise
         except Exception as e:  # noqa: BLE001 — the installer needs a cause, not a traceback

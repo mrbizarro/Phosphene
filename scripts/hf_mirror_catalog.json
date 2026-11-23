@@ -872,6 +872,19 @@
     }
    ],
    "bytes": 531142268
+  },
+  "Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control": {
+   "revision": "20a580c8606c06a0988d40375a61309e0fe5893d",
+   "what": "Video: Control (Union IC-LoRA)",
+   "files": [
+    {
+     "path": "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
+     "size": 654465352,
+     "sha256": "a1b888a87f661d27f08b394ae559e8e1050be33900bcc36a5cdf659e48f88d18",
+     "blob": "a1b888a87f661d27f08b394ae559e8e1050be33900bcc36a5cdf659e48f88d18"
+    }
+   ],
+   "bytes": 654465352
   }
  },
  "hf_only": {
@@ -880,5 +893,5 @@
   "black-forest-labs/FLUX.1-Krea-dev": "it needs a Hugging Face login (gated)",
   "black-forest-labs/flux-3-image-klein": "it needs a Hugging Face login (gated)"
  },
- "built": "2026-11-20"
+ "built": "2026-11-22"
 }

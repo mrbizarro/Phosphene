@@ -80,7 +80,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 // click that landed mid-rewrite could be lost. A single delegated
 // listener on document survives every rewrite + costs nothing.
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action="retry"], [data-action="retry-smaller"], [data-action="dismiss"], [data-action="stop-early"], [data-action="resume"], [data-action="split"], [data-action="reopen"], [data-action="repair-engine"], [data-action="repair-h3"]');
+  const btn = e.target.closest('[data-action="retry"], [data-action="retry-smaller"], [data-action="dismiss"], [data-action="stop-early"], [data-action="resume"], [data-action="split"], [data-action="reopen"], [data-action="repair-engine"], [data-action="repair-h3"], [data-action="repair-model"]');
   if (!btn) return;
   e.stopPropagation();
   e.preventDefault();
@@ -94,6 +94,11 @@ document.addEventListener('click', (e) => {
   // 4.19.5: the same for the Hailuo H3 venv (POST /h3/repair).
   if (btn.dataset.action === 'repair-h3') {
     if (typeof h3RepairStart === 'function') h3RepairStart();
+    return;
+  }
+  // H65: one-click Repair for an incomplete model pack (POST /models/repair).
+  if (btn.dataset.action === 'repair-model') {
+    if (typeof modelRepairStart === 'function') modelRepairStart(btn.dataset.repo || '');
     return;
   }
   // A third delegated action in the same row, for the same reason the other

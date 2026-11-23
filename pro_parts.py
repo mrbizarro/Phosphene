@@ -23,6 +23,7 @@ token, not the files. The server is ours or a loopback test server (PHOSPHENE_LI
 from __future__ import annotations
 
 import base64
+import fcntl
 import hashlib
 import json
 import os
@@ -278,22 +279,54 @@ def _verify(offer: dict) -> tuple[dict, bytes]:
     return m, msg
 
 
+class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):
+    def __init__(self, scheme: str, hostname: str, port):
+        self._origin = (scheme, hostname, port)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        u = urllib.parse.urlparse(newurl)
+        if (u.scheme, u.hostname, u.port) != self._origin:
+            raise ValueError("bad_url")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _download(url: str, dest: Path, size: int, licence: str, opener) -> None:
     u = urllib.parse.urlparse(url)
     base = urllib.parse.urlparse(_server())
-    if u.scheme != base.scheme or u.hostname != base.hostname:
+    if u.scheme != base.scheme or u.hostname != base.hostname or u.port != base.port:
         raise ValueError("bad_url")           # the licence header only ever goes to our server
-    req = urllib.request.Request(url, headers={"X-Phosphene-Licence": licence, "User-Agent": "Phosphene-Studio"})
-    n = 0
-    with (opener or urllib.request.urlopen)(req, timeout=TIMEOUT) as r, open(dest, "wb") as f:
-        while True:
-            b = r.read(1 << 20)
-            if not b:
-                break
-            n += len(b)
-            if n > size:
-                raise ValueError("size")
-            f.write(b)
+    n = dest.stat().st_size if dest.exists() else 0
+    if n == size:
+        return                         # caller checks the signed hash before extraction
+    if n > size:
+        dest.rename(dest.with_name(dest.name + ".invalid-" + os.urandom(4).hex()))
+        n = 0
+    headers = {"X-Phosphene-Licence": licence, "User-Agent": "Phosphene-Studio"}
+    if n:
+        headers["Range"] = "bytes=%d-" % n
+    req = urllib.request.Request(url, headers=headers)
+    _open = opener or urllib.request.build_opener(
+        _SameOriginRedirect(base.scheme, base.hostname, base.port)
+    ).open
+    with _open(req, timeout=TIMEOUT) as r:
+        if n and getattr(r, "status", 200) == 206:
+            expected = "bytes %d-" % n
+            if not r.headers.get("Content-Range", "").startswith(expected):
+                raise ValueError("range")
+            mode = "ab"
+        else:
+            # A server without Range support sends the complete object.
+            n, mode = 0, "wb"
+        with open(dest, mode) as f:
+            while True:
+                b = r.read(1 << 20)
+                if not b:
+                    break
+                n += len(b)
+                if n > size:
+                    raise ValueError("size")
+                f.write(b)
+                f.flush()               # a crash keeps every received block
     if n != size:
         raise ValueError("size")
 
@@ -322,10 +355,17 @@ def _extract(pack: Path, strip: int, out: Path) -> dict:
     return got
 
 
-def fetch(opener=None) -> dict:
+def _automatic_allowed() -> bool:
+    P = _P[0]
+    return P is not None and getattr(P, "get_settings", lambda: {})().get("update_automatically", True) is not False
+
+
+def fetch(opener=None, *, automatic=False) -> dict:
     """Install or update the parts. {ok, version | error}. Never raises."""
     if _dist.is_mac_app():
         return {"ok": False, "error": "mac_app"}
+    if automatic and not _automatic_allowed():
+        return {"ok": False, "error": "automatic_updates_off"}
     lic = _licence()
     if not lic:
         return {"ok": False, "error": "no_licence"}
@@ -334,7 +374,16 @@ def fetch(opener=None) -> dict:
             return {"ok": False, "error": "busy"}
         _state["busy"] = True
     tmp = None
+    download_lock = None
     try:
+        # Different Studio processes may share state. Protect the resumable archive and
+        # activation with a kernel lock that is released even when a process crashes.
+        root().mkdir(parents=True, exist_ok=True)
+        download_lock = open(root() / ".download.lock", "a")
+        try:
+            fcntl.flock(download_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return _done({"ok": False, "error": "busy"})
         form = urllib.parse.urlencode({"license_key": lic["key"], "instance_id": lic["instance_id"],
                                        "device_id": lic["device"], "app_version": _version()}).encode()
         req = urllib.request.Request(_server() + "/v1/pro/latest", data=form, method="POST", headers={
@@ -359,10 +408,13 @@ def fetch(opener=None) -> dict:
         tmp = root() / (".fetch-%d-%s" % (os.getpid(), os.urandom(4).hex()))
         tmp.mkdir()
         _phase("downloading")
-        pack = tmp / "pack.tar.gz"
+        downloads = root() / "downloads"
+        downloads.mkdir(exist_ok=True)
+        pack = downloads / (m["sha256"] + ".tar.gz")
         _download(str(offer.get("url", "")), pack, int(m["bytes"]), lic["key"], opener)
         _phase("verifying")
         if _sha(pack) != m["sha256"]:
+            pack.rename(pack.with_name(pack.name + ".invalid-" + os.urandom(4).hex()))
             raise ValueError("hash")
         out = tmp / "parts"
         out.mkdir()
@@ -372,6 +424,10 @@ def fetch(opener=None) -> dict:
         dest = root() / dest_name
         if not _probe(out):                       # a correctly signed package that cannot load here is refused
             raise ValueError("incompatible")
+        # The user may switch updates off while the download/probe is running.
+        if automatic and not _automatic_allowed():
+            _phase(None)
+            return {"ok": False, "error": "automatic_updates_off"}
         os.replace(out, dest)
         doc = {"version": m["version"], "dir": dest_name, "files": files, "key_id": offer["key_id"],
                "manifest": offer["manifest"], "signature": offer["signature"],
@@ -394,11 +450,19 @@ def fetch(opener=None) -> dict:
         except OSError:
             shutil.rmtree(dest, ignore_errors=True)
             raise
+        try:
+            for dl in downloads.iterdir():
+                if dl.is_file():
+                    dl.unlink(missing_ok=True)
+        except OSError:
+            pass
         _prune(keep={dest_name})
         return _done({"ok": True, "version": m["version"], "changed": True})
     except (ValueError, KeyError, TypeError, OSError, tarfile.TarError) as e:
         return _done({"ok": False, "error": (e.args[0] if isinstance(e, ValueError) and e.args else type(e).__name__)[:60]})
     finally:
+        if download_lock is not None:
+            download_lock.close()
         if tmp is not None:
             shutil.rmtree(tmp, ignore_errors=True)
         with _lock:
@@ -438,7 +502,7 @@ def _prune(keep: set) -> None:
         keep.add(str(prev.get("dir") or prev["version"]))
     try:
         for p in root().iterdir():
-            if p.is_dir() and not p.name.startswith(".") and p.name not in keep:
+            if p.is_dir() and p.name != "downloads" and not p.name.startswith(".") and p.name not in keep:
                 shutil.rmtree(p, ignore_errors=True)
     except OSError:
         pass
@@ -459,6 +523,7 @@ PLAIN = {
     "bad_signature": "The downloaded Pro components did not pass the signature check, so they were not installed. Try again; if it repeats, contact support.",
     "hash": "The download was damaged (its checksum did not match). Nothing was installed. Try again.",
     "size": "The download was cut short or the wrong size. Nothing was installed. Try again.",
+    "range": "The download could not continue cleanly. Nothing was installed. Try again.",
     "incompatible": "These Pro components cannot run on this Studio yet. Your previous version stays in use. Update the Studio or try again later.",
     "studio_too_old": "These Pro components need a newer Studio. Update Phosphene in Pinokio, then try again.",
     "pack_without_remote": "The Pro download did not contain Remote Control. Contact support.",
@@ -573,7 +638,7 @@ def start(P, sleep=time.sleep, rounds=None) -> bool:
         n = 0
         while rounds is None or n < rounds:
             n += 1
-            r = fetch() if _licence() else None
+            r = fetch(automatic=True) if _licence() and _automatic_allowed() else None
             if r and r.get("ok"):
                 if r.get("changed") and getattr(P, "pro_remote", None) is not None:
                     with _lock:

@@ -5718,7 +5718,16 @@
   "yourProModal.close": "关闭",
   "yourProModal.title.close": "关闭",
   "yourProModal.your_licence": "你的许可证",
-  "yourProTitle.your_pro": "你的 Pro"
+  "yourProTitle.your_pro": "你的 Pro",
+  "settings.updates": "更新",
+  "settings.update_automatically": "自动更新",
+  "settings.update_automatically_help": "关闭后，由你决定何时更新。你手动开始的下载仍会继续完成。",
+  "settings.update_app_for_control": "请先更新 Mac 应用，再使用此开关。",
+  "settings.update_all_help": "适用于 Studio、Pro 和 Mac 应用。关闭后，由你决定何时更新。",
+  "settings.update_available": "有可用更新（{version}）",
+  "settings.update": "更新",
+  "settings.whats_new": "更新内容",
+  "settings.update_choice_not_saved": "无法保存此设置，请重试。"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",

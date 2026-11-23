@@ -1664,6 +1664,7 @@ def _settings_defaults() -> dict:
         # would mean asking someone to log into GitHub inside a local video
         # panel to suppress a prompt. Clicking through, or saying you already
         # starred, sets this once and the ask never returns on this install.
+        "update_automatically": True,
         "update_banner_dismissed": "",
         "star_prompt_done": False,
         # Broadcast messages the user already dismissed (list of message ids,
@@ -2021,6 +2022,15 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
     # accepted here — they're panel bookkeeping written via
     # _settings_set_internal(), and a form must not be able to set the
     # install id (that would let a page correlate installs).
+    if "update_automatically" in patch:
+        v = patch["update_automatically"]
+        if isinstance(v, bool):
+            out["update_automatically"] = v
+        elif str(v).strip().lower() in ("true", "false", "1", "0", "on", "off"):
+            out["update_automatically"] = str(v).strip().lower() in ("true", "1", "on")
+        else:
+            return {}, "Invalid automatic update choice"
+
     if "analytics_enabled" in patch:
         # Same urlencoded-bool coercion as spicy_mode / models_card_dismissed.
         v = patch["analytics_enabled"]
@@ -2147,6 +2157,7 @@ def get_settings_public() -> dict:
         # no matter what the user had chosen.
         "h3_dit": str(s.get("h3_dit", "auto") or "auto"),
         "h3_vae_fp16": bool(s.get("h3_vae_fp16", True)),
+        "update_automatically": bool(s.get("update_automatically", True)),
         "update_banner_dismissed": str(s.get("update_banner_dismissed", "") or ""),
         "star_prompt_done": bool(s.get("star_prompt_done", False)),
         "broadcast_seen_ids": list(s.get("broadcast_seen_ids") or []),
@@ -6328,13 +6339,13 @@ def ltx_text_encoder_preflight(feature: str, version_id: str | None = None) -> N
         return
     ver = model_version(version_id)
     missing = sorted(missing, key=lambda f: not f.endswith(".safetensors"))   # the weights first
-    shown = ", ".join(missing[:3]) + (" …" if len(missing) > 3 else "")
+    shown = ", ".join(missing)
     raise RuntimeError(
         f"{feature} can't run: the {ver['label']} text encoder model is "
         f"incomplete. Missing {len(missing)} file(s) in "
         f"{text_encoder_dir(version_id)}: {shown}. "
-        f"Use the Repair banner in Settings → Model files to fetch it again; "
-        f"your other models are kept.")
+        f"Press Repair to re-download only the missing files, or open "
+        f"Settings → Model files; your other models are kept.")
 
 
 _HQ_WEIGHTS_FALLBACK = {
@@ -6651,14 +6662,15 @@ def _ltx_dit_pack_preflight(quant: str, feature: str,
         if not missing:
             return
     ver = model_version(version_id)
-    shown = ", ".join(missing[:3]) + (" …" if len(missing) > 3 else "")
+    shown = ", ".join(missing)
     raise RuntimeError(
         f"{feature} can't run: the {ver['label']} {quant.upper()} model is "
         f"incomplete. Missing {len(missing)} file(s) in "
         f"{pack_path(quant, version_id)}: {shown}. "
         f"Rendering anyway produces garbled 'mosaic' output rather than an "
-        f"error, which is why this stops here. Use the Repair banner in "
-        f"Settings → Model files, or re-download {repo['repo_id']}."
+        f"error, which is why this stops here. Press Repair to re-download "
+        f"only the missing files, or open Settings → Model files to "
+        f"re-download {repo['repo_id']}."
     )
 
 
@@ -7881,7 +7893,7 @@ def _download_register(proc) -> bool:
     return not cancelled
 
 
-def _download_thread(repo: dict) -> str:
+def _download_thread(repo: dict, only_files: list[str] | None = None) -> str:
     """Run `hf download <repo_id> --local-dir <repo.local_dir>` and stream
     stdout/stderr line-by-line into STATE['log']. Sets DOWNLOAD["active"]
     back to False on exit (success or fail). Files land at repo['local_dir']
@@ -7925,6 +7937,7 @@ def _download_thread(repo: dict) -> str:
     env = os.environ.copy()
     env["LTX_MODELS_DIR"] = str(MODELS_DIR)
 
+    only = list(dict.fromkeys(str(f) for f in (only_files or ()) if f))
     if is_release_mirror:
         # sys.executable, not HF_BIN: the fetcher is stdlib-only and runs under
         # the panel's own interpreter. No hf, no token, no Hub. It shards, it
@@ -7934,9 +7947,15 @@ def _download_thread(repo: dict) -> str:
         cmd = [sys.executable, str(ROOT / "scripts" / "fetch_pack_release.py"),
                "--repo-key", str(repo.get("key") or ""), "--root", str(ROOT),
                "--dest", str(target)]
-        push(f"[mirror] {repo.get('key')} → {target} (~{repo.get('size_gb','?')} GB) "
-             f"from the {mirror.get('release_repo')} release "
-             f"{mirror.get('tag')} — sharded, sha256-verified, resumable")
+        for fname in only:
+            cmd.extend(["--only", fname])
+        if only:
+            push(f"[mirror] repairing {repo.get('key')} → {target} — "
+                 f"only {len(only)} missing/bad file(s): {', '.join(only)}")
+        else:
+            push(f"[mirror] {repo.get('key')} → {target} (~{repo.get('size_gb','?')} GB) "
+                 f"from the {mirror.get('release_repo')} release "
+                 f"{mirror.get('tag')} — sharded, sha256-verified, resumable")
     else:
         dl_tag = "hf"
         cmd = [str(HF_BIN), "download", repo_id, "--local-dir", str(target)]
@@ -7948,12 +7967,16 @@ def _download_thread(repo: dict) -> str:
         # 25 GB Q4 into 56 GB. `download_include` is the explicit allowlist of
         # patterns we ship to the user; everything else stays on the Hub. See
         # required_files.json for the comment block on this.
-        include_patterns = repo.get("download_include") or []
+        include_patterns = only if only else (repo.get("download_include") or [])
         for pat in include_patterns:
             cmd.extend(["--include", pat])
-        if include_patterns:
-            push(f"[hf] filtering {repo_id} download to {len(include_patterns)} pattern(s) — only the files the panel actually loads.")
-        push(f"[hf] {repo_id} → {target} (~{repo.get('size_gb','?')} GB) — resumable")
+        if only:
+            push(f"[hf] repairing {repo_id} → {target} — "
+                 f"only {len(only)} missing/bad file(s): {', '.join(only)}")
+        else:
+            if include_patterns:
+                push(f"[hf] filtering {repo_id} download to {len(include_patterns)} pattern(s) — only the files the panel actually loads.")
+            push(f"[hf] {repo_id} → {target} (~{repo.get('size_gb','?')} GB) — resumable")
 
         # HF_HUB_ENABLE_HF_TRANSFER=1 turns on the Rust downloader; if
         # hf_transfer isn't installed the hf CLI logs a warning and falls back
@@ -8040,9 +8063,20 @@ def _download_thread(repo: dict) -> str:
                 push(f"[{dl_tag}:{repo['key']}] {buf.strip()[:300]}")
             rc = proc.wait()
             if rc == 0:
-                push(f"[{dl_tag}] {dl_label} downloaded successfully.")
-                outcome = "ok"
-                break
+                still_bad = (
+                    [f for f in only if not pack_file_ok(target / f, f, repo)]
+                    if only else pack_files_missing(target, repo)
+                )
+                if still_bad:
+                    msg = (f"[{dl_tag}] {dl_label} size check failed after download — "
+                           f"still incomplete ({len(still_bad)} file(s)): "
+                           f"{', '.join(still_bad)}")
+                    push(msg)
+                    failure_lines = (failure_lines + [msg])[-12:]
+                else:
+                    push(f"[{dl_tag}] {dl_label} downloaded and verified by size.")
+                    outcome = "ok"
+                    break
             if is_release_mirror and rc == PACK_FETCH_BUSY_RC:
                 # Mac app review #7: another fetcher (the Mac app's own model
                 # download, or a second studio) holds this pack folder. The
@@ -8153,6 +8187,9 @@ def model_download_failure_message(detail: str) -> str:
     detail = detail.lower()
     if "same path" in detail:
         return "Model folder unavailable for download. " + model_path_guard.REMEDY
+    if "size check failed" in detail:
+        return ("Some model files did not match the expected size after downloading. "
+                "Press Repair model again to retry those files. Completed files are kept.")
     if any(word in detail for word in ("sha256 mismatch", "assembled sha256", "hash mismatch")):
         return ("The download failed its safety check. Try again to fetch a clean copy. "
                 "Other completed files are kept.")
@@ -11656,6 +11693,28 @@ def h3_estimate_minutes(w: int, h: int, window_frames: int, windows: int,
     per_fwd = _h3_forward_seconds(rows)
     fixed = _h3_fixed_seconds(w, h, window_frames)
     return (windows * max(0, int(forwards)) * per_fwd + windows * fixed) / 60.0 * _h3_speed_factor(windows)
+
+
+H3_IDLE_MIN_SEC = 20 * 60
+H3_IDLE_MAX_SEC = 90 * 60
+
+
+def h3_idle_limit_sec(modeled_step_sec: float, decode_sec: float = 0.0, *,
+                      low_memory: bool = False,
+                      measured_step_sec: float = 0.0) -> int:
+    """Seconds of stdout silence before an H3 render is declared hung.
+
+    The original 20-minute constant assumed ~2 min per denoise forward (4.8.2).
+    Native (1344x768), 10 s single-pass (243 f) and --low-memory streamed runs
+    on slower Macs (M1 Max 3x, M2 Max 32 GB) legitimately spend 15-44 min on
+    one silent forward or VAE decode, so a flat 20-minute cutoff killed healthy
+    renders mid-step (H64). Allow at least 3x (4x when block-streaming on
+    --low-memory) the longest expected or observed silent phase, floored at
+    20 minutes and capped at 90 minutes."""
+    longest = max(0.0, float(modeled_step_sec or 0.0),
+                  float(decode_sec or 0.0), float(measured_step_sec or 0.0))
+    mult = 4.0 if low_memory else 3.0
+    return max(H3_IDLE_MIN_SEC, min(H3_IDLE_MAX_SEC, int(math.ceil(longest * mult))))
 
 
 def h3_memory_budget(total_ram_gb: float | None = None) -> tuple[float, float]:
@@ -22307,6 +22366,9 @@ def _analytics_scrub_text(text, secrets=()) -> str:
             if len(sec) >= 6 and sec in s:
                 s = s.replace(sec, "<redacted>")
         s = _analytics_redact_paths(s)
+        # Process addresses are not causes; keep equivalent ffmpeg failures
+        # together before truncation and fingerprinting.
+        s = re.sub(r"\b0x[0-9a-fA-F]+\b", "<address>", s)
         s = " ".join(s.split())
         return s[:ANALYTICS_STR_MAX]
     except Exception:
@@ -28726,11 +28788,17 @@ class WarmHelper:
                 f"bytes) but helper silent for {elapsed:.0f}s after "
                 f"decode-done. SIGKILLing helper; render counted as done."
             )
-            # SIGKILL from a background thread to avoid blocking the panic
-            # tick. The kill is fully external so the helper's GIL
-            # situation doesn't matter.
-            threading.Thread(target=self.kill, daemon=True,
-                             name="phos-panic-kill").start()
+            # Detach self.proc BEFORE returning "done" so the next queued job
+            # starts a fresh helper and never races with the background kill
+            # thread (H66). Kill only the detached process.
+            with self.lock:
+                stale_proc = self.proc
+                self.proc = None
+                if stale_proc is not None:
+                    _proc_guard_clear("helper")
+            if stale_proc is not None:
+                threading.Thread(target=self._kill_proc, args=(stale_proc,),
+                                 daemon=True, name="phos-panic-kill").start()
             note_engine_restart()
             return {
                 "event": "done",
@@ -29083,9 +29151,10 @@ class WarmHelper:
                 raise RuntimeError(
                     f"helper timed out after {timeout:g}s waiting for a response"
                 )
+            res = self._dispatch_run_event(ev)
             if self.is_alive():
                 self._jobs_in_proc += 1
-            return self._dispatch_run_event(ev)
+            return res
 
     # 4.17.3 (fleet): "helper pipe closed without an event; returncode=None"
     # — 23 failed renders over 30 days on 15 installs, three of them on
@@ -29212,29 +29281,47 @@ class WarmHelper:
         if ev.get("event") == "error":
             raise RuntimeError(plain_model_load_error(ev.get("error", "helper error")))
         if ev.get("event") == "exit":
-            raise RuntimeError(f"helper exited mid-job: {ev.get('reason')}")
+            reason = str(ev.get("reason") or "")
+            # The helper already announced its exit (e.g. SIGTERM handler ->
+            # sys.exit(0), which can take 1-2 s to tear down MLX). Reap and
+            # detach self.proc now so the next queued job never writes into
+            # the dying helper and fails seconds later with returncode=0 (H66).
+            self.kill()
+            if reason.startswith("sigterm("):
+                sig = "SIGINT" if reason == "sigterm(2)" else "SIGTERM"
+                raise RuntimeError(
+                    f"The render engine was stopped from outside Phosphene ({sig}): "
+                    "macOS or another program ended it while the clip was rendering. "
+                    "Nothing is wrong with your settings — press Retry."
+                )
+            raise RuntimeError(f"helper exited mid-job: {reason}")
         return ev
+
+    def _kill_proc(self, proc: subprocess.Popen | None) -> None:
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            push(f"helper SIGTERM sent (pgid {pgid})")
+        except ProcessLookupError:
+            pgid = None
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            if pgid is not None:
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except Exception:
+                    pass
 
     def kill(self) -> None:
         with self.lock:
-            if self.proc is None or self.proc.poll() is not None:
-                self.proc = None
+            proc = self.proc
+            if proc is None:
                 return
-            try:
-                pgid = os.getpgid(self.proc.pid)
-                os.killpg(pgid, signal.SIGTERM)
-                push(f"helper SIGTERM sent (pgid {pgid})")
-            except ProcessLookupError:
-                pgid = None
-            try:
-                self.proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                if pgid is not None:
-                    try:
-                        os.killpg(pgid, signal.SIGKILL)
-                    except Exception:
-                        pass
             self.proc = None
+            self._kill_proc(proc)
             _proc_guard_clear("helper")
 
     def is_alive(self) -> bool:
@@ -29264,7 +29351,23 @@ def _gpu_steps_note(job: dict) -> None:
 
 
 HELPER = WarmHelper()
-atexit.register(HELPER.kill)
+
+
+def _kill_helper_at_exit() -> None:
+    """Atexit + shutdown hook — mark any running job cancelled before
+    stopping the warm helper, mirroring _kill_train_proc (H66). Quitting
+    Phosphene mid-render is not a failed render."""
+    try:
+        with LOCK:
+            cur = STATE.get("current")
+            if cur is not None:
+                cur["cancel_requested"] = True
+    except Exception:                                  # noqa: BLE001
+        pass
+    HELPER.kill()
+
+
+atexit.register(_kill_helper_at_exit)
 atexit.register(caffeinate_off)
 
 
@@ -33286,6 +33389,9 @@ def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
 def _sb_enqueue(job_form: dict) -> str:
     """Enqueue one shot exactly the way /queue/add does. No private path."""
     job = make_job(job_form)
+    _h3_ref = h3_job_settings_refusal(job.get("params") or {})
+    if _h3_ref:
+        raise CharacterRequestError(_h3_ref[1])
     job["params"]["source"] = "storyboard"
     with QUEUE_COND:
         STATE["queue"].append(job)
@@ -39438,6 +39544,123 @@ def delete_in_use_refusal(paths, what: str = "file") -> str | None:
             f"Delete it after {it}, or take {those} off the queue first.")
 
 
+H3_REFS_INCOMPATIBLE_FLAGS = (
+    ("h3_turbo", "Turbo"),
+    ("h3_tristep", "Fast"),
+    ("h3_v13", "Best (v1.3)"),
+    ("h3_flex", "H3 Flex"),
+    ("h3_flex_turbo", "H3 Flex Turbo"),
+    ("h3_clean_sound", "Clean up sound"),
+)
+
+
+def h3_refs_incompatible_settings(params: dict) -> list[str]:
+    """Selected H3 settings that References cannot run with (in order), or []."""
+    p = params or {}
+    if str(p.get("engine") or "ltx").strip().lower() != "h3":
+        return []
+    m = str(p.get("mode") or "t2v").strip().lower()
+    if not bool(p.get("h3_refs")) or m not in h3_refs.MODES:
+        return []
+    bad = [label for key, label in H3_REFS_INCOMPATIBLE_FLAGS if bool(p.get(key))]
+    loras = p.get("loras") or []
+    if any(isinstance(e, dict) and str(e.get("path") or "").strip() for e in loras):
+        bad.append("LoRAs")
+    return bad
+
+
+def h3_refs_settings_refusal(params: dict) -> str | None:
+    """Why a References job's selected settings cannot be queued as-is, or None."""
+    p = params or {}
+    if str(p.get("engine") or "ltx").strip().lower() != "h3":
+        return None
+    m = str(p.get("mode") or "t2v").strip().lower()
+    if not bool(p.get("h3_refs")) or m not in h3_refs.MODES:
+        return None
+    bad = h3_refs_incompatible_settings(p)
+    if bad:
+        fixes: list[str] = []
+        if any(p.get(k) for k in ("h3_turbo", "h3_tristep", "h3_v13", "h3_flex", "h3_flex_turbo")):
+            fixes.append("switch Speed to Best")
+        if p.get("h3_clean_sound"):
+            fixes.append("turn off Clean up sound")
+        if "LoRAs" in bad:
+            fixes.append("un-pick LoRAs")
+        fix_text = ", ".join(fixes) if fixes else "clear those settings"
+        return (
+            f"{h3_refs.NAME} runs on its own sampler and cannot use {', '.join(bad)}. "
+            f"{fix_text[0].upper() + fix_text[1:]}, or switch {h3_refs.NAME} off."
+        )
+    tier_cfg = H3_TIERS.get(str(p.get("h3_tier") or "")) or {}
+    chain_windows = int(p.get("h3_chain_windows") or tier_cfg.get("chain_windows") or 1)
+    if chain_windows > 1:
+        return (
+            f"{h3_refs.NAME} makes clips of up to 5 seconds for now. "
+            f"Pick 5 s, or switch {h3_refs.NAME} off for a longer clip."
+        )
+    return None
+
+
+def h3_a2v_trim_plan(params: dict) -> dict | None:
+    """Trim details when an H3 Lip-sync request would be shortened past H3_A2V_MAX_SECONDS.
+
+    Never applies to LTX (returns None for every non-H3 or non-a2v job)."""
+    p = params or {}
+    if str(p.get("engine") or "ltx").strip().lower() != "h3":
+        return None
+    if str(p.get("mode") or "").strip().lower() != "a2v":
+        return None
+    audio = str(p.get("audio") or "").strip()
+    start_t = max(0.0, float(p.get("audio_start_time") or 0.0))
+    raw_frames = int(p.get("h3_a2v_frames") or p.get("frames") or 0)
+    want_s = raw_frames / float(H3_FPS) if raw_frames > 0 else 0.0
+    total = None
+    if audio and Path(audio).is_file():
+        probed = probe_media_duration(audio)
+        if probed and probed > 0:
+            total = float(probed)
+    avail = max(0.0, total - start_t) if total is not None else None
+    effective_s = min(want_s, avail) if avail is not None else want_s
+    if effective_s <= H3_A2V_MAX_SECONDS + 1e-6:
+        return None
+    return {
+        "audio": audio,
+        "name": Path(audio).name if audio else "audio",
+        "start_s": start_t,
+        "total_s": total,
+        "avail_s": avail,
+        "requested_s": effective_s,
+        "max_s": float(H3_A2V_MAX_SECONDS),
+    }
+
+
+def h3_a2v_trim_refusal(params: dict) -> str | None:
+    """Refuse unconfirmed H3 Lip-sync audio trimming before enqueue; LTX unchanged."""
+    if bool((params or {}).get("h3_audio_trim_confirmed")):
+        return None
+    info = h3_a2v_trim_plan(params)
+    if not info:
+        return None
+    return (
+        f"Hailuo H3 Lip-sync renders up to {info['max_s']:.0f}s per clip, "
+        f"so {info['name']} ({info['requested_s']:.1f}s from {info['start_s']:.1f}s) "
+        f"would be trimmed to {info['max_s']:.0f}s. Shorten the duration, move Start at "
+        f"later, switch to LTX for longer audio, or confirm trimming "
+        f"(h3_audio_trim_confirmed=1)."
+    )
+
+
+def h3_job_settings_refusal(params: dict) -> tuple[str, str] | None:
+    """Pre-queue H3 settings refusal as (code, message), or None."""
+    msg = h3_refs_settings_refusal(params)
+    if msg:
+        return ("h3_refs_conflict", msg)
+    msg = h3_a2v_trim_refusal(params)
+    if msg:
+        return ("h3_audio_trim_required", msg)
+    return None
+
+
 def job_input_refusal(params: dict) -> str | None:
     """Why this job can only fail for want of an input, or None.
 
@@ -39585,6 +39808,9 @@ def job_input_refusal(params: dict) -> str | None:
             return (f"The LoRA {Path(lp).name} is no longer on disk ({lp}). It was "
                     "moved or deleted after it was picked - pick it again, or "
                     "un-pick it and render again.")
+    _h3_ref = h3_job_settings_refusal(p)
+    if _h3_ref:
+        return _h3_ref[1]
     return None
 
 
@@ -40314,7 +40540,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # lightx2v v1.3 on Best at High: on by default wherever it can run (the
     # resolution is below, after Fast); "0" from the API keeps the full
     # sampler, as a Steps pin does.
-    _h3_v13_off = (f("h3_v13", "") or "").strip().lower() in ("0", "false", "off", "no")
+    _h3_v13_raw = (f("h3_v13", "") or "").strip().lower()
+    _h3_v13_want = _h3_v13_raw in ("1", "true", "on", "yes")
+    _h3_v13_off = _h3_v13_raw in ("0", "false", "off", "no")
     _h3_v13 = False
     # Clean up sound (re-voice the Fast render's sound): "1" / "0", absent =
     # H3_REVOICE_DEFAULT. Only ever on with Fast; resolved below.
@@ -40360,6 +40588,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     _h3_reference2 = (f("h3_reference2", "") or "").strip()
     _h3_reference3 = (f("h3_reference3", "") or "").strip()
     _h3_refs = f("h3_refs", "").strip().lower() in ("1", "true", "on", "yes")
+    _h3_audio_trim_confirmed = (f("h3_audio_trim_confirmed", "") or "").strip().lower() in ("1", "true", "on", "yes")
     _h3_chain_prompts: list[str] = []
     if _engine == "h3":
         # The same predicate the switcher uses for the affordance, so the two
@@ -40410,7 +40639,8 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 # Analytics (length_capped_from): this Mac's memory shortened the clip.
                 _h3_capped_from = H3_TIERS[_h3_tier]["length"]
             _h3_tier = _fallback
-        if _h3_turbo and h3_available():
+        _h3_refs_on = bool(_h3_refs and mode_in in h3_refs.MODES)
+        if not _h3_refs_on and _h3_turbo and h3_available():
             _turbo = h3_turbo_status()
             if not _turbo["available"]:
                 push("Turbo requested but " + (
@@ -40425,7 +40655,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # step-distillation adapters on one render is a recipe nobody
         # validated) — Fast wins when both arrive, and says so. A Steps pin
         # keeps Best unless the form explicitly asked for Fast.
-        if _h3_tristep_want is not False and h3_available():
+        if not _h3_refs_on and _h3_tristep_want is not False and h3_available():
             _tcell = H3_TIERS[_h3_tier]
             if not h3_cell_takes_tristep(_tcell):
                 if _h3_tristep_want:
@@ -40453,7 +40683,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 push(f"Fast runs {H3_TRISTEP_FORWARDS} forwards on "
                      f"its own ladder — ignoring the {_h3_steps}-step override.")
                 _h3_steps = 0
-        if _h3_tristep and mode_in not in ("a2v", "v2a"):
+        if not _h3_refs_on and _h3_tristep and mode_in not in ("a2v", "v2a"):
             _want = H3_REVOICE_DEFAULT if _h3_clean_want is None else _h3_clean_want
             if _want and h3_available():
                 if not h3_supports_revoice():
@@ -40476,7 +40706,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                     elif _h3_clean_want:
                         push(_why + " Rendering with Fast's own sound.")
                         _h3_clean_dropped = "ram"
-        if H3_TIERS[_h3_tier].get("fast_hd"):
+        if not _h3_refs_on and H3_TIERS[_h3_tier].get("fast_hd"):
             # Fast HD is a recipe, not a canvas: the 3-step Fast pass, then the
             # x2 Upscale & Face Fix. Both are forced here so a stale Speed pill
             # or Export choice cannot quietly render half of it.
@@ -40490,7 +40720,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # adapter is built. Never with Fast or Turbo, never under a Steps pin
         # (the pin IS the way to ask for the full sampler), never where it
         # was not validated (other canvases, the dense pass, media modes).
-        if _h3_flex_turbo_want and h3_available():
+        if not _h3_refs_on and _h3_flex_turbo_want and h3_available():
             _tst = h3_flex_turbo_status()
             if mode_in not in H3_FLEX_MODES or not h3_cell_takes_flex(H3_TIERS[_h3_tier]):
                 push(f"{H3_FLEX_TURBO_NAME} runs Text and Image on 5 s windows - "
@@ -40510,7 +40740,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 _h3_tristep = _h3_turbo = _h3_clean_sound = False
                 _h3_steps = 0
                 _h3_flex_want = False
-        if _h3_flex_want and h3_available():
+        if not _h3_refs_on and _h3_flex_want and h3_available():
             _fcell = H3_TIERS[_h3_tier]
             _fst = h3_flex_status()
             if mode_in not in H3_FLEX_MODES:
@@ -40531,12 +40761,21 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                          "ladder - Fast, Turbo and any Steps pin are off for this render.")
                 _h3_tristep = _h3_turbo = _h3_clean_sound = False
                 _h3_steps = 0
-        if (not _h3_flex and not _h3_flex_turbo and not _h3_v13_off and not _h3_tristep and not _h3_turbo
+        if (not _h3_refs_on and not _h3_flex and not _h3_flex_turbo and not _h3_v13_off and not _h3_tristep and not _h3_turbo
                 and not _h3_steps
                 and mode_in in H3_V13_MODES and h3_available()
                 and h3_cell_takes_v13(H3_TIERS[_h3_tier])
                 and h3_v13_status()["available"]):
             _h3_v13 = True
+        if _h3_refs_on:
+            # References runs on its own sampler: preserve explicitly requested speed /
+            # Clean up sound switches so pre-queue validation can refuse them with a clear
+            # reason instead of silently dropping them, without auto-enabling defaults.
+            _h3_tristep = bool(_h3_tristep_want)
+            _h3_v13 = bool(_h3_v13_want)
+            _h3_flex = bool(_h3_flex_want)
+            _h3_flex_turbo = bool(_h3_flex_turbo_want)
+            _h3_clean_sound = bool(_h3_clean_want)
         # Per-window prompts, matched to the cell that will ACTUALLY render.
         # Normalising after the fallback above is the whole point: a 15 s
         # request that degraded to 5 s has one window, and three prompts on a
@@ -40621,7 +40860,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # Inert without a reference image; a leftover pill from a mode
             # switch resets quietly rather than logging noise on every t2v.
             _i2v_ref_mode = "anchor"
-    if _h3_turbo and _h3_steps:
+    if not (_h3_refs and _engine == "h3" and mode_in in h3_refs.MODES) and _h3_turbo and _h3_steps:
         # The adapter is distilled FOR 4 sigma points. Honouring a Steps pill on
         # top of it would quietly render a configuration nobody validated, so
         # Turbo wins and says so rather than losing to a leftover pill.
@@ -40716,6 +40955,8 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                               else ""),
             "h3_reference3": (_h3_reference3 if (_h3_refs and _engine == "h3" and mode_in in h3_refs.MODES)
                               else ""),
+            # H3 Lip-sync explicit audio-trim confirmation (H68). SAME allowlist trap.
+            "h3_audio_trim_confirmed": bool(_h3_audio_trim_confirmed and _engine == "h3"),
             # 4.17 (Codex H3-2): H3-06 made a typed per-window box ADD to the
             # main prompt. Callers that already send COMPLETE per-window
             # prompts — a One Shot's beats, a storyboard shot's chain — set
@@ -41154,6 +41395,25 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                                           "their pictures.")
         elif pictures:
             job["params"]["h3_refs"] = True
+            # Character pictures route to References: clear auto-defaulted flags that the
+            # caller did not explicitly ask for, while preserving explicit selections so
+            # pre-queue validation can report conflicts instead of silently dropping them.
+            if _h3_tristep_want is None:
+                job["params"]["h3_tristep"] = False
+            elif _h3_tristep_want is True:
+                job["params"]["h3_tristep"] = True
+            if _h3_clean_want is None:
+                job["params"]["h3_clean_sound"] = False
+            elif _h3_clean_want is True:
+                job["params"]["h3_clean_sound"] = True
+            if not _h3_v13_want:
+                job["params"]["h3_v13"] = False
+            else:
+                job["params"]["h3_v13"] = True
+            if _h3_flex_want:
+                job["params"]["h3_flex"] = True
+            if _h3_flex_turbo_want:
+                job["params"]["h3_flex_turbo"] = True
             for key, picture in zip(("h3_reference", "h3_reference2", "h3_reference3"),
                                     (pictures + ["", "", ""])[:3]):
                 job["params"][key] = picture
@@ -41364,7 +41624,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         job["params"]["voice_method"] = _route
         if _saved_voice:
             job["params"].update(voice_name=_saved_voice["name"], voice_trigger=_saved_voice["trigger"])
-            if _engine == "ltx" or _route == "voice_pass":
+            if _engine == "ltx":
                 _adapter = _saved_voice.get("adapter_path")
                 if not _adapter or not Path(_adapter).is_file():
                     raise ValueError("Train this voice in Voices before rendering.")
@@ -41411,7 +41671,20 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                     job["params"]["prompt_plain"] = _raw_prompt
                 if f("dialogue_lang", "").strip() or _dlg_lang != "English":
                     job["params"]["dialogue_lang"] = _dlg_lang
-            _phrases = dialogue_phrases(_tagged_prompt) if not _model_voice_only else []
+            _spoken_prompts = [_tagged_prompt]
+            if _engine == "h3":
+                # Later windows speak too (L207/F04): convert each window box and collect the dialogue
+                # from the same window composition the runner uses, repeated main-prompt lines included.
+                _windows = int(job["params"].get("h3_chain_windows") or 1)
+                _asked = job["params"].get("h3_chain_prompts") or []
+                if _windows > 1:
+                    _asked = [plain_dialogue(x, _names, _default, language=_dlg_lang) for x in _asked]
+                    job["params"]["h3_chain_prompts"] = _asked
+                    _spoken_prompts = h3_window_prompts_for_job(
+                        job["params"]["prompt"], _asked, _windows,
+                        complete=bool(job["params"].get("h3_chain_prompts_complete")))
+            _phrases = ([phrase for text in _spoken_prompts for phrase in dialogue_phrases(text)]
+                        if not _model_voice_only else [])
             # Layout r6 (Codex sweep): a voice picked for THIS shot on a one-character shot is the voice
             # its lines speak in ("This shot speaks in X"), over the character's own; a per-line pick
             # (speaker_voices) still wins. With two or more characters each keeps their own voice.
@@ -41437,7 +41710,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                     if not _picked.get("adapter_path") or not Path(_picked["adapter_path"]).is_file():
                         raise ValueError("Train this voice in Voices before rendering.")
                     _phrase["voice"] = {k: _picked[k] for k in
-                                        ("id", "name", "trigger", "adapter_path")}
+                                        ("id", "name", "trigger", "adapter_path", "sample_path", "identity") if k in _picked}
             if any(x.get("voice") for x in _phrases):
                 if _engine == "ltx":
                     _ltx_prompt = ltx_plain_dialogue(_raw_prompt, _names)
@@ -41447,6 +41720,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                     if f("dialogue_lang", "").strip() or _dlg_lang != "English":
                         job["params"]["dialogue_lang"] = _dlg_lang
                 job["params"].update(voice_route="voice_pass", voice_phrases=_phrases)
+                _unresolved = sorted({x["speaker"] for x in _phrases if x["speaker"] and not x.get("voice")})
+                if _unresolved and _engine == "h3":
+                    job["params"]["voice_note"] = ("No saved voice for " + ", ".join(_unresolved)
+                        + "; those lines keep Hailuo H3's voice.")
             elif not _model_voice_only and (_saved_voice or len(_selected_characters) >= 2):
                 _who = _default or (_selected_characters[0].get("name") if _selected_characters else None) or (_saved_voice or {}).get("name") or "This character"
                 job["params"]["voice_note"] = (f"{_who} doesn't say anything in this prompt, so the voice wasn't used. "
@@ -43901,7 +44178,22 @@ def h3_media_plan(job: dict, p: dict, mode: str, tier: dict, width: int,
                                     f"Start at {start_t:.1f}s is past the end of "
                                     f"{Path(audio).name} ({total:.1f}s).")
             want = min(want, avail)
-        want = min(want, H3_A2V_MAX_SECONDS)
+        requested_s = want
+        if requested_s > H3_A2V_MAX_SECONDS + 1e-6:
+            if not bool(p.get("h3_audio_trim_confirmed")):
+                raise RenderRefused(
+                    "h3_mode",
+                    f"Hailuo H3 Lip-sync renders up to {H3_A2V_MAX_SECONDS:.0f}s per clip, "
+                    f"so {Path(audio).name} ({requested_s:.1f}s from {start_t:.1f}s) "
+                    f"would be trimmed to {H3_A2V_MAX_SECONDS:.0f}s. Shorten the duration, "
+                    f"move Start at later, switch to LTX for longer audio, or confirm "
+                    f"trimming (h3_audio_trim_confirmed=1).",
+                )
+            want = H3_A2V_MAX_SECONDS
+            out["notes"].append(
+                f"lip-sync: trimmed {Path(audio).name} from {requested_s:.2f}s to "
+                f"{H3_A2V_MAX_SECONDS:.0f}s (confirmed)"
+            )
         # The track decides the length. A short line still renders one whole
         # 22-frame window (the model's smallest), but --chain-total-frames trims
         # delivery back to the audio, so a 0.5 s line is not padded with silence.
@@ -44444,16 +44736,19 @@ def run_h3_job_inner(job: dict) -> None:
                      f"{_total:.2f} — above {H3_LORA_STACK_STRENGTH_ADVISORY:g} the "
                      f"stack tends to break motion. Lower one if the clip judders.")
 
-    # References (Pro) runs on its own sampler: the speed switches never resolve their files for
-    # it (a missing Fast adapter must not stop a References clip). Resolved in full further down.
-    if p.get("h3_refs") and mode in h3_refs.MODES:
-        for _k in ("h3_turbo", "h3_tristep", "h3_v13", "h3_flex", "h3_flex_turbo", "h3_clean_sound"):
-            p[_k] = False
+    # References (Pro) runs on its own sampler: skip resolving speed-adapter files for it
+    # (a missing Fast adapter must not stop a References clip), without silently clearing the
+    # requested flags before the References warning logic below can inspect and report them.
+    _refs_mode = bool(p.get("h3_refs") and mode in h3_refs.MODES)
+    _refs_ignored_flags = [
+        label for _k, label in H3_REFS_INCOMPATIBLE_FLAGS
+        if _refs_mode and bool(p.get(_k))
+    ]
     # ---- Turbo: the 4-step distillation LoRA -----------------------------
     # make_job already gated this and pinned `steps`, but re-resolve the adapter
     # HERE: the queue can sit for an hour and a job must not reach the runner
     # with a --lora path that stopped resolving in the meantime.
-    turbo = bool(p.get("h3_turbo"))
+    turbo = bool(p.get("h3_turbo")) and not _refs_mode
     if turbo and user_lora is not None and not h3_supports_lora_stack():
         # ONE slot, two claimants (a runner that predates stacking). Both
         # outcomes are stated out loud; neither is chosen for the user behind
@@ -44514,7 +44809,7 @@ def run_h3_job_inner(job: dict) -> None:
     # make_job resolved it; re-check here for the same reason as Turbo (a
     # queued job outlives the file), and keep the two adapters exclusive even
     # for a hand-edited queue entry.
-    tristep = bool(p.get("h3_tristep"))
+    tristep = bool(p.get("h3_tristep")) and not _refs_mode
     tristep_paths: dict = {}
     if tristep and not h3_cell_takes_tristep(tier):
         tristep = False
@@ -44551,7 +44846,7 @@ def run_h3_job_inner(job: dict) -> None:
     # ---- Best at High: lightx2v v1.3 (6 forwards, video shift 6) ----------
     # make_job resolved it; re-check here (a queued job outlives the file, a
     # hand-edited queue entry can carry anything) and never stack it.
-    v13 = bool(p.get("h3_v13"))
+    v13 = bool(p.get("h3_v13")) and not _refs_mode
     v13_paths: dict = {}
     if v13 and (tristep or turbo or not h3_cell_takes_v13(tier)
                 or mode not in H3_V13_MODES):
@@ -44585,11 +44880,11 @@ def run_h3_job_inner(job: dict) -> None:
     # Pika H3 Flex running natively on Apple Silicon (MLX). make_job resolved
     # it; re-check here (a queued job outlives the file) and never stack it
     # with another step-distillation adapter.
-    flex = bool(p.get("h3_flex"))
+    flex = bool(p.get("h3_flex")) and not _refs_mode
     flex_paths: dict = {}
     # H3 Flex Turbo (Pro): its own LoRA and step ladder; re-checked here (a
     # queued job outlives a licence and a file).
-    flex_turbo = bool(p.get("h3_flex_turbo"))
+    flex_turbo = bool(p.get("h3_flex_turbo")) and not _refs_mode
     flex_turbo_paths: dict = {}
     flex_turbo_spec: dict = {}
     if flex_turbo and (tristep or turbo or v13 or flex or not h3_cell_takes_flex(tier)
@@ -44600,6 +44895,8 @@ def run_h3_job_inner(job: dict) -> None:
              f"this render keeps its own sampler.")
     if flex_turbo:
         if not h3_flex_turbo_allowed():
+            if pro_is_active():
+                raise RuntimeError("Getting Pro ready on this Studio. Try again once setup finishes.")
             raise RuntimeError(f"{H3_FLEX_TURBO_NAME} is part of Phosphene Pro, and Pro is not "
                                "active on this Mac. Pick H3 Flex, Fast or Best.")
         if not h3_supports_flex_turbo():
@@ -44837,9 +45134,13 @@ def run_h3_job_inner(job: dict) -> None:
         refs_pictures = refs_pictures[:int(refs_spec.get("max_pictures") or h3_refs.MAX_PICTURES)]
         if not refs_pictures:
             raise RuntimeError(f"{h3_refs.NAME} needs at least one picture.")
-        if tristep or turbo or v13 or flex or flex_turbo or user_lora is not None:
-            push(f"[h3] {h3_refs.NAME} runs on its own sampler - the speed switch and LoRAs "
-                 "stay off for this clip.")
+        _refs_ignored = list(_refs_ignored_flags)
+        if user_lora is not None:
+            _refs_ignored.append("LoRAs")
+        if _refs_ignored:
+            push(f"[h3] {h3_refs.NAME} runs on its own sampler - ignoring "
+                 f"{', '.join(_refs_ignored)} for this clip.")
+            p["h3_refs_ignored"] = list(_refs_ignored)
         tristep = turbo = v13 = flex = flex_turbo = False
         user_lora = None
         p["h3_tristep"] = p["h3_turbo"] = p["h3_v13"] = p["h3_flex"] = p["h3_flex_turbo"] = False
@@ -45130,6 +45431,8 @@ def run_h3_job_inner(job: dict) -> None:
     if flex_turbo:
         _turbo_argv = h3_flex_turbo_argv(flex_turbo_paths)
         if not _turbo_argv:
+            if pro_is_active():
+                raise RuntimeError("Getting Pro ready on this Studio. Try again once setup finishes.")
             raise RuntimeError(f"{H3_FLEX_TURBO_NAME} is part of Phosphene Pro, and Pro is not "
                                "active on this Mac. Pick H3 Flex, Fast or Best.")
         cmd += _turbo_argv
@@ -45347,30 +45650,40 @@ def run_h3_job_inner(job: dict) -> None:
         import selectors as _selectors
         _sel = _selectors.DefaultSelector()
         _sel.register(proc.stdout, _selectors.EVENT_READ)
-        _H3_IDLE_LIMIT_SEC = 20 * 60
+        _h3_lowmem = "--low-memory" in cmd
+        _h3_idle_limit = h3_idle_limit_sec(
+            _modeled_per_step, _decode_est, low_memory=_h3_lowmem)
 
         def _h3_lines():
             buf = b""
-            while True:
-                if not _sel.select(timeout=_H3_IDLE_LIMIT_SEC):
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    except (ProcessLookupError, PermissionError, OSError):
-                        pass
-                    raise RuntimeError(
-                        "H3 render timed out — no output for 20 minutes, so "
-                        "the process was killed. The machine was likely "
-                        "swapping too hard to make progress; try a shorter "
-                        "length or a smaller canvas.")
-                chunk = os.read(proc.stdout.fileno(), 65536)
-                if not chunk:
-                    if buf:
-                        yield buf.decode("utf-8", "replace")
-                    return
-                buf += chunk
-                while b"\n" in buf:
-                    line, buf = buf.split(b"\n", 1)
-                    yield line.decode("utf-8", "replace") + "\n"
+            try:
+                while True:
+                    if not _sel.select(timeout=_h3_idle_limit):
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError, OSError):
+                            pass
+                        _mins = max(1, int(round(_h3_idle_limit / 60.0)))
+                        _where = f" during {phase_label}" if phase_label else ""
+                        raise RuntimeError(
+                            f"H3 render timed out — no output for {_mins} minutes{_where}, so "
+                            "the process was stopped. The cause is unknown. "
+                            "Try again. If it happens again, try a shorter clip "
+                            "or smaller size and use Report a bug.")
+                    chunk = os.read(proc.stdout.fileno(), 65536)
+                    if not chunk:
+                        if buf:
+                            yield buf.decode("utf-8", "replace")
+                        return
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        yield line.decode("utf-8", "replace") + "\n"
+            finally:
+                try:
+                    _sel.close()
+                except Exception:                                    # noqa: BLE001
+                    pass
 
         # The last few lines the engine printed ride on the failure message
         # (fleet 2026-09-03: 20 H3 failures on one release all read
@@ -45467,6 +45780,11 @@ def run_h3_job_inner(job: dict) -> None:
                 pct = win_base + win_span * (last_step / float(total_steps))
                 spent = elapsed if denoise_t0 is None else max(0.0, time.time() - denoise_t0)
                 per_step = spent / max(1, last_step)
+                _h3_idle_limit = max(
+                    _h3_idle_limit,
+                    h3_idle_limit_sec(_modeled_per_step, _decode_est,
+                                      low_memory=_h3_lowmem,
+                                      measured_step_sec=per_step))
                 # H3-04: pace check. Needs a couple of steps before the
                 # measured per-step time means anything (the first step
                 # after a phase change often carries residual setup cost).
@@ -46467,6 +46785,13 @@ def run_take_job_inner(job: dict) -> None:
     if first_image and not Path(first_image).is_file():
         first_image = ""
     render_part = run_h3_job_inner if engine == "h3" else run_job_inner
+    if resume_outs:
+        # A failed final join also leaves a resumable take with every part
+        # rendered. Check its inputs even when no further render is needed.
+        _gone = [i + 1 for i, o in enumerate(resume_outs) if not Path(o).is_file()]
+        if _gone:
+            raise RuntimeError(f"part {_gone[0]} of this take is no longer on disk — "
+                               "it can't be resumed")
     if resume_outs and start_k < n_parts:
         # SAFETY-6: the handoff frame is rebuilt from the last kept part, never
         # trusted from the manifest — a Stop during (or before) the previous
@@ -46476,10 +46801,6 @@ def run_take_job_inner(job: dict) -> None:
         # Only the last was checked, so a take whose EARLIER part was deleted
         # (stopped takes show their parts in the gallery) re-rendered the rest
         # and then died at the join: "ffmpeg exit 254: Error opening input".
-        _gone = [i + 1 for i, o in enumerate(resume_outs) if not Path(o).is_file()]
-        if _gone:
-            raise RuntimeError(f"part {_gone[0]} of this take is no longer on disk — "
-                               "it can't be resumed")
         last_png = str(take_dir / f"part{start_k}_last.png")
         _take_last_frame(ff, resume_outs[-1], last_png, job)
     if not resume_outs:
@@ -46914,6 +47235,9 @@ def queue_update_job(job_id: str, form: dict) -> dict:
             new_params[k] = v
         if old.get("session_tag") and not new_params.get("session_tag"):
             new_params["session_tag"] = old["session_tag"]
+        _h3_ref = h3_job_settings_refusal(new_params)
+        if _h3_ref:
+            return {"ok": False, "code": _h3_ref[0], "error": _h3_ref[1]}
         job["params"] = new_params
     persist_queue()
     return {"ok": True, "id": job_id}
@@ -55934,5 +56258,5 @@ if __name__ == "__main__":
         server.serve_forever()
     finally:
         agent_discovery.withdraw(PORT)
-        HELPER.kill()
+        _kill_helper_at_exit()
         caffeinate_off()

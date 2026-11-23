@@ -69,6 +69,9 @@ def post_oneshot(h, path, qs, ctype) -> None:
         job = P.make_job(form)
     except P.CharacterRequestError as exc:
         h._json({"ok": False, "error": str(exc)}, 400); return
+    _h3_ref = P.h3_job_settings_refusal(job.get("params") or {})
+    if _h3_ref:
+        h._json({"ok": False, "error": _h3_ref[1], "code": _h3_ref[0]}, 400); return
     take = (job.get("params") or {}).get("take") or {}
     if not take:
         # make_job refused the take (it logs why) — say so instead of queueing a clip

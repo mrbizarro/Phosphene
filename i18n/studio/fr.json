@@ -5762,7 +5762,16 @@
   "yourProModal.close": "Fermer",
   "yourProModal.title.close": "Fermer",
   "yourProModal.your_licence": "Votre licence",
-  "yourProTitle.your_pro": "Votre Pro"
+  "yourProTitle.your_pro": "Votre Pro",
+  "settings.updates": "Mises à jour",
+  "settings.update_automatically": "Mettre à jour automatiquement",
+  "settings.update_automatically_help": "Si désactivé, vous choisissez quand mettre à jour. Les téléchargements que vous lancez peuvent se terminer.",
+  "settings.update_app_for_control": "Mettez à jour l’app Mac pour utiliser cette option.",
+  "settings.update_all_help": "S’applique à Studio, Pro et à l’app Mac. Si désactivé, vous choisissez quand mettre à jour.",
+  "settings.update_available": "Mise à jour disponible ({version})",
+  "settings.update": "Mettre à jour",
+  "settings.whats_new": "Nouveautés",
+  "settings.update_choice_not_saved": "Impossible d’enregistrer ce choix. Réessayez."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",

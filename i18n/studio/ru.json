@@ -5787,7 +5787,16 @@
   "yourProModal.close": "Закрыть",
   "yourProModal.title.close": "Закрыть",
   "yourProModal.your_licence": "Ваша лицензия",
-  "yourProTitle.your_pro": "Ваш Pro"
+  "yourProTitle.your_pro": "Ваш Pro",
+  "settings.updates": "Обновления",
+  "settings.update_automatically": "Обновлять автоматически",
+  "settings.update_automatically_help": "Если выключено, вы сами выбираете, когда обновлять. Начатые вами загрузки смогут завершиться.",
+  "settings.update_app_for_control": "Обновите приложение для Mac, чтобы использовать этот переключатель.",
+  "settings.update_all_help": "Применяется к Studio, Pro и приложению для Mac. Если выключено, вы сами выбираете, когда обновлять.",
+  "settings.update_available": "Доступно обновление ({version})",
+  "settings.update": "Обновить",
+  "settings.whats_new": "Что нового",
+  "settings.update_choice_not_saved": "Не удалось сохранить выбор. Попробуйте ещё раз."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
