@@ -26426,6 +26426,37 @@ def _video_has_audio(path: str) -> bool:
     return _probe_audio_state(path) == "audio"
 
 
+def a2v_audio_refusal(path: str, start_time=0.0) -> str | None:
+    """Plain-English refusal when a Lip-sync (a2v) input has no audio track or
+    `start_time` is at/past the end of the file; None when readable or unknowable.
+
+    H73 (fleet Nov 2026, 2 Macs, 8 failed renders in 7 days): LTX Lip-sync
+    raised raw `No audio found in <path>` from `load_audio()` when handed a
+    file without an audio track or a `start_time` past the end. Only definite
+    findings refuse ("none" from ffprobe, or a known duration <= start_time);
+    "unknown" leaves the file to the engine (same rule as H37 on v2a).
+    """
+    name = Path(str(path)).name or str(path)
+    state = _probe_audio_state(str(path))
+    if state == "none":
+        return (f"Phosphene could not read the audio in {name}: it has no audio "
+                "track (it may be a silent video or a picture). Nothing was "
+                "rendered. Pick an audio file (WAV, MP3, M4A, FLAC) or a video "
+                "with sound.")
+    try:
+        start_t = max(0.0, float(start_time or 0.0))
+    except (TypeError, ValueError):
+        start_t = 0.0
+    if state == "audio" and start_t > 0.0:
+        dur = probe_media_duration(path)
+        if dur is not None and start_t >= dur - 0.05:
+            return (f"Phosphene could not read the audio in {name}: Start at "
+                    f"{start_t:.1f}s is past the end of the file ({dur:.1f}s). "
+                    "Nothing was rendered. Set Start at earlier in the track, "
+                    "or pick a longer audio file.")
+    return None
+
+
 def ltx_grid_frames_up(frames: int) -> int:
     """The smallest LTX frame count (1 + 8k, at least 9) that holds `frames`."""
     frames = max(1, int(frames))
@@ -39848,6 +39879,11 @@ def job_input_refusal(params: dict) -> str | None:
         if not _exists(audio):
             return (f"audio file not found: {audio}. It was moved or deleted "
                     "after it was picked - pick it again in the Audio slot.")
+        # H73 (fleet Nov 2026, 2 Macs, 8 failed renders): refuse a file with
+        # no audio track or Start at past the end before it queues.
+        _a_ref = a2v_audio_refusal(audio, p.get("audio_start_time"))
+        if _a_ref:
+            return _a_ref
     elif m == "keyframe":
         # 4.19.2 (fleet 4.19.1): a Keyframes job with no start image reached
         # its turn and failed "start_image not found:" - checked here instead,
@@ -49316,6 +49352,9 @@ def run_job_inner(job: dict) -> None:
         audio_src = (p.get("audio") or "").strip()
         if not audio_src or not Path(audio_src).exists():
             raise RuntimeError(f"audio file not found: {audio_src}")
+        _a_ref = a2v_audio_refusal(audio_src, p.get("audio_start_time"))
+        if _a_ref:
+            raise RenderRefused("input_unreadable", _a_ref)
         import scene_sound
         scene_sound_on = scene_sound.enabled(p, audio_src, model_version()["id"])
         scene_bed_path = str(p.get("a2v_scene_bed") or "").strip()
@@ -49330,6 +49369,10 @@ def run_job_inner(job: dict) -> None:
         cond_audio, stem_note = a2v_conditioning_audio(p, audio_src)
         if stem_note:
             push(f"[a2v] {stem_note}")
+        if cond_audio and Path(cond_audio) != Path(audio_src):
+            _c_ref = a2v_audio_refusal(cond_audio, p.get("audio_start_time"))
+            if _c_ref:
+                raise RenderRefused("input_unreadable", _c_ref)
         width, height = int(p["width"]), int(p["height"])
         # Clamp resolution by tier cap (no-op when tier_max_dim returns 0):
         # proportionally, on the /64 grid, and recorded on the job, so the
@@ -49514,7 +49557,27 @@ def run_job_inner(job: dict) -> None:
             f" scale={a2v_params['audio_conditioning_scale']}{_scale_note}"
             f"{_start_note}"
         )
-        result = HELPER.run(job_spec)
+        try:
+            result = HELPER.run(job_spec)
+        except RuntimeError as exc:
+            if "no audio found in " in str(exc).lower():
+                _name = Path(audio_src).name or audio_src
+                _start = float(a2v_params["audio_start_time"] or 0.0)
+                if _start > 0.0:
+                    raise RenderRefused(
+                        "input_unreadable",
+                        f"Phosphene could not read the audio in {_name} at {_start:.1f}s "
+                        "(the file may have no audio track, be damaged, or end before "
+                        "Start at). Nothing was rendered. Pick an audio file (WAV, MP3, "
+                        "M4A, FLAC) or a video with sound.",
+                    ) from exc
+                raise RenderRefused(
+                    "input_unreadable",
+                    f"Phosphene could not read the audio in {_name}: it has no readable "
+                    "audio track. Nothing was rendered. Pick an audio file (WAV, MP3, "
+                    "M4A, FLAC) or a video with sound.",
+                ) from exc
+            raise
         if "seed_used" in result:
             push(f"seed used: {result['seed_used']}")
             p["seed_used"] = result["seed_used"]
