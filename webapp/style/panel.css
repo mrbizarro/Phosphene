@@ -10833,9 +10833,58 @@
       background: linear-gradient(90deg, #ff2e9f 0%, #b14aff 55%, #5eeaff 100%);
     }
     body > header > .pill.pill-appupdate:hover { color: #fff; filter: brightness(1.12); }
-    body > header > .pill.pill-appupdate.is-busy { animation: none; cursor: default; background: var(--panel-2); color: var(--text); box-shadow: inset 0 0 0 1px rgba(177,74,255,0.55); }
+    body > header > .pill.pill-appupdate.is-busy {
+      position: relative;
+      display: inline-flex; align-items: center; gap: 7px;
+      animation: none; cursor: default; font-weight: 600;
+      background: var(--panel-2); color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(177,74,255,0.45);
+    }
+    body > header > .pill.pill-appupdate.is-busy::before {
+      content: ''; width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+      background: #b14aff;
+      box-shadow: 0 0 6px rgba(177,74,255,0.65);
+    }
+    body > header > .pill.pill-appupdate.is-downloading {
+      background:
+        linear-gradient(90deg, rgba(177,74,255,0.28) 0%, rgba(94,234,255,0.22) var(--pct, 0%), transparent var(--pct, 0%)),
+        var(--panel-2);
+    }
     body > header > .pill.pill-appupdate.is-busy:hover { color: var(--text); filter: none; }
+    body > header > .pill.pill-appupdate.is-done {
+      animation: none; cursor: default; font-weight: 600;
+      background: rgba(63,185,80,0.14); color: var(--success);
+      box-shadow: inset 0 0 0 1px rgba(63,185,80,0.45);
+    }
+    body > header > .pill.pill-appupdate.is-done:hover { color: var(--success); filter: none; }
     body > header > .pill.pill-appupdate.is-problem { animation: none; background: var(--warning); color: #111; }
+    body > header > .pill.pill-appupdate.is-problem:hover { color: #111; filter: brightness(1.06); }
+    /* Single calm anchored popover for failed / needs_app details + Retry (replaces native NSAlert + bottom toasts). */
+    .app-update-pop {
+      position: fixed; z-index: 400; top: 52px; right: 16px;
+      display: flex; align-items: center; gap: 12px;
+      max-width: 440px; padding: 10px 12px 10px 14px;
+      background: rgba(21, 21, 24, 0.96);
+      border: 1px solid rgba(240, 185, 64, 0.45);
+      border-radius: 10px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--text); font-size: 13px; line-height: 1.4;
+    }
+    .app-update-pop-msg { flex: 1; min-width: 0; }
+    .app-update-pop-actions { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+    .app-update-pop-retry {
+      width: auto; padding: 5px 11px; border-radius: 7px; border: 0;
+      background: var(--warning); color: #111; font-size: 13px; font-weight: 700;
+      cursor: pointer; white-space: nowrap;
+    }
+    .app-update-pop-retry:hover { filter: brightness(1.08); }
+    .app-update-pop-close {
+      width: auto; padding: 2px 6px; border: 0; background: none;
+      color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer;
+    }
+    .app-update-pop-close:hover { color: var(--text); }
 
     /* === ENGINE SWITCHER (header, top right) =============       The one control in the header row that is an INPUT rather than a
        readout, so it deliberately does not share the .pill language: it sits

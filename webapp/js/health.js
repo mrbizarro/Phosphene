@@ -760,6 +760,11 @@ async function panelRestart() {
 // everyone, and kept "Update to vX" up forever on an app the update had refused (U2).
 let _appLatest = null;
 let _appUpdateShownKey = '';
+let _appUpdateClickPending = false;
+let _appUpdateClickTimer = null;
+let _appUpdateDoneTimer = null;
+let _appUpdateDismissedPopKey = '';
+let _appUpdateDismissedDoneKey = '';
 
 function _appPushesUpdates(a) {
   return !!(a && Array.isArray(a.caps) && a.caps.includes('updateAll'));
@@ -799,56 +804,91 @@ const APP_UPDATE_WAITS = {
   app_quit: T('health.you_quit_phosphene_and_open', 'you quit Phosphene and open it again'),
 };
 
-// Everything the pill and the toast say, from the app's push alone. Pure: (push) -> view.
-//   show    is there a pill          label/title   its words
-//   action  what a click sends: 'updateAll' | 'checkUpdate' | null
-//   toast   {text, kind} to show when `key` changes, or null     key   identity of this outcome
+// One calm surface in the Studio top bar: the update pill (#appUpdatePill) renders every state
+// in place, plus one anchored inline popover (#appUpdatePop) for failed / needs_app details and
+// Retry. Zero native popups and zero bottom toasts for state-reporting apps. Pure: (push) -> view.
+//   show      is there a top-bar pill    label/title   its words
+//   action    what a click sends: 'updateAll' | 'checkUpdate' | null
+//   progress  0..1 while downloading (for the inline progress fill), else null
+//   detail    one plain sentence shown in the anchored popover for failed / needs_app, else ''
+//   cta       button label inside the popover, else ''
+//   toast     always null for the single-surface contract (legacy click path uses a single slot)
 function appUpdateView(a) {
   a = a || {};
   const parts = appUpdateParts(a);
   const name = appUpdateName(parts);                  // "Studio to v5.0.14"
   const thing = appUpdateName(parts, ' ');            // "Studio v5.0.14"
   let state = String(a.state || '').toLowerCase();
-  if (!['available', 'downloading', 'waiting', 'needs_app', 'failed', 'done'].includes(state)) {
-    state = (a.behind && parts.length) ? 'available' : 'idle';     // the 5.0.5-5.0.10 push has no state
+  if (!['available', 'starting', 'downloading', 'waiting', 'switching', 'needs_app', 'failed', 'done'].includes(state)) {
+    state = (a.behind && parts.length) ? 'available' : 'idle';     // older pushes without state
   }
   const key = state + '|' + thing + '|' + (a.reason || '') + '|' + (a.message || '');
   const said = String(a.message || '').trim();
-  const v = { state, parts, key, show: false, label: '', title: '', action: null, toast: null, busy: false };
+  const v = {
+    state, parts, key, show: false, label: '', title: '', action: null,
+    toast: null, busy: false, done: false, progress: null, detail: '', cta: '',
+  };
   if (state === 'idle') return v;
+  v.show = true;
   if (state === 'done') {
-    v.toast = { kind: 'success', text: said || (thing ? `${thing} is installed.` : T('health.phosphene_is_up_to_date', 'Phosphene is up to date.')) };
+    v.done = true;
+    v.label = said || (thing ? T('health.updated_to', 'Updated to {thing}', {thing}) : T('health.phosphene_is_up_to_date', 'Phosphene is up to date.'));
+    v.title = v.label;
     return v;
   }
-  v.show = true;
   if (state === 'available') {
     v.label = T('health.update', 'Update ') + name;
     v.title = T('health.a_newer_version_is_out', 'A newer version is out. Click to install it.');
     v.action = 'updateAll';
-    v.toast = { kind: 'info', text: T('health.update_ready_when_you_are', 'An update is available. Use the Update button when you are ready.') };
+  } else if (state === 'starting') {
+    v.label = thing
+      ? T('health.starting_update_thing', 'Starting {thing}\u2026', {thing})
+      : T('health.checking_for_updates', 'Checking for updates\u2026');
+    v.title = said || T('health.starting_the_update', 'Starting the update\u2026');
+    v.busy = true;
   } else if (state === 'downloading') {
-    const pct = Number.isFinite(a.progress) ? ` ${Math.round(Math.max(0, Math.min(1, a.progress)) * 100)}%` : '';
-    v.label = `Downloading ${thing}${pct}`;
-    v.title = T('health.the_update_is_downloading_nothing', 'The update is downloading. Nothing to do.');
+    const pctNum = Number.isFinite(a.progress) ? Math.max(0, Math.min(1, a.progress)) : null;
+    const pct = pctNum !== null ? ` ${Math.round(pctNum * 100)}%` : '\u2026';
+    v.progress = pctNum;
+    v.label = thing
+      ? T('health.downloading_thing_pct', 'Downloading {thing}{pct}', {thing, pct})
+      : T('health.downloading_update_pct', 'Downloading update{pct}', {pct});
+    v.title = said || T('health.the_update_is_downloading_nothing', 'The update is downloading. Nothing to do.');
     v.busy = true;
-    v.toast = { kind: 'info', text: said || `Downloading ${thing}.` };
   } else if (state === 'waiting') {
-    const why = APP_UPDATE_WAITS[a.reason] || 'Phosphene is idle';
-    v.label = `${thing} is ready`;
-    v.title = said || `${thing} is downloaded. It switches over when ${why}.`;
+    const why = APP_UPDATE_WAITS[a.reason] || T('health.phosphene_is_idle', 'Phosphene is idle');
+    const shortWaits = {
+      render: T('health.waiting_for_render', 'waiting for render'),
+      queue: T('health.waiting_for_queue', 'waiting for queue'),
+      model_download: T('health.waiting_for_download', 'waiting for download'),
+      engine_install: T('health.waiting_for_install', 'waiting for install'),
+      app_quit: T('health.ready_on_relaunch', 'ready on next launch'),
+    };
+    const shortWhy = shortWaits[a.reason] || '';
+    v.label = shortWhy
+      ? T('health.thing_ready_short_why', '{thing} ready \u00b7 {why}', {thing: thing || T('health.update_noun', 'Update'), why: shortWhy})
+      : T('health.thing_is_ready', '{thing} is ready', {thing: thing || T('health.update_noun', 'Update')});
+    v.title = said || T('health.thing_downloaded_switches_when', '{thing} is downloaded. It switches over when {why}.', {thing: thing || T('health.the_update', 'The update'), why});
     v.busy = true;
-    v.toast = { kind: 'info', text: v.title };
+  } else if (state === 'switching') {
+    v.label = thing
+      ? T('health.switching_to_thing', 'Switching to {thing}\u2026', {thing})
+      : T('health.switching_over', 'Switching over\u2026');
+    v.title = said || T('health.switching_to_the_new_version', 'Switching to the new version\u2026');
+    v.busy = true;
   } else if (state === 'needs_app') {
     const need = a.need_app ? ` (v${String(a.need_app).replace(/^v/i, '')} or newer)` : '';
     v.label = T('health.update_the_phosphene_app_first', 'Update the Phosphene app first');
-    v.title = said || `${thing || 'This update'} needs a newer Phosphene app${need}. Click to update the app.`;
+    v.detail = said || T('health.needs_newer_app_detail', '{thing} needs a newer Phosphene app{need}.', {thing: thing || T('health.this_update', 'This update'), need});
+    v.cta = T('health.update_app', 'Update app');
+    v.title = v.detail;
     v.action = 'checkUpdate';
-    v.toast = { kind: 'warning', text: v.title };
   } else if (state === 'failed') {
     v.label = T('health.update_failed_try_again', 'Update failed. Try again');
-    v.title = said || `${thing || 'The update'} could not be installed. Click to try again.`;
+    v.detail = said || T('health.update_could_not_be_installed', '{thing} could not be installed. Try again.', {thing: thing || T('health.the_update', 'The update')});
+    v.cta = T('health.try_again', 'Try again');
+    v.title = v.detail;
     v.action = 'updateAll';
-    v.toast = { kind: 'danger', text: v.title };
   }
   return v;
 }
@@ -864,12 +904,75 @@ function _appUpdateCurrent() {
   return appUpdateView(null);
 }
 
+function _removeAppUpdatePop() {
+  const pop = document.getElementById('appUpdatePop');
+  if (pop) pop.remove();
+}
+
+function _renderAppUpdatePop(up, v) {
+  if (!up || (v.state !== 'failed' && v.state !== 'needs_app') || _appUpdateDismissedPopKey === v.key) {
+    _removeAppUpdatePop();
+    return;
+  }
+  let pop = document.getElementById('appUpdatePop');
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'appUpdatePop';
+    pop.className = 'app-update-pop';
+    pop.setAttribute('role', 'status');
+    pop.setAttribute('aria-live', 'polite');
+    pop.innerHTML =
+      '<span class="app-update-pop-msg"></span>' +
+      '<div class="app-update-pop-actions">' +
+        '<button type="button" class="app-update-pop-retry"></button>' +
+        '<button type="button" class="app-update-pop-close">&times;</button>' +
+      '</div>';
+    const retry = pop.querySelector('.app-update-pop-retry');
+    if (retry) retry.addEventListener('click', (e) => { e.stopPropagation(); _appUpdatePillClick(); });
+    const close = pop.querySelector('.app-update-pop-close');
+    if (close) {
+      close.setAttribute('aria-label', T('health.dismiss', 'Dismiss'));
+      close.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _appUpdateDismissedPopKey = pop.dataset.key || _appUpdateCurrent().key;
+        _removeAppUpdatePop();
+      });
+    }
+    (document.body || up.parentElement || document.documentElement).appendChild(pop);
+  }
+  const msgEl = pop.querySelector('.app-update-pop-msg');
+  if (msgEl) msgEl.textContent = v.detail || v.title;
+  const retryEl = pop.querySelector('.app-update-pop-retry');
+  if (retryEl) retryEl.textContent = v.cta || T('health.try_again', 'Try again');
+  pop.dataset.state = v.state;
+  pop.dataset.key = v.key;
+  if (typeof up.getBoundingClientRect === 'function' && pop.style) {
+    const r = up.getBoundingClientRect();
+    if (r && (r.bottom || r.right)) {
+      const top = Math.max(44, Math.round(r.bottom + 8));
+      const right = Math.max(12, Math.round((window.innerWidth || 1280) - r.right));
+      pop.style.top = top + 'px';
+      pop.style.right = right + 'px';
+    }
+  }
+}
+
 function _renderAppUpdatePill(s) {
   const pill = document.getElementById('versionPill');
   if (!pill) return;
   let up = document.getElementById('appUpdatePill');
   const v = (isMacApp() || (s || {}).app_updates) ? _appUpdateCurrent() : appUpdateView(null);
-  if (!v.show) { if (up) up.remove(); return; }
+  if (v.state === 'starting') {
+    _appUpdateDismissedDoneKey = '';
+    try { sessionStorage.removeItem('phosAppUpdateDoneKey'); } catch (e) { /* private window */ }
+  }
+  let seenDone = _appUpdateDismissedDoneKey;
+  try { seenDone = sessionStorage.getItem('phosAppUpdateDoneKey') || seenDone; } catch (e) { /* private window */ }
+  if (!v.show || (v.done && seenDone === v.key)) {
+    if (up) up.remove();
+    _removeAppUpdatePop();
+    return;
+  }
   if (!up) {
     up = document.createElement('span');
     up.id = 'appUpdatePill';
@@ -884,12 +987,32 @@ function _renderAppUpdatePill(s) {
   up.title = v.title;
   up.dataset.state = v.state;
   up.classList.toggle('is-busy', !!v.busy);
+  up.classList.toggle('is-downloading', v.state === 'downloading');
+  up.classList.toggle('is-done', !!v.done);
   up.classList.toggle('is-problem', v.state === 'failed' || v.state === 'needs_app');
-  up.setAttribute('aria-disabled', v.action ? 'false' : 'true');
+  if (up.style && typeof up.style.setProperty === 'function') {
+    if (v.progress !== null) up.style.setProperty('--pct', Math.round(v.progress * 100) + '%');
+    else if (typeof up.style.removeProperty === 'function') up.style.removeProperty('--pct');
+  }
+  up.setAttribute('aria-disabled', v.action && !_appUpdateClickPending ? 'false' : 'true');
+  _renderAppUpdatePop(up, v);
+  if (v.done) {
+    if (_appUpdateDoneTimer) clearTimeout(_appUpdateDoneTimer);
+    const doneKey = v.key;
+    _appUpdateDoneTimer = setTimeout(() => {
+      _appUpdateDismissedDoneKey = doneKey;
+      try { sessionStorage.setItem('phosAppUpdateDoneKey', doneKey); } catch (e) {}
+      const cur = document.getElementById('appUpdatePill');
+      if (cur && cur.dataset.state === 'done') cur.remove();
+    }, 5000);
+  } else if (_appUpdateDoneTimer) {
+    clearTimeout(_appUpdateDoneTimer);
+    _appUpdateDoneTimer = null;
+  }
 }
 
-// The toast follows the app's answer and changes when the answer changes. Each outcome is said
-// once, also across the reload a finished update causes (the key is remembered in this window).
+// Kept as a named hook for compatibility and state bookkeeping. All update feedback now lives
+// on the single top-bar surface (#appUpdatePill + #appUpdatePop) with zero bottom toasts.
 function _appUpdateAnnounce() {
   const a = window.phosAppUpdate;
   if (!_appPushesUpdates(a) || !a.state) return;
@@ -899,7 +1022,6 @@ function _appUpdateAnnounce() {
   if (v.key === last) return;
   _appUpdateShownKey = v.key;
   try { sessionStorage.setItem('phosAppUpdateKey', v.key); } catch (e) { /* private window */ }
-  if (v.toast) phosToast(v.toast.text, { kind: v.toast.kind, duration: v.state === 'failed' || v.state === 'needs_app' ? 0 : 6000 });
 }
 
 async function _refreshAppLatest() {
@@ -916,14 +1038,35 @@ function _appUpdatePillClick() {
   const a = window.phosAppUpdate;
   const v = _appUpdateCurrent();
   const canAll = _appPushesUpdates(a);
-  if (canAll && !v.action) { if (v.title) phosToast(v.title, 'info'); return; }   // downloading / waiting
+  // Busy, done, or already clicked: clicking Update twice must not re-fire or stack anything.
+  if (_appUpdateClickPending) return;
+  if (canAll && !v.action) return;
+  _appUpdateDismissedPopKey = '';
+  _appUpdateDismissedDoneKey = '';
+  try { sessionStorage.removeItem('phosAppUpdateDoneKey'); } catch (e) { /* private window */ }
+  _removeAppUpdatePop();
+  _appUpdateClickPending = true;
+  if (_appUpdateClickTimer) clearTimeout(_appUpdateClickTimer);
+  _appUpdateClickTimer = setTimeout(() => {
+    _appUpdateClickPending = false;
+    try { _renderAppUpdatePill(_versionState || {}); } catch (e) {}
+  }, 15000);
+  const up = document.getElementById('appUpdatePill');
+  if (up && canAll && a.state) {
+    up.classList.add('is-busy');
+    up.classList.remove('is-problem', 'is-done');
+    up.dataset.state = 'starting';
+    up.setAttribute('aria-disabled', 'true');
+    const thing = appUpdateName(v.parts, ' ');
+    up.textContent = thing
+      ? T('health.starting_update_thing', 'Starting {thing}\u2026', {thing})
+      : T('health.checking_for_updates', 'Checking for updates\u2026');
+  }
   try {
     window.webkit.messageHandlers.phosphene.postMessage({type: canAll ? (v.action || 'updateAll') : 'checkUpdate'});
   } catch (e) { /* not inside the app */ }
-  // Nothing is promised before the app answers (U8): no "Updating…" here. An app that reports
-  // states says what happened through _appUpdateAnnounce; an older one cannot, so the page says
-  // only what it did. The answer to THIS click is always spoken, even if it repeats the last one
-  // (a second failure with the same sentence).
+  // State-reporting apps render every outcome in place on #appUpdatePill / #appUpdatePop —
+  // zero bottom toasts. Legacy apps (no `state`) get one single-slot toast that never stacks.
   if (canAll && a.state) {
     _appUpdateShownKey = '';
     try { sessionStorage.setItem('phosAppUpdateKey', ''); } catch (e) { /* private window */ }
@@ -932,12 +1075,24 @@ function _appUpdatePillClick() {
   const name = appUpdateName(v.parts) || 'the newest version';
   phosToast(canAll
     ? T('health.asked_phosphene_to_update_this', 'Asked Phosphene to update {name}. This button goes away when it is installed.', {name})
-    : T('health.asked_phosphene_to_update_if', 'Asked Phosphene to update {name}. If this stays, quit Phosphene (⌘Q) and open it again — it updates when it opens.', {name}), 'info');
+    : T('health.asked_phosphene_to_update_if', 'Asked Phosphene to update {name}. If this stays, quit Phosphene (⌘Q) and open it again — it updates when it opens.', {name}),
+    { kind: 'info', slot: 'app-update' });
 }
 window.addEventListener('phos-app-update', () => {
+  _appUpdateClickPending = false;
+  if (_appUpdateClickTimer) { clearTimeout(_appUpdateClickTimer); _appUpdateClickTimer = null; }
   if (typeof renderAutomaticUpdates === 'function') renderAutomaticUpdates();
   try { renderVersionPill(); } catch (e) {}
   try { _appUpdateAnnounce(); } catch (e) {}
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    const pop = document.getElementById('appUpdatePop');
+    if (pop) {
+      _appUpdateDismissedPopKey = _appUpdateCurrent().key;
+      pop.remove();
+    }
+  }
 });
 setTimeout(_refreshAppLatest, 3000);
 setInterval(_refreshAppLatest, 10 * 60 * 1000);
@@ -955,8 +1110,16 @@ async function _appVersionPillClick() {
     + (phEdition() ? ` \u00b7 ${phEdition()}` : '')
     + ` \u00b7 ${s.local_short || 'sha?'}`;
   try { await navigator.clipboard.writeText(debug); } catch (e) {}
-  if (_macCheckForUpdates()) phosToast(T('health.checking_for_updates', 'Checking for updates\u2026'), 'info');
-  else phosToast(`${debug}. To update, use Phosphene \u2192 Check for Updates\u2026`, 'info');
+  const a = window.phosAppUpdate;
+  if (_appPushesUpdates(a) && a.state) {
+    // State-reporting app: do not start a duplicate check if an update is already visible or busy,
+    // and never emit a second toast when the top-bar pill is the single update surface.
+    const v = appUpdateView(a);
+    if (!v.busy && (v.state === 'idle' || v.state === 'done')) _macCheckForUpdates();
+    return;
+  }
+  if (_macCheckForUpdates()) phosToast(T('health.checking_for_updates', 'Checking for updates\u2026'), { kind: 'info', slot: 'app-update' });
+  else phosToast(`${debug}. To update, use Phosphene \u2192 Check for Updates\u2026`, { kind: 'info', slot: 'app-update' });
 }
 
 async function versionPillClick() {
@@ -1073,8 +1236,13 @@ async function versionDoRefresh() {
 async function versionDoPull(opts) {
   opts = opts || {};
   if (isMacApp()) {               // the server refuses it too (409 app_updates)
-    if (_macCheckForUpdates()) phosToast(T('health.checking_for_updates', 'Checking for updates\u2026'), 'info');
-    else phosToast(T('health.to_update_phosphene_use_phosphene', 'To update Phosphene, use Phosphene \u2192 Check for Updates\u2026'), 'info');
+    const a = window.phosAppUpdate;
+    if (_appPushesUpdates(a) && a.state) {
+      _macCheckForUpdates();
+      return;
+    }
+    if (_macCheckForUpdates()) phosToast(T('health.checking_for_updates', 'Checking for updates\u2026'), { kind: 'info', slot: 'app-update' });
+    else phosToast(T('health.to_update_phosphene_use_phosphene', 'To update Phosphene, use Phosphene \u2192 Check for Updates\u2026'), { kind: 'info', slot: 'app-update' });
     return;
   }
   const s = _versionState || {};

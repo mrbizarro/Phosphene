@@ -53,31 +53,36 @@ stripped by the page.
 
 ## 2. States
 
-| `state` | when the app sends it | pill | click sends | toast (once per change) |
+One calm surface in the Studio top bar: `#appUpdatePill` shows every state in place, and
+`#appUpdatePop` (one anchored popover directly beneath the pill) shows the plain-English
+reason and Retry button for `failed` / `needs_app`. State-reporting apps produce **zero
+native popups** (no Sparkle window, no `NSAlert`) and **zero bottom toasts**.
+
+| `state` | when the app sends it | pill | click sends | bottom toast |
 |---|---|---|---|---|
 | `idle` | nothing is behind | none | – | none |
 | `available` | something is behind and nothing has been started | **Update Studio to v5.0.14** / **Update app to v5.0.11** / **Update Studio to v5.0.14 and app to v5.0.11** | `updateAll` | none |
-| `downloading` | the app is fetching the Studio, the Pro pack or the app update | *Downloading Studio v5.0.14 40%* (not a button) | – | "Downloading Studio v5.0.14." |
-| `waiting` | downloaded and verified; the switch is held back | *Studio v5.0.14 is ready* (not a button) | – | "Studio v5.0.14 is downloaded. It switches over when *reason*." |
-| `needs_app` | the channel manifest or the Pro pack was refused for `min_app` | **Update the Phosphene app first** (amber) | `checkUpdate` | "Studio v5.0.14 needs a newer Phosphene app (v5.0.11 or newer). Click to update the app." |
-| `failed` | an install that will not be retried by itself: bad hash, tree mismatch, disk full, could not be activated, downgrade, a quarantined manifest, offline at the click | **Update failed. Try again** (amber) | `updateAll` | `message` (stays until dismissed) |
-| `done` | a click changed something and the new version is running | none | – | `message`, or "Studio v5.0.14 is installed." |
+| `starting` | click received; checking or starting the update | *Starting Studio v5.0.14…* (calm busy pill, not clickable) | – | none |
+| `downloading` | the app is fetching the Studio, the Pro pack or the app update | *Downloading Studio v5.0.14 40%* (calm inline progress fill, not clickable) | – | none |
+| `waiting` | downloaded and verified; the switch is held back | *Studio v5.0.14 ready · waiting for render* (calm busy pill, full reason in tooltip, not clickable) | – | none |
+| `switching` | Studio is restarting into the new version, or app is installing & relaunching | *Switching to Studio v5.0.14…* (calm busy pill, not clickable) | – | none |
+| `needs_app` | the channel manifest or the Pro pack was refused for `min_app` | **Update the Phosphene app first** (amber) + anchored popover with reason & **Update app** | `checkUpdate` | none |
+| `failed` | an install that will not be retried by itself: bad hash, tree mismatch, disk full, could not be activated, downgrade, a quarantined manifest, offline at the click | **Update failed. Try again** (amber) + anchored popover with `message` & **Try again** | `updateAll` | none |
+| `done` | a click changed something and the new version is running (or manual check confirmed up to date) | *Updated to Studio v5.0.14* (calm green pill, auto-clears after 5 s, shown once per key) | – | none |
 
 Rules for the app:
 
 1. **Never leave `available` up for something that was refused or failed.** A refusal is
    `needs_app`; a failure is `failed`. This is the whole point of the contract.
-2. **Answer every click.** After `updateAll` the next push must be one of `downloading`,
-   `waiting`, `needs_app`, `failed` or `done`, within a few seconds, including when the
-   Mac is offline (`failed`, with "Phosphene could not reach the update server. Check
-   the connection and try again."). The page shows nothing of its own after a click from
-   an app that sends `state`.
+2. **Answer every click with one surface.** After `updateAll` the app immediately pushes
+   `starting`, then `downloading`, `waiting`, `switching`, `needs_app`, `failed` or `done`.
+   Clicking Update twice while busy is a no-op on both sides and never stacks popups or toasts.
 3. **`done` is sent once**, after the Studio restarts into the new version (the page is
    new then; the push after its load carries `done`). Follow it with `idle` on the next
    change. The page shows each outcome once per window, so repeating `done` is harmless.
-   Suggested `message`: "Studio updated to v5.0.13. The app itself (5.0.10) is current."
-   This replaces the updater's stock "You're up to date" dialog after a click that
-   changed something.
+   Suggested `message`: "Updated to Studio v5.0.85" or "Phosphene is up to date."
+   This replaces both Sparkle's "Software Update" window and the native "Phosphene is
+   updating" alert.
 4. **A re-published pack under the same version is not "behind"** for the label: send
    `available` only when the version the person would read actually changes, or name it
    in `message`.

@@ -8142,6 +8142,35 @@ function phosToast(message, opts) {
       el.addEventListener('animationend', () => el.remove(), { once: true });
     }, duration);
   };
+  const slot = opts.slot ? String(opts.slot) : '';
+  const icon = opts.icon
+            || (kind === 'success' ? 'ph-check-bold'
+            :  kind === 'danger'  ? 'ph-x-circle'
+            :  kind === 'warning' ? 'ph-warning-fill'
+                                       : 'ph-info');
+  // Single-slot replacement: an update channel (e.g. slot: 'app-update') replaces
+  // its own toast in place instead of stacking a second one at the bottom.
+  if (slot) {
+    const slotted = Array.prototype.find.call(c.children, (el) =>
+      el.classList && el.classList.contains('phos-toast')
+      && !el.classList.contains('is-leaving') && el.dataset.slot === slot);
+    if (slotted) {
+      slotted.dataset.msg = msg;
+      slotted.dataset.count = '1';
+      slotted.classList.remove('phos-toast-success', 'phos-toast-warning', 'phos-toast-danger');
+      if (kind === 'success' || kind === 'warning' || kind === 'danger') {
+        slotted.classList.add('phos-toast-' + kind);
+      }
+      const useEl = slotted.querySelector('svg.ph use');
+      if (useEl) useEl.setAttribute('href', '#' + icon);
+      const msgEl = slotted.querySelector('.phos-toast-msg');
+      if (msgEl) msgEl.textContent = msg;
+      const cnt = slotted.querySelector('.phos-toast-count');
+      if (cnt) cnt.remove();
+      arm(slotted);
+      return slotted;
+    }
+  }
   // FILM-03: A REFUSAL REPEATED IS NOT A NEW MESSAGE. Holding ⌥→ against a
   // clip already hard against its neighbour fired the same "nothing to
   // give" toast once per keypress and covered the timeline in identical
@@ -8168,14 +8197,10 @@ function phosToast(message, opts) {
   el.className = 'phos-toast';
   el.dataset.msg = msg;
   el.dataset.count = '1';
+  if (slot) el.dataset.slot = slot;
   if (kind === 'success' || kind === 'warning' || kind === 'danger') {
     el.classList.add('phos-toast-' + kind);
   }
-  const icon = opts.icon
-            || (kind === 'success' ? 'ph-check-bold'
-            :  kind === 'danger'  ? 'ph-x-circle'
-            :  kind === 'warning' ? 'ph-warning-fill'
-                                       : 'ph-info');
   el.innerHTML =
     `<svg class="ph" aria-hidden="true"><use href="#${icon}"/></svg>` +
     `<span class="phos-toast-msg"></span>` +

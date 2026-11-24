@@ -8872,27 +8872,27 @@
   "health.a_newer_version_is_out": {
    "text": "A newer version is out. Click to install it.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:826"
+   "where": "health.js:841"
   },
   "health.already_up_to_date_nothing": {
    "text": "Already up to date - nothing to restart.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1125"
+   "where": "health.js:1293"
   },
   "health.asked_phosphene_to_update_if": {
    "text": "Asked Phosphene to update {name}. If this stays, quit Phosphene (⌘Q) and open it again — it updates when it opens.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update pill click · placeholders {name} are filled in by the app",
-   "where": "health.js:935"
+   "where": "health.js:1078"
   },
   "health.asked_phosphene_to_update_this": {
    "text": "Asked Phosphene to update {name}. This button goes away when it is installed.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update pill click · placeholders {name} are filled in by the app",
-   "where": "health.js:934"
+   "where": "health.js:1077"
   },
   "health.branch_commit_your_local_changes": {
    "text": "branch. Commit your local changes (or switch back to main) ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Phosphene only checks GitHub when you're on a clean main … branch. Commit your local changes (or switch back to main) … to re-enable updates.»",
-   "where": "health.js:1043"
+   "where": "health.js:1206"
   },
   "health.checking_for_updates": {
    "text": "Checking for updates…",
@@ -8917,7 +8917,7 @@
   "health.copied_this_debug_string_to": {
    "text": "Copied this debug string to your clipboard so you can paste ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Copied this debug string to your clipboard so you can paste»",
-   "where": "health.js:1037"
+   "where": "health.js:1200"
   },
   "health.couldn_t_reach_github_com": {
    "text": "Couldn't reach github.com ({error}). Click to retry.",
@@ -8932,22 +8932,32 @@
   "health.dirty_tree": {
    "text": " · dirty tree",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click",
-   "where": "health.js:1029"
+   "where": "health.js:1192"
   },
   "health.disk_but_this_running_panel": {
    "text": "disk, but this running panel loaded ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «disk, but this running panel loaded … update landed.\n\nClick Stop, then Start in Pinokio (or restart … the panel process) to load it. Your queue and settings are»",
-   "where": "health.js:1011"
+   "where": "health.js:1174"
   },
   "health.dismiss": {
    "text": "Dismiss",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
    "where": "health.js:493"
   },
+  "health.downloading_thing_pct": {
+   "text": "Downloading {thing}{pct}",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {pct} {thing} are filled in by the app",
+   "where": "health.js:854"
+  },
+  "health.downloading_update_pct": {
+   "text": "Downloading update{pct}",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {pct} are filled in by the app",
+   "where": "health.js:855"
+  },
   "health.finishing_the_update_first_restart": {
    "text": "Finishing the update first — restart becomes available when it is done.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click",
-   "where": "health.js:985"
+   "where": "health.js:1148"
   },
   "health.finishing_the_update_restart_now": {
    "text": "Finishing the update. Restart now appears when it is done, in about a minute.",
@@ -8967,42 +8977,52 @@
   "health.keep_your_local_edits_save": {
    "text": "Keep your local edits. Save or commit them before retrying Update.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1111"
+   "where": "health.js:1279"
   },
   "health.later": {
    "text": "Later",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show update modal",
    "where": "health.js:329"
   },
+  "health.needs_newer_app_detail": {
+   "text": "{thing} needs a newer Phosphene app{need}.",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {need} {thing} are filled in by the app",
+   "where": "health.js:882"
+  },
   "health.opening_the_app_store": {
    "text": "Opening the App Store…",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles star card open review",
-   "where": "health.js:1476"
+   "where": "health.js:1644"
   },
   "health.panel_did_not_come_back": {
    "text": "Panel did not come back within 60s — start it from Pinokio.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles panel restart",
    "where": "health.js:748"
   },
+  "health.phosphene_is_idle": {
+   "text": "Phosphene is idle",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:859"
+  },
   "health.phosphene_is_now_finishing_the": {
    "text": "\n\nPhosphene is now finishing the update in the background (the same ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Phosphene is now finishing the update in the background (the same … step Pinokio's Update runs). Restart once the banner says it is done.»",
-   "where": "health.js:1135"
+   "where": "health.js:1303"
   },
   "health.phosphene_is_up_to_date": {
    "text": "Phosphene is up to date.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:820"
+   "where": "health.js:835"
   },
   "health.phosphene_only_checks_github_when": {
    "text": "Phosphene only checks GitHub when you're on a clean main ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Phosphene only checks GitHub when you're on a clean main … branch. Commit your local changes (or switch back to main) … to re-enable updates.»",
-   "where": "health.js:1042"
+   "where": "health.js:1205"
   },
   "health.pinokio_s_update_button_not": {
    "text": "Pinokio's Update button (not just Stop+Start) so deps reinstall.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1139"
+   "where": "health.js:1307"
   },
   "health.preparing_update": {
    "text": "Preparing update",
@@ -9017,12 +9037,17 @@
   "health.pulled_to_click_stop_then": {
    "text": "Pulled to {newVersion}.\n\nClick Stop, then Start in Pinokio to apply.{fullUpdateNote}",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · placeholders {fullUpdateNote} {newVersion} are filled in by the app",
-   "where": "health.js:1148"
+   "where": "health.js:1316"
   },
   "health.read_more": {
    "text": "Read more",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles notice refresh",
-   "where": "health.js:1616"
+   "where": "health.js:1784"
+  },
+  "health.ready_on_relaunch": {
+   "text": "ready on next launch",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:865"
   },
   "health.release_available": {
    "text": "Phosphene {remote} is available. You are on {local}.",
@@ -9047,47 +9072,77 @@
   "health.star_on_github": {
    "text": "Star on GitHub",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles star card star",
-   "where": "health.js:1516"
+   "where": "health.js:1684"
   },
   "health.starring": {
    "text": "Starring…",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles star card star",
-   "where": "health.js:1508"
+   "where": "health.js:1676"
+  },
+  "health.starting_the_update": {
+   "text": "Starting the update…",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:847"
+  },
+  "health.starting_update_thing": {
+   "text": "Starting {thing}…",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {thing} are filled in by the app",
+   "where": "health.js:845"
   },
   "health.step_pinokio_s_update_runs": {
    "text": "step Pinokio's Update runs). Restart once the banner says it is done.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Phosphene is now finishing the update in the background (the same … step Pinokio's Update runs). Restart once the banner says it is done.»",
-   "where": "health.js:1136"
+   "where": "health.js:1304"
+  },
+  "health.switching_over": {
+   "text": "Switching over…",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:876"
+  },
+  "health.switching_to_the_new_version": {
+   "text": "Switching to the new version…",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:877"
+  },
+  "health.switching_to_thing": {
+   "text": "Switching to {thing}…",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {thing} are filled in by the app",
+   "where": "health.js:875"
   },
   "health.the_clip_that_is_rendering": {
    "text": "the clip that is rendering finishes",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:795"
+   "where": "health.js:800"
   },
   "health.the_engine_install_finishes": {
    "text": "the engine install finishes",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:798"
+   "where": "health.js:803"
   },
   "health.the_model_download_finishes": {
    "text": "the model download finishes",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:797"
+   "where": "health.js:802"
   },
   "health.the_panel_process_to_load": {
    "text": "the panel process) to load it. Your queue and settings are ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «disk, but this running panel loaded … update landed.\n\nClick Stop, then Start in Pinokio (or restart … the panel process) to load it. Your queue and settings are»",
-   "where": "health.js:1014"
+   "where": "health.js:1177"
   },
   "health.the_queue_is_empty": {
    "text": "the queue is empty",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:796"
+   "where": "health.js:801"
   },
   "health.the_studio_did_not_come": {
    "text": "The studio did not come back within 60s — use Studio → Restart Engine.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles panel restart",
    "where": "health.js:749"
+  },
+  "health.the_update": {
+   "text": "The update",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:871"
   },
   "health.the_update_did_not_finish": {
    "text": "The update did not finish",
@@ -9097,27 +9152,47 @@
   "health.the_update_did_not_finish_press": {
    "text": "The update did not finish. Press Try again on the update bar. If it fails again, stop Phosphene in Pinokio and press Update there.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click",
-   "where": "health.js:984"
+   "where": "health.js:1147"
   },
   "health.the_update_is_downloaded_to": {
    "text": "The update is downloaded. To finish it, stop Phosphene in Pinokio, press Update there (Stop and Start is not enough this time), then press Start.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click",
-   "where": "health.js:991"
+   "where": "health.js:1154"
   },
   "health.the_update_is_downloading_nothing": {
    "text": "The update is downloading. Nothing to do.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:832"
+   "where": "health.js:856"
+  },
+  "health.thing_downloaded_switches_when": {
+   "text": "{thing} is downloaded. It switches over when {why}.",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {thing} {why} are filled in by the app",
+   "where": "health.js:871"
+  },
+  "health.thing_is_ready": {
+   "text": "{thing} is ready",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {thing} are filled in by the app",
+   "where": "health.js:870"
+  },
+  "health.thing_ready_short_why": {
+   "text": "{thing} ready · {why}",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {thing} {why} are filled in by the app",
+   "where": "health.js:869"
   },
   "health.this_downloads_the_new_version": {
    "text": "This downloads the new version. When it is done, click Restart Phosphene to use it. ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update from {local} to {target}? … This downloads the new version. When it is done, click Restart Phosphene to use it. … Your queue and settings are preserved across restarts.»",
-   "where": "health.js:1089"
+   "where": "health.js:1257"
+  },
+  "health.this_update": {
+   "text": "This update",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:882"
   },
   "health.this_update_touched_python_dependencies_2": {
    "text": "\n\n⚠ This update touched Python dependencies / patches. Use ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «⚠ This update touched Python dependencies / patches. Use … Pinokio's Update button (not just Stop+Start) so deps reinstall.»",
-   "where": "health.js:1138"
+   "where": "health.js:1306"
   },
   "health.to_finish_this_update_stop": {
    "text": "To finish this update, stop Phosphene in Pinokio and press Update there. Stop and Start is not enough this time.",
@@ -9127,12 +9202,12 @@
   "health.to_re_enable_updates": {
    "text": "to re-enable updates.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Phosphene only checks GitHub when you're on a clean main … branch. Commit your local changes (or switch back to main) … to re-enable updates.»",
-   "where": "health.js:1044"
+   "where": "health.js:1207"
   },
   "health.to_update_phosphene_use_phosphene": {
    "text": "To update Phosphene, use Phosphene → Check for Updates…",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1077"
+   "where": "health.js:1245"
   },
   "health.to_update_use_phosphene_check": {
    "text": "To update, use Phosphene → Check for Updates…",
@@ -9152,7 +9227,12 @@
   "health.update": {
    "text": "Update ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:825"
+   "where": "health.js:840"
+  },
+  "health.update_app": {
+   "text": "Update app",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:883"
   },
   "health.update_available": {
    "text": "Update available",
@@ -9162,22 +9242,27 @@
   "health.update_check_is_paused": {
    "text": "Update check is paused: {suppress_reason}.\n\n",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Copied this debug string to your clipboard so you can paste» · placeholders {suppress_reason} are filled in by the app",
-   "where": "health.js:1036"
+   "where": "health.js:1199"
   },
   "health.update_check_paused": {
    "text": "Update check paused: {suppress_reason}.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles render version pill · placeholders {suppress_reason} are filled in by the app",
    "where": "health.js:187"
   },
+  "health.update_could_not_be_installed": {
+   "text": "{thing} could not be installed. Try again.",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {thing} are filled in by the app",
+   "where": "health.js:888"
+  },
   "health.update_failed_try_again": {
    "text": "Update failed. Try again",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:848"
+   "where": "health.js:887"
   },
   "health.update_from_local_to": {
    "text": "Update from {local} to {target}?\n\n",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update from {local} to {target}? … This downloads the new version. When it is done, click Restart Phosphene to use it. … Your queue and settings are preserved across restarts.» · placeholders {local} {target} are filled in by the app",
-   "where": "health.js:1088"
+   "where": "health.js:1256"
   },
   "health.update_how": {
    "text": "To update, press Update now, then Restart now when it is ready (about a minute). Your queue, settings and models stay. You can also use Update in Pinokio, then Start.",
@@ -9187,22 +9272,27 @@
   "health.update_landed_click_stop_then": {
    "text": "update landed.\n\nClick Stop, then Start in Pinokio (or restart ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «disk, but this running panel loaded … update landed.\n\nClick Stop, then Start in Pinokio (or restart … the panel process) to load it. Your queue and settings are»",
-   "where": "health.js:1013"
+   "where": "health.js:1176"
+  },
+  "health.update_noun": {
+   "text": "Update",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:869"
   },
   "health.update_now": {
    "text": "Update now",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show update modal",
    "where": "health.js:328"
   },
-  "health.update_ready_when_you_are": {
-   "text": "An update is available. Use the Update button when you are ready.",
-   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:828"
-  },
   "health.update_the_phosphene_app_first": {
    "text": "Update the Phosphene app first",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:843"
+   "where": "health.js:881"
+  },
+  "health.updated_to": {
+   "text": "Updated to {thing}",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view · placeholders {thing} are filled in by the app",
+   "where": "health.js:835"
   },
   "health.updating": {
    "text": "Updating…",
@@ -9219,6 +9309,26 @@
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles render version pill · placeholders {v} are filled in by the app",
    "where": "health.js:140"
   },
+  "health.waiting_for_download": {
+   "text": "waiting for download",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:863"
+  },
+  "health.waiting_for_install": {
+   "text": "waiting for install",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:864"
+  },
+  "health.waiting_for_queue": {
+   "text": "waiting for queue",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:862"
+  },
+  "health.waiting_for_render": {
+   "text": "waiting for render",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:861"
+  },
   "health.you_are_on": {
    "text": "You are on {local}.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub render · placeholders {local} are filled in by the app",
@@ -9232,7 +9342,7 @@
   "health.you_quit_phosphene_and_open": {
    "text": "you quit Phosphene and open it again",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:799"
+   "where": "health.js:804"
   },
   "health.you_re_on_the_latest": {
    "text": "You're on {local}, the latest version. Click to re-check now.",
@@ -9247,7 +9357,7 @@
   "health.your_queue_and_settings_are_2": {
    "text": "Your queue and settings are preserved across restarts.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1090"
+   "where": "health.js:1258"
   },
   "healthChip.title.system_health_click_for": {
    "text": "System health — click for detail",
@@ -14536,7 +14646,7 @@
   "queue.1080p_fit": {
    "text": "1080p fit",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10451"
+   "where": "queue.js:10476"
   },
   "queue.1_2_min": {
    "text": "… (1–2 min)",
@@ -14571,12 +14681,12 @@
   "queue.2_upscale": {
    "text": "×2 upscale",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10281"
+   "where": "queue.js:10306"
   },
   "queue.720p_fit": {
    "text": "720p fit",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10281"
+   "where": "queue.js:10306"
   },
   "queue.a_4_5_copy_with": {
    "text": "A 4:5 copy with a blurred fill above and below",
@@ -14606,7 +14716,7 @@
   "queue.a_hailuo_h3_update": {
    "text": "a Hailuo H3 update",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles sync player sound offer",
-   "where": "queue.js:8529"
+   "where": "queue.js:8554"
   },
   "queue.a_model_file_could_not": {
    "text": "A model file could not be opened.",
@@ -14631,12 +14741,12 @@
   "queue.a_ratio_copy_is_queued_for": {
    "text": "A {ratio} copy is queued for {name} — it lands next to the clip in Outputs, with a blurred fill.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue vertical export · placeholders {name} {ratio} are filled in by the app",
-   "where": "queue.js:8843"
+   "where": "queue.js:8868"
   },
   "queue.a_sharper_file_lands_next": {
    "text": " — a sharper file lands next to it in Outputs.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue sharp export · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Sharp export is already queued for … Sharp export queued for … — a sharper file lands next to it in Outputs.»",
-   "where": "queue.js:8811"
+   "where": "queue.js:8836"
   },
   "queue.a_square_copy_with_a": {
    "text": "A square copy with a blurred fill above and below",
@@ -14646,7 +14756,7 @@
   "queue.about": {
    "text": " · about ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles new take from path · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «New take queued for … · about … min, same as last time»",
-   "where": "queue.js:9066"
+   "where": "queue.js:9091"
   },
   "queue.about_half_the_ram": {
    "text": "(about half the RAM).",
@@ -14656,7 +14766,7 @@
   "queue.accel_metrics": {
    "text": "Accel metrics",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10413"
+   "where": "queue.js:10438"
   },
   "queue.adapter_has_no_2_5": {
    "text": "adapter has no 2.5 release. Use Image mode with Inspire, ",
@@ -14666,12 +14776,12 @@
   "queue.add_sound_needs_a_hailuo": {
    "text": "Add sound needs a Hailuo H3 update. Phosphene installs it by itself. If this message stays, quit and reopen Phosphene.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles use as add sound source",
-   "where": "queue.js:8355"
+   "where": "queue.js:8380"
   },
   "queue.add_sound_needs_hailuo_h3": {
    "text": "Add sound needs Hailuo H3 with an up-to-date runner — press Update in Pinokio.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles use as add sound source",
-   "where": "queue.js:8354"
+   "where": "queue.js:8379"
   },
   "queue.added_its_trigger_word": {
    "text": "Added its trigger word: ",
@@ -14686,12 +14796,12 @@
   "queue.added_to": {
    "text": "Added to \"",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles open clip in editor",
-   "where": "queue.js:9013"
+   "where": "queue.js:9038"
   },
   "queue.ai_paints_above_and_below": {
    "text": " — AI paints above and below. It takes about 15 minutes for a 5-second clip.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue vertical export · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Make it vertical is already queued for … Make it vertical (AI fill) queued for … — AI paints above and below. It takes about 15 minutes for a 5-second clip.»",
-   "where": "queue.js:8842"
+   "where": "queue.js:8867"
   },
   "queue.all_models_on_disk": {
    "text": "All models on disk",
@@ -14701,17 +14811,17 @@
   "queue.already_on_this_mac": {
    "text": "Already on this Mac",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11420"
+   "where": "queue.js:11445"
   },
   "queue.and_joins_it_into_a": {
    "text": " and joins it into a shorter clip. ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Stop after this {unit} keeps everything already rendered … and joins it into a shorter clip.»",
-   "where": "queue.js:9211"
+   "where": "queue.js:9236"
   },
   "queue.and_this_engine_may_not": {
    "text": " — and this engine may not be able to save anything at all mid-window.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «as a shorter clip. … Stop now throws away the {unit} in progress too … — and this engine may not be able to save anything at all mid-window.»",
-   "where": "queue.js:9213"
+   "where": "queue.js:9238"
   },
   "queue.animate": {
    "text": "Animate",
@@ -14726,7 +14836,7 @@
   "queue.as_a_shorter_clip": {
    "text": " as a shorter clip. ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «as a shorter clip. … Stop now throws away the {unit} in progress too … — and this engine may not be able to save anything at all mid-window.»",
-   "where": "queue.js:9211"
+   "where": "queue.js:9236"
   },
   "queue.audio": {
    "text": "Audio",
@@ -14756,17 +14866,17 @@
   "queue.avoid_3": {
    "text": "Avoid",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body · this label is the term “Avoid”: the list of things the user does NOT want in the video (a negative prompt)",
-   "where": "queue.js:10475"
+   "where": "queue.js:10500"
   },
   "queue.avoid_is_ignored_at_this": {
    "text": "Avoid is ignored at this quality — it will not affect this render.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11034"
+   "where": "queue.js:11059"
   },
   "queue.bars_added": {
    "text": "bars added",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10439"
+   "where": "queue.js:10464"
   },
   "queue.base_models_incomplete_on_disk": {
    "text": "Base models incomplete ({ready}/{total} on disk) — click to download",
@@ -14776,7 +14886,7 @@
   "queue.batch_error": {
    "text": "Batch error: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue batch",
-   "where": "queue.js:10895"
+   "where": "queue.js:10920"
   },
   "queue.best": {
    "text": "Best",
@@ -14786,7 +14896,7 @@
   "queue.best_this_shape_s_full": {
    "text": "Best · this shape's full sampler",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10387"
+   "where": "queue.js:10412"
   },
   "queue.boost": {
    "text": "Boost",
@@ -14811,7 +14921,7 @@
   "queue.can_come_out_smaller_than": {
    "text": "can come out smaller than this one. The original stays as it is.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles retake clamp note text · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «On this Mac ({v}), Retake works at up to {cap}px … on the longer side: a bigger clip is downscaled first, so the new clip … can come out smaller than this one. The original stays as it is.»",
-   "where": "queue.js:8645"
+   "where": "queue.js:8670"
   },
   "queue.cannot_start_from_your_picture": {
    "text": " cannot start from your picture in this version. Update Phosphene to use Image mode.",
@@ -14821,17 +14931,17 @@
   "queue.caption_copied_and_the_clip": {
    "text": "Caption copied, and the clip is selected in Finder. Drag it into your post and paste.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles share clip",
-   "where": "queue.js:8989"
+   "where": "queue.js:9014"
   },
   "queue.caption_copied_use_reveal_in": {
    "text": "Caption copied. Use Reveal in Finder to grab the file.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles share clip",
-   "where": "queue.js:8990"
+   "where": "queue.js:9015"
   },
   "queue.cast_could_not_be_re": {
    "text": "cast could not be. Re-train or re-download it to ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «the library — everything else was restored, but the … cast could not be. Re-train or re-download it to … re-render this clip faithfully.»",
-   "where": "queue.js:9924"
+   "where": "queue.js:9949"
   },
   "queue.center": {
    "text": "Center",
@@ -14841,7 +14951,7 @@
   "queue.chained": {
    "text": "Chained",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10457"
+   "where": "queue.js:10482"
   },
   "queue.check_the_logs_tab_bottom": {
    "text": " Check the Logs tab (bottom pane) for the trainer's own error.",
@@ -14856,47 +14966,47 @@
   "queue.cleaned_up_made_again_with": {
    "text": "Cleaned up · made again with the full model",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10373"
+   "where": "queue.js:10398"
   },
   "queue.clear_queue": {
    "text": "Clear queue",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles sync destructive queue buttons",
-   "where": "queue.js:9137"
+   "where": "queue.js:9162"
   },
   "queue.clear_queue_n": {
    "text": "Clear queue ({count})",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles sync destructive queue buttons · placeholders {count} are filled in by the app",
-   "where": "queue.js:9137"
+   "where": "queue.js:9162"
   },
   "queue.clip_loaded_into_add_sound": {
    "text": "Clip loaded into Add sound — describe the sound you want, then Generate.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles use as add sound source",
-   "where": "queue.js:8369"
+   "where": "queue.js:8394"
   },
   "queue.clip_pick_adding": {
    "text": "Adding…",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles clip pick upload",
-   "where": "queue.js:8447"
+   "where": "queue.js:8472"
   },
   "queue.clip_pick_not_video": {
    "text": "Choose a video file (MP4, MOV, M4V, WEBM or MKV).",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles clip pick upload",
-   "where": "queue.js:8439"
+   "where": "queue.js:8464"
   },
   "queue.clip_pick_too_big": {
    "text": "This file is bigger than 64 MB. Paste its path in the box below instead.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles clip pick upload",
-   "where": "queue.js:8442"
+   "where": "queue.js:8467"
   },
   "queue.clip_pick_upload_failed": {
    "text": "Could not add this file.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles clip pick upload",
-   "where": "queue.js:8452"
+   "where": "queue.js:8477"
   },
   "queue.clip_to_extend": {
    "text": "clip to extend",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles restore draft on boot",
-   "where": "queue.js:11565"
+   "where": "queue.js:11590"
   },
   "queue.clip_waiting_the_next_one": {
    "text": {
@@ -14914,7 +15024,7 @@
   "queue.close": {
    "text": "Close",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10537"
+   "where": "queue.js:10562"
   },
   "queue.close_other_apps_chrome_slack": {
    "text": "Close other apps (Chrome, Slack, iOS Simulator) and retry, or ",
@@ -14939,7 +15049,7 @@
   "queue.colorize": {
    "text": "Colorize",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10259"
+   "where": "queue.js:10284"
   },
   "queue.continue": {
    "text": "Continue (",
@@ -14949,37 +15059,37 @@
   "queue.continue_the_song_failed": {
    "text": "Continue the song failed: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles continue song from clip",
-   "where": "queue.js:8621"
+   "where": "queue.js:8646"
   },
   "queue.continuing_from": {
    "text": "Continuing from ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles continue song from clip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Continuing from … s, anchored on the last closed-mouth frame.»",
-   "where": "queue.js:8617"
+   "where": "queue.js:8642"
   },
   "queue.control_needs_a_clip_to": {
    "text": "Control needs a clip to follow — pick one in the Control video picker, ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Control needs a clip to follow — pick one in the Control video picker, … or switch to Text mode.»",
-   "where": "queue.js:11084"
+   "where": "queue.js:11109"
   },
   "queue.copied": {
    "text": "Copied!",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles copy to clipboard",
-   "where": "queue.js:10191"
+   "where": "queue.js:10216"
   },
   "queue.copy": {
    "text": "Copy",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10480"
+   "where": "queue.js:10505"
   },
   "queue.could_not_be_queued": {
    "text": " could not be queued.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles face fix clip",
-   "where": "queue.js:8764"
+   "where": "queue.js:8789"
   },
   "queue.could_not_copy_or_open": {
    "text": "Could not copy or open Finder. Caption: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles share clip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The clip is selected in Finder. Caption: … Could not copy or open Finder. Caption:»",
-   "where": "queue.js:8992"
+   "where": "queue.js:9017"
   },
   "queue.could_not_delete": {
    "text": "Could not delete: ",
@@ -14989,22 +15099,22 @@
   "queue.could_not_load_that_job": {
    "text": "Could not load that job into the form: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles edit queued job",
-   "where": "queue.js:10590"
+   "where": "queue.js:10615"
   },
   "queue.could_not_put_it_back": {
    "text": "Could not put it back. It is still in the Trash.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles restore deleted",
-   "where": "queue.js:8538"
+   "where": "queue.js:8563"
   },
   "queue.could_not_put_it_back_err": {
    "text": "Could not put it back: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles restore deleted",
-   "where": "queue.js:8548"
+   "where": "queue.js:8573"
   },
   "queue.could_not_restore_the_queue": {
    "text": "Could not restore the queue: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request clear queue",
-   "where": "queue.js:9266"
+   "where": "queue.js:9291"
   },
   "queue.could_not_start_the_setup": {
    "text": "Could not start the setup: {v}",
@@ -15014,12 +15124,12 @@
   "queue.could_not_stop_after_this": {
    "text": "Could not stop after this {label}.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · placeholders {label} are filled in by the app",
-   "where": "queue.js:9194"
+   "where": "queue.js:9219"
   },
   "queue.couldn_t_reach_phosphene_it": {
    "text": "Couldn't reach Phosphene — it may be offline or restarting. ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Couldn't reach Phosphene — it may be offline or restarting. … Your prompt is still here; try again once it reconnects.»",
-   "where": "queue.js:11436"
+   "where": "queue.js:11461"
   },
   "queue.cover_it": {
    "text": "Cover it",
@@ -15029,7 +15139,7 @@
   "queue.create_a_film_in_storyboard": {
    "text": "Create a film in Storyboard first — then a clip can join it in the Editor.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles open clip in editor",
-   "where": "queue.js:9003"
+   "where": "queue.js:9028"
   },
   "queue.d_ago": {
    "text": " d ago",
@@ -15039,17 +15149,17 @@
   "queue.dashes_or_switch_to_many": {
    "text": "dashes, or switch to Many prompts.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue batch · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Your prompt contains a line of three dashes. Batch uses that to … separate prompts, so it cannot repeat this one — remove the … dashes, or switch to Many prompts.»",
-   "where": "queue.js:10868"
+   "where": "queue.js:10893"
   },
   "queue.delete_error": {
    "text": "Delete error: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles delete output",
-   "where": "queue.js:8295"
+   "where": "queue.js:8320"
   },
   "queue.delete_failed": {
    "text": "Delete failed: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles delete output",
-   "where": "queue.js:8268"
+   "where": "queue.js:8293"
   },
   "queue.delete_from_your_imported_images": {
    "text": "Delete \"{name}\" from your imported images? This removes the file.",
@@ -15059,12 +15169,12 @@
   "queue.delete_this_picture": {
    "text": "Delete this picture?",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles delete output",
-   "where": "queue.js:8260"
+   "where": "queue.js:8285"
   },
   "queue.delete_this_video": {
    "text": "Delete this video?",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles delete output",
-   "where": "queue.js:8260"
+   "where": "queue.js:8285"
   },
   "queue.details_for_troubleshooting": {
    "text": "Details for troubleshooting",
@@ -15074,17 +15184,17 @@
   "queue.dismiss": {
    "text": "Dismiss",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles phos toast",
-   "where": "queue.js:8182"
+   "where": "queue.js:8207"
   },
   "queue.download_instead": {
    "text": "Download instead",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11423"
+   "where": "queue.js:11448"
   },
   "queue.download_video_model": {
    "text": "Download the video model",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles video model offer download modal",
-   "where": "queue.js:11810"
+   "where": "queue.js:11835"
   },
   "queue.downloading_hailuo_h3": {
    "text": "Downloading Hailuo H3…",
@@ -15104,37 +15214,37 @@
   "queue.each": {
    "text": "each ~",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary",
-   "where": "queue.js:10811"
+   "where": "queue.js:10836"
   },
   "queue.editing_queued_job_change_fields": {
    "text": "Editing queued job — change fields, then Update job.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles edit queued job",
-   "where": "queue.js:10598"
+   "where": "queue.js:10623"
   },
   "queue.elapsed": {
    "text": "Elapsed",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10525"
+   "where": "queue.js:10550"
   },
   "queue.end": {
    "text": "End",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11211"
+   "where": "queue.js:11236"
   },
   "queue.end_must_be_after_start": {
    "text": "End must be after start.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles submit retake",
-   "where": "queue.js:8691"
+   "where": "queue.js:8716"
   },
   "queue.ended_naturally": {
    "text": "Ended naturally",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10216"
+   "where": "queue.js:10241"
   },
   "queue.engine": {
    "text": "Engine",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10342"
+   "where": "queue.js:10367"
   },
   "queue.enhance_request_failed": {
    "text": "Enhance request failed: ",
@@ -15159,7 +15269,7 @@
   "queue.every_take_uses_the_prompt": {
    "text": "Every take uses the prompt above with a fresh random seed.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary",
-   "where": "queue.js:10820"
+   "where": "queue.js:10845"
   },
   "queue.everything_it_needs_is_already": {
    "text": "Everything it needs (about 75 GB) is already on this Mac.",
@@ -15169,7 +15279,7 @@
   "queue.export": {
    "text": "Export",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10452"
+   "where": "queue.js:10477"
   },
   "queue.extend": {
    "text": "Extend",
@@ -15184,22 +15294,22 @@
   "queue.extend_continues_it_the_prompt": {
    "text": "Extend continues it. The prompt below is the ORIGINAL clip’s; edit it ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles windows continue from partial · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «This clip is what finished before the Windows chain stopped — … Extend continues it. The prompt below is the ORIGINAL clip’s; edit it … for what should happen next.»",
-   "where": "queue.js:8571"
+   "where": "queue.js:8596"
   },
   "queue.extend_needs_a_clip": {
    "text": "Extend needs a clip to continue — pick one in Source video, or press Extend on a clip in Outputs.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11093"
+   "where": "queue.js:11118"
   },
   "queue.extend_needs_more_memory": {
    "text": "Extend with LTX needs a Mac with 48 GB or more. On this Mac, clips continue with Hailuo H3 once it is installed.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles use as extend source path",
-   "where": "queue.js:8332"
+   "where": "queue.js:8357"
   },
   "queue.face_fix_1_refine_step": {
    "text": "Face Fix — 1 refine step from the clip (the face is kept)",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10319"
+   "where": "queue.js:10344"
   },
   "queue.face_fix_check_failed": {
    "text": "Could not check this clip. Choose it again to retry.",
@@ -15239,17 +15349,17 @@
   "queue.fast_lanczos": {
    "text": " · Fast (Lanczos)",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Export … · Fast (Lanczos)»",
-   "where": "queue.js:10452"
+   "where": "queue.js:10477"
   },
   "queue.fflf_first_last_frame": {
    "text": "FFLF (first + last frame)",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10242"
+   "where": "queue.js:10267"
   },
   "queue.filled_edges_trimmed": {
    "text": "filled, edges trimmed",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10439"
+   "where": "queue.js:10464"
   },
   "queue.finish": {
    "text": "Finish: ",
@@ -15322,17 +15432,17 @@
   "queue.fold_paused": {
    "text": "Paused · {n} queued",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles bp dock sync · placeholders {n} are filled in by the app",
-   "where": "queue.js:10668"
+   "where": "queue.js:10693"
   },
   "queue.fold_queued": {
    "text": "{n} queued",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles bp dock sync · placeholders {n} are filled in by the app",
-   "where": "queue.js:10669"
+   "where": "queue.js:10694"
   },
   "queue.fold_rendering": {
    "text": "Rendering · {pct}%",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles bp dock sync · placeholders {pct} are filled in by the app",
-   "where": "queue.js:10666"
+   "where": "queue.js:10691"
   },
   "queue.for_now": {
    "text": " for now.",
@@ -15342,7 +15452,7 @@
   "queue.for_reference_guided_work_on": {
    "text": "For reference-guided work on 2.5, use Image mode with Inspire — ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Ingredients needs the LTX-2.3 generation — its reference adapter … has no 2.5 release yet, so on 2.5 the references are ignored and … the clip costs full two-stage time. … For reference-guided work on 2.5, use Image mode with Inspire — … or install the 2.3 pack from the Train tab.»",
-   "where": "queue.js:11061"
+   "where": "queue.js:11086"
   },
   "queue.for_this_mode": {
    "text": " for this mode.",
@@ -15352,22 +15462,22 @@
   "queue.for_what_should_happen_next": {
    "text": "for what should happen next.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles windows continue from partial · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «This clip is what finished before the Windows chain stopped — … Extend continues it. The prompt below is the ORIGINAL clip’s; edit it … for what should happen next.»",
-   "where": "queue.js:8572"
+   "where": "queue.js:8597"
   },
   "queue.form_cleared": {
    "text": "Form cleared.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles clear draft form",
-   "where": "queue.js:11584"
+   "where": "queue.js:11609"
   },
   "queue.format": {
    "text": "Format",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10301"
+   "where": "queue.js:10326"
   },
   "queue.frames": {
    "text": "Frames",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10302"
+   "where": "queue.js:10327"
   },
   "queue.frames_snap_down_to_the": {
    "text": "Frames snap down to {eff} (the 8k+1 grid)",
@@ -15382,7 +15492,7 @@
   "queue.from": {
    "text": "From",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10323"
+   "where": "queue.js:10348"
   },
   "queue.full_screen": {
    "text": "Full screen",
@@ -15402,7 +15512,7 @@
   "queue.generate_anyway": {
    "text": "Generate anyway",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles duplicate of loaded recipe",
-   "where": "queue.js:10980"
+   "where": "queue.js:11005"
   },
   "queue.generate_needs_ltx_2_3": {
    "text": "Generate · needs LTX-2.3",
@@ -15417,17 +15527,17 @@
   "queue.generate_without_the_lora_anyway": {
    "text": "Generate without the LoRA anyway?",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11389"
+   "where": "queue.js:11414"
   },
   "queue.generation": {
    "text": "Generation",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10488"
+   "where": "queue.js:10513"
   },
   "queue.grabbing_the_last_frame": {
    "text": "Grabbing the last frame…",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles use last frame path",
-   "where": "queue.js:8909"
+   "where": "queue.js:8934"
   },
   "queue.graphics_apps_update_macos": {
    "text": "(browser video, games, other AI apps) · update macOS.",
@@ -15442,12 +15552,12 @@
   "queue.h3_fast_lora_conflict": {
    "text": "Fast (3-step) and your LoRA both need H3's single adapter slot — switch Speed to 'Best' in Shot setup, or un-pick the LoRA.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11145"
+   "where": "queue.js:11170"
   },
   "queue.h3_flex_lora_conflict": {
    "text": "Pika Flex and your LoRA both need H3's single adapter slot — switch Speed to 'Best' in Shot setup, or un-pick the LoRA.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11149"
+   "where": "queue.js:11174"
   },
   "queue.h3_invalid_take": {
    "text": "This take broke down partway through.",
@@ -15462,7 +15572,7 @@
   "queue.h3_lora_stack_limit": {
    "text": "Hailuo H3 stacks up to {max} LoRA(s) per render ({n} active). Un-pick extra LoRAs first.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · placeholders {max} {n} are filled in by the app",
-   "where": "queue.js:11135"
+   "where": "queue.js:11160"
   },
   "queue.h3_oom_hint": {
    "text": "Make a shorter clip (5 s) or pick a lower setting such as Draft, and quit other apps before you retry.",
@@ -15537,12 +15647,12 @@
   "queue.h3_refs_length_conflict": {
    "text": "References makes clips of up to 5 seconds for now — pick 5 s, or switch References off.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11117"
+   "where": "queue.js:11142"
   },
   "queue.h3_refs_lora_conflict": {
    "text": "References runs on its own sampler and cannot use LoRAs — un-pick the LoRA(s), or switch References off.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11107"
+   "where": "queue.js:11132"
   },
   "queue.h3_refs_minutes_left": {
    "text": "about {n} min left",
@@ -15667,12 +15777,12 @@
   "queue.h3_tier": {
    "text": "H3 tier",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10355"
+   "where": "queue.js:10380"
   },
   "queue.h3_turbo_lora_conflict": {
    "text": "Turbo and your LoRA share H3's single adapter slot — switch Adapter to 'My LoRA' in Shot setup, or un-pick the LoRA.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11153"
+   "where": "queue.js:11178"
   },
   "queue.h_ago": {
    "text": " h ago",
@@ -15762,12 +15872,12 @@
   "queue.has_no_2_5_release": {
    "text": "has no 2.5 release yet, so on 2.5 the references are ignored and ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Ingredients needs the LTX-2.3 generation — its reference adapter … has no 2.5 release yet, so on 2.5 the references are ignored and … the clip costs full two-stage time. … For reference-guided work on 2.5, use Image mode with Inspire — … or install the 2.3 pack from the Train tab.»",
-   "where": "queue.js:11059"
+   "where": "queue.js:11084"
   },
   "queue.hidden": {
    "text": "Hidden · ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles hide",
-   "where": "queue.js:8238"
+   "where": "queue.js:8263"
   },
   "queue.hidden_outputs": {
    "text": "Hidden outputs",
@@ -15777,7 +15887,7 @@
   "queue.hide_this": {
    "text": "Hide this",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles pro hint row",
-   "where": "queue.js:11788"
+   "where": "queue.js:11813"
   },
   "queue.hide_this_card": {
    "text": "Hide this card",
@@ -15787,7 +15897,7 @@
   "queue.i2v_audio_needs_file": {
    "text": "Pick an audio file for External audio mode, or switch I2V audio source back to Joint audio.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11080"
+   "where": "queue.js:11105"
   },
   "queue.idle": {
    "text": "Idle",
@@ -15807,7 +15917,7 @@
   "queue.image_mode_needs_a_reference": {
    "text": "Image mode needs a reference image — drop one into the Image slot, ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Image mode needs a reference image — drop one into the Image slot, … or switch to Text mode and render from the prompt alone.»",
-   "where": "queue.js:11075"
+   "where": "queue.js:11100"
   },
   "queue.image_to_video_with_this": {
    "text": "image-to-video, with this as its sound",
@@ -15817,22 +15927,22 @@
   "queue.image_video": {
    "text": "Image → Video",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10254"
+   "where": "queue.js:10279"
   },
   "queue.image_video_clean_audio": {
    "text": "Image → Video (clean audio)",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10255"
+   "where": "queue.js:10280"
   },
   "queue.in_all": {
    "text": " in all",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles batch fmt total · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «· about … in all»",
-   "where": "queue.js:10788"
+   "where": "queue.js:10813"
   },
   "queue.ingredients": {
    "text": "Ingredients",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10261"
+   "where": "queue.js:10286"
   },
   "queue.ingredients_needs_the_ltx_2": {
    "text": "Ingredients needs the LTX-2.3 generation — its reference ",
@@ -15842,12 +15952,12 @@
   "queue.ingredients_needs_the_ltx_2_2": {
    "text": "Ingredients needs the LTX-2.3 generation — its reference adapter ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Ingredients needs the LTX-2.3 generation — its reference adapter … has no 2.5 release yet, so on 2.5 the references are ignored and … the clip costs full two-stage time. … For reference-guided work on 2.5, use Image mode with Inspire — … or install the 2.3 pack from the Train tab.»",
-   "where": "queue.js:11058"
+   "where": "queue.js:11083"
   },
   "queue.ingredients_needs_two_images": {
    "text": "Ingredients needs at least 2 reference images — drop or pick 2–8 pictures above.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11069"
+   "where": "queue.js:11094"
   },
   "queue.ingredients_takes_at_most_8": {
    "text": "Ingredients takes at most 8 images.",
@@ -15867,12 +15977,12 @@
   "queue.is_already_queued_for": {
    "text": " is already queued for ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles face fix clip",
-   "where": "queue.js:8775"
+   "where": "queue.js:8800"
   },
   "queue.is_already_rendering_for": {
    "text": " is already rendering for ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles face fix clip",
-   "where": "queue.js:8775"
+   "where": "queue.js:8800"
   },
   "queue.is_fails_the_same_way": {
    "text": "is fails the same way.",
@@ -15907,7 +16017,7 @@
   "queue.it_goes_to_the_trash": {
    "text": "\n\nIt goes to the Trash, so you can still get it back.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles delete output · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Delete this video? … It goes to the Trash, so you can still get it back.»",
-   "where": "queue.js:8261"
+   "where": "queue.js:8286"
   },
   "queue.it_is_there_while_the": {
    "text": ". It is there\n        while the panel is running, too. The installer stops until step 1 is\n        done. The panel picks H3 up within a couple of seconds — no restart.",
@@ -15927,7 +16037,7 @@
   "queue.keep_rendering": {
    "text": "Keep rendering",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9227"
+   "where": "queue.js:9252"
   },
   "queue.keep_using_phosphene_meanwhile_if": {
    "text": "Keep using Phosphene meanwhile. If you quit, the download carries on from where it stopped the next time Phosphene opens.",
@@ -15947,7 +16057,7 @@
   "queue.keyframe_times_must_be_strictly": {
    "text": "Keyframe times must be strictly increasing. Check the Beat at(s) values.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11228"
+   "where": "queue.js:11253"
   },
   "queue.kf_keys": {
    "text": "Enter to choose a picture, Alt+Left or Alt+Right to move it, Delete to clear it",
@@ -15957,17 +16067,17 @@
   "queue.label": {
    "text": "Label",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10485"
+   "where": "queue.js:10510"
   },
   "queue.lands_next_to_the_original": {
    "text": " — lands next to the original.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles face fix clip",
-   "where": "queue.js:8778"
+   "where": "queue.js:8803"
   },
   "queue.last_frame_loaded_as_the": {
    "text": "Last frame loaded as the i2v reference — ready for a fresh take.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles use last frame path",
-   "where": "queue.js:8931"
+   "where": "queue.js:8956"
   },
   "queue.last_job_failed": {
    "text": "Last job failed",
@@ -15992,7 +16102,7 @@
   "queue.length": {
    "text": "Length",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10215"
+   "where": "queue.js:10240"
   },
   "queue.lip_sync_and_use_split": {
    "text": "Lip-sync and use Split into ",
@@ -16012,12 +16122,12 @@
   "queue.load_params_into_form": {
    "text": "Load params into form",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10540"
+   "where": "queue.js:10565"
   },
   "queue.loaded": {
    "text": "Loaded",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:9614"
+   "where": "queue.js:9639"
   },
   "queue.loaded_as_the_source_song": {
    "text": "Loaded as the source song in Cover a song — write a style, then Compose.",
@@ -16027,22 +16137,22 @@
   "queue.loaded_into_the_video_form": {
    "text": "Loaded into the Video form.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:10116"
+   "where": "queue.js:10141"
   },
   "queue.long_clips": {
    "text": "Long clips",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10430"
+   "where": "queue.js:10455"
   },
   "queue.loras_used": {
    "text": "LoRAs used",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10515"
+   "where": "queue.js:10540"
   },
   "queue.lyrics": {
    "text": "Lyrics",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10214"
+   "where": "queue.js:10239"
   },
   "queue.m1_m2_class_gpus_retried": {
    "text": "M1/M2-class GPUs. Phosphene already retried it; if it keeps happening, ",
@@ -16057,7 +16167,7 @@
   "queue.made_on_my_mac_with": {
    "text": "Made on my Mac with Phosphene, free open-source AI video that runs locally: https://github.com/mrbizarro/phosphene",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles reveal active",
-   "where": "queue.js:8959"
+   "where": "queue.js:8984"
   },
   "queue.made_on_this_mac_start": {
    "text": "Made on this Mac, start to finish. It is playing on the right and saved in your gallery.\n      Write your own idea in the prompt and press Generate for the next one.",
@@ -16077,22 +16187,22 @@
   "queue.make_it_vertical_ai_fill_2": {
    "text": "Make it vertical (AI fill) queued for ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue vertical export · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Make it vertical is already queued for … Make it vertical (AI fill) queued for … — AI paints above and below. It takes about 15 minutes for a 5-second clip.»",
-   "where": "queue.js:8842"
+   "where": "queue.js:8867"
   },
   "queue.make_it_vertical_is_already": {
    "text": "Make it vertical is already queued for ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue vertical export · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Make it vertical is already queued for … Make it vertical (AI fill) queued for … — AI paints above and below. It takes about 15 minutes for a 5-second clip.»",
-   "where": "queue.js:8840"
+   "where": "queue.js:8865"
   },
   "queue.make_it_vertical_is_queued_for": {
    "text": "Make it vertical is queued for {name} — it lands next to the clip in Outputs, with a blurred fill.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue vertical export · placeholders {name} are filled in by the app",
-   "where": "queue.js:8843"
+   "where": "queue.js:8868"
   },
   "queue.memory": {
    "text": "Memory",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10422"
+   "where": "queue.js:10447"
   },
   "queue.min_ago": {
    "text": " min ago",
@@ -16102,7 +16212,7 @@
   "queue.min_same_as_last_time": {
    "text": " min, same as last time",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles new take from path · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «New take queued for … · about … min, same as last time»",
-   "where": "queue.js:9066"
+   "where": "queue.js:9091"
   },
   "queue.missing": {
    "text": "Missing: ",
@@ -16112,12 +16222,12 @@
   "queue.mode": {
    "text": "Mode",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10308"
+   "where": "queue.js:10333"
   },
   "queue.model": {
    "text": "Model",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10527"
+   "where": "queue.js:10552"
   },
   "queue.model_files_are_in_the": {
    "text": "Model files are in the wrong place",
@@ -16137,17 +16247,17 @@
   "queue.modules_applied": {
    "text": " modules applied",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10381"
+   "where": "queue.js:10406"
   },
   "queue.modules_wrapped": {
    "text": " modules wrapped",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10366"
+   "where": "queue.js:10391"
   },
   "queue.motion_control": {
    "text": "Motion Control",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10260"
+   "where": "queue.js:10285"
   },
   "queue.move_down": {
    "text": "Move down",
@@ -16167,7 +16277,7 @@
   "queue.moved_to_trash": {
    "text": "Moved to Trash · ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles delete output",
-   "where": "queue.js:8287"
+   "where": "queue.js:8312"
   },
   "queue.music_studio_reads_the_tune": {
    "text": "Music Studio reads the tune and sings it fresh",
@@ -16222,7 +16332,7 @@
   "queue.new_take_queued_for": {
    "text": "New take queued for ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles new take from path · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «New take queued for … · about … min, same as last time»",
-   "where": "queue.js:9065"
+   "where": "queue.js:9090"
   },
   "queue.no_audio_outputs_yet_write": {
    "text": "No audio outputs yet — write a song in Audio → Compose.",
@@ -16232,7 +16342,7 @@
   "queue.no_crop": {
    "text": "no crop",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10439"
+   "where": "queue.js:10464"
   },
   "queue.no_history_yet": {
    "text": "No history yet",
@@ -16257,7 +16367,7 @@
   "queue.no_max_length_reached": {
    "text": "No — max length reached",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10216"
+   "where": "queue.js:10241"
   },
   "queue.no_outputs_in_this_view": {
    "text": "No outputs in this view yet.",
@@ -16277,7 +16387,7 @@
   "queue.no_sidecar_metadata_for_this": {
    "text": "No sidecar metadata for this output (older generation, or sidecar was deleted).",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles open output info modal",
-   "where": "queue.js:10169"
+   "where": "queue.js:10194"
   },
   "queue.no_songs_yet": {
    "text": "No songs yet",
@@ -16322,7 +16432,7 @@
   "queue.not_queued": {
    "text": "Not queued",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11420"
+   "where": "queue.js:11445"
   },
   "queue.nothing_in_outputs_to_play": {
    "text": "Nothing in Outputs to play yet.",
@@ -16337,12 +16447,12 @@
   "queue.nothing_pasted_yet_one_line": {
    "text": "Nothing pasted yet. One line of three dashes between prompts.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary",
-   "where": "queue.js:10809"
+   "where": "queue.js:10834"
   },
   "queue.nothing_waiting_in_the_queue": {
    "text": "Nothing waiting in the queue",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles sync destructive queue buttons",
-   "where": "queue.js:9141"
+   "where": "queue.js:9166"
   },
   "queue.nothing_was_saved": {
    "text": "Nothing was saved.",
@@ -16352,27 +16462,27 @@
   "queue.off": {
    "text": "Off",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:10082"
+   "where": "queue.js:10107"
   },
   "queue.on_the_longer_side_a": {
    "text": "on the longer side: a bigger clip is downscaled first, so the new clip ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles retake clamp note text · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «On this Mac ({v}), Retake works at up to {cap}px … on the longer side: a bigger clip is downscaled first, so the new clip … can come out smaller than this one. The original stays as it is.»",
-   "where": "queue.js:8644"
+   "where": "queue.js:8669"
   },
   "queue.on_this_mac_retake_works": {
    "text": "On this Mac ({v}), Retake works at up to {cap}px ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles retake clamp note text · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «On this Mac ({v}), Retake works at up to {cap}px … on the longer side: a bigger clip is downscaled first, so the new clip … can come out smaller than this one. The original stays as it is.» · placeholders {cap} {v} are filled in by the app",
-   "where": "queue.js:8643"
+   "where": "queue.js:8668"
   },
   "queue.on_with_your_pro_make": {
    "text": "On with your Pro: Make it vertical (AI fill). The top and bottom of this copy are real picture.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles vertical hint update",
-   "where": "queue.js:8867"
+   "where": "queue.js:8892"
   },
   "queue.on_with_your_pro_make_2": {
    "text": "On with your Pro: Make it vertical (AI fill), in the same menu, paints real picture instead of a blur.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles vertical hint update",
-   "where": "queue.js:8868"
+   "where": "queue.js:8893"
   },
   "queue.one_prompt_in_video": {
    "text": "one prompt in, video",
@@ -16382,7 +16492,7 @@
   "queue.one_render_at_a_time": {
    "text": "one render at a time",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «one render at a time … takes of this prompt»",
-   "where": "queue.js:10828"
+   "where": "queue.js:10853"
   },
   "queue.only_back_on": {
    "text": " only — back on ",
@@ -16392,12 +16502,12 @@
   "queue.open_folder_error": {
    "text": "Open folder error: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles open outputs folder",
-   "where": "queue.js:8311"
+   "where": "queue.js:8336"
   },
   "queue.open_folder_failed": {
    "text": "Open folder failed: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles open outputs folder",
-   "where": "queue.js:8308"
+   "where": "queue.js:8333"
   },
   "queue.open_in_audio_tab": {
    "text": "Open in Audio tab",
@@ -16437,7 +16547,7 @@
   "queue.opening_the_editor": {
    "text": "\" — opening the Editor.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles open clip in editor",
-   "where": "queue.js:9013"
+   "where": "queue.js:9038"
   },
   "queue.or_install_the_2_3": {
    "text": "or install the 2.3 pack from the Train tab.",
@@ -16447,22 +16557,22 @@
   "queue.or_switch_to_text_mode": {
    "text": "or switch to Text mode and render from the prompt alone.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Image mode needs a reference image — drop one into the Image slot, … or switch to Text mode and render from the prompt alone.»",
-   "where": "queue.js:11076"
+   "where": "queue.js:11101"
   },
   "queue.or_switch_to_text_mode_2": {
    "text": "or switch to Text mode.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Control needs a clip to follow — pick one in the Control video picker, … or switch to Text mode.»",
-   "where": "queue.js:11085"
+   "where": "queue.js:11110"
   },
   "queue.output": {
    "text": "Output",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10299"
+   "where": "queue.js:10324"
   },
   "queue.output_codec": {
    "text": "Output codec",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10472"
+   "where": "queue.js:10497"
   },
   "queue.outputs_folder_offline": {
    "text": "Your saved files folder ({folder}) is not connected. New videos and pictures stay on this Mac and are copied there when it is back.",
@@ -16472,12 +16582,12 @@
   "queue.part": {
    "text": "Part",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9208"
+   "where": "queue.js:9233"
   },
   "queue.paste_at_least_two_prompts": {
    "text": "Paste at least two prompts, separated by a line of three dashes.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue batch",
-   "where": "queue.js:10864"
+   "where": "queue.js:10889"
   },
   "queue.pause": {
    "text": "Pause",
@@ -16567,12 +16677,12 @@
   "queue.pick_a_clip_first": {
    "text": "Pick a clip first.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles use as add sound source",
-   "where": "queue.js:8352"
+   "where": "queue.js:8377"
   },
   "queue.pick_a_clip_in_outputs": {
    "text": "Pick a clip in Outputs first.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles face fix active",
-   "where": "queue.js:8784"
+   "where": "queue.js:8809"
   },
   "queue.pick_an_output_first": {
    "text": "Pick an output first.",
@@ -16597,12 +16707,12 @@
   "queue.pick_the_clip_to_fix": {
    "text": "Pick the clip to fix first — choose it in the list, or press Upscale & Face Fix on a clip in Outputs.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11045"
+   "where": "queue.js:11070"
   },
   "queue.pick_the_end_frame_the": {
    "text": "Pick the end frame — the still the clip should land on. The start frame is optional on Hailuo H3.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11197"
+   "where": "queue.js:11222"
   },
   "queue.picture_stall_help": {
    "text": "The picture engine stopped responding for 30 minutes, so Phosphene stopped it. Press Generate again; if a download was running it continues where the finished files left off. If it happens again, restart Phosphene.",
@@ -16662,12 +16772,12 @@
   "queue.prompt": {
    "text": "Prompt",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body · this label is the term “Prompt”: the text where the user describes the video or picture they want",
-   "where": "queue.js:10496"
+   "where": "queue.js:10521"
   },
   "queue.put_back": {
    "text": "Put back · ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles restore deleted",
-   "where": "queue.js:8546"
+   "where": "queue.js:8571"
   },
   "queue.q8_not_installed_optional_needed": {
    "text": "Q8 not installed (optional — needed for High quality + FFLF)",
@@ -16682,22 +16792,22 @@
   "queue.quality_2": {
    "text": "Quality",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10349"
+   "where": "queue.js:10374"
   },
   "queue.queue": {
    "text": "Queue ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary · this label is the term “Queue”: the list of videos waiting to be made, one after another · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Queue … Queue batch»",
-   "where": "queue.js:10825"
+   "where": "queue.js:10850"
   },
   "queue.queue_batch": {
    "text": "Queue batch",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary",
-   "where": "queue.js:10825"
+   "where": "queue.js:10850"
   },
   "queue.queue_id": {
    "text": "Queue ID",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10526"
+   "where": "queue.js:10551"
   },
   "queue.queue_renders_resumed": {
    "text": "queue + renders resumed",
@@ -16707,22 +16817,22 @@
   "queue.queued": {
    "text": "Queued",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles face fix clip",
-   "where": "queue.js:8768"
+   "where": "queue.js:8793"
   },
   "queue.queued_again_without_the_speed": {
    "text": "Queued again without the speed-up: same prompt, seed and settings.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles speedup quiet retry",
-   "where": "queue.js:8893"
+   "where": "queue.js:8918"
   },
   "queue.queued_job_updated": {
    "text": "Queued job updated.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update queued job",
-   "where": "queue.js:10620"
+   "where": "queue.js:10645"
   },
   "queue.queueing": {
    "text": "Queueing…",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles submit retake",
-   "where": "queue.js:8706"
+   "where": "queue.js:8731"
   },
   "queue.re_download_the_corrupt": {
    "text": "Re-download the corrupt ",
@@ -16732,12 +16842,12 @@
   "queue.re_imagine_full_re_render": {
    "text": "Re-imagine — full re-render from noise",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10318"
+   "where": "queue.js:10343"
   },
   "queue.re_render_this_clip_faithfully": {
    "text": "re-render this clip faithfully.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «the library — everything else was restored, but the … cast could not be. Re-train or re-download it to … re-render this clip faithfully.»",
-   "where": "queue.js:9925"
+   "where": "queue.js:9950"
   },
   "queue.re_run_this_prompt_seed": {
    "text": "Re-run this prompt + seed + refs at Quality (auto-submits)",
@@ -16767,37 +16877,37 @@
   "queue.recipe": {
    "text": "Recipe",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10321"
+   "where": "queue.js:10346"
   },
   "queue.recipe_ltx_needs_48": {
    "text": "This job was made with LTX Start & end, Keyframes or Extend, which need a Mac with 48 GB or more. It was not loaded.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:9446"
+   "where": "queue.js:9471"
   },
   "queue.recipe_needs_h3": {
    "text": "This job was made with Hailuo H3, which is not ready on this Mac. Once Hailuo H3 is installed, load it again.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:9440"
+   "where": "queue.js:9465"
   },
   "queue.recipe_no_ingredients": {
    "text": "This job used Ingredients, which is not available on this Mac. It was not loaded.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:9459"
+   "where": "queue.js:9484"
   },
   "queue.recipe_not_restorable": {
    "text": "This kind of job cannot be reopened in the form.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:9432"
+   "where": "queue.js:9457"
   },
   "queue.recipe_retake": {
    "text": "Retake jobs open from the player: select the clip, then use its Retake button.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:9465"
+   "where": "queue.js:9490"
   },
   "queue.reference_use": {
    "text": "Reference use",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10403"
+   "where": "queue.js:10428"
   },
   "queue.remake": {
    "text": "Remake: ",
@@ -16825,12 +16935,12 @@
     "other": "Remove {count} waiting renders — the running one continues. Undo brings them right back."
    },
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles sync destructive queue buttons · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "queue.js:9140"
+   "where": "queue.js:9165"
   },
   "queue.render_a_new_take": {
    "text": "Render a new take",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles duplicate of loaded recipe",
-   "where": "queue.js:10978"
+   "where": "queue.js:11003"
   },
   "queue.render_time_file_size": {
    "text": "Render time · file size",
@@ -16940,12 +17050,12 @@
   "queue.restore_needs_a_clip": {
    "text": "Colorize needs a source clip — pick one in Source video to colorize, or switch to Text mode.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11089"
+   "where": "queue.js:11114"
   },
   "queue.restored_your_draft_prompt_and": {
    "text": "Restored your draft prompt and settings from last time.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles restore draft on boot",
-   "where": "queue.js:11574"
+   "where": "queue.js:11599"
   },
   "queue.resume_queue": {
    "text": "Resume queue",
@@ -16960,22 +17070,22 @@
   "queue.resuming_from_part_of": {
    "text": "Resuming from part {v} of {v2}",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles take resume from path · placeholders {v2} {v} are filled in by the app",
-   "where": "queue.js:9294"
+   "where": "queue.js:9319"
   },
   "queue.retake": {
    "text": "Retake ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles submit retake",
-   "where": "queue.js:8715"
+   "where": "queue.js:8740"
   },
   "queue.retake_failed": {
    "text": "Retake failed: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles submit retake",
-   "where": "queue.js:8726"
+   "where": "queue.js:8751"
   },
   "queue.retake_queued": {
    "text": "Retake queued (",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles submit retake",
-   "where": "queue.js:8720"
+   "where": "queue.js:8745"
   },
   "queue.retry": {
    "text": "Retry",
@@ -17040,7 +17150,7 @@
   "queue.s_anchored_on_the_last": {
    "text": "s, anchored on the last closed-mouth frame.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles continue song from clip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Continuing from … s, anchored on the last closed-mouth frame.»",
-   "where": "queue.js:8618"
+   "where": "queue.js:8643"
   },
   "queue.s_clips_it_renders_the": {
    "text": " s clips: it renders the whole ",
@@ -17050,7 +17160,7 @@
   "queue.s_lands_next_to_the": {
    "text": "s) — lands next to the original, watch Now",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles submit retake · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Retake queued ( … s) — lands next to the original, watch Now»",
-   "where": "queue.js:8721"
+   "where": "queue.js:8746"
   },
   "queue.s_per_clip_open_it": {
    "text": " s per clip. Open it in ",
@@ -17060,17 +17170,17 @@
   "queue.same_clip_again": {
    "text": "Same clip again?",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles duplicate of loaded recipe",
-   "where": "queue.js:10973"
+   "where": "queue.js:10998"
   },
   "queue.schedule": {
    "text": "Schedule",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10400"
+   "where": "queue.js:10425"
   },
   "queue.score_abc": {
    "text": "Score (ABC)",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10217"
+   "where": "queue.js:10242"
   },
   "queue.see_logs": {
    "text": "(see Logs)",
@@ -17080,22 +17190,22 @@
   "queue.see_pro": {
    "text": "See Pro",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles pro hint row",
-   "where": "queue.js:11787"
+   "where": "queue.js:11812"
   },
   "queue.seed": {
    "text": "Seed",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body · this label is the term “Seed”: the number that makes a result repeatable; same seed + same settings = same video",
-   "where": "queue.js:10214"
+   "where": "queue.js:10239"
   },
   "queue.separate_prompts_remove_it_or": {
    "text": "separate prompts. Remove it, or use Many prompts instead.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «This prompt contains a line of three dashes, which Batch uses to … separate prompts. Remove it, or use Many prompts instead.»",
-   "where": "queue.js:10819"
+   "where": "queue.js:10844"
   },
   "queue.separate_prompts_so_it_cannot": {
    "text": "separate prompts, so it cannot repeat this one — remove the ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue batch · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Your prompt contains a line of three dashes. Batch uses that to … separate prompts, so it cannot repeat this one — remove the … dashes, or switch to Many prompts.»",
-   "where": "queue.js:10867"
+   "where": "queue.js:10892"
   },
   "queue.set_it_up": {
    "text": "Set it up",
@@ -17255,12 +17365,12 @@
   "queue.sharp_export_is_already_queued": {
    "text": "Sharp export is already queued for ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue sharp export · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Sharp export is already queued for … Sharp export queued for … — a sharper file lands next to it in Outputs.»",
-   "where": "queue.js:8810"
+   "where": "queue.js:8835"
   },
   "queue.sharp_export_queued_for": {
    "text": "Sharp export queued for ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue sharp export · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Sharp export is already queued for … Sharp export queued for … — a sharper file lands next to it in Outputs.»",
-   "where": "queue.js:8811"
+   "where": "queue.js:8836"
   },
   "queue.show_generation_info": {
    "text": "Show generation info",
@@ -17270,12 +17380,12 @@
   "queue.show_the_regular_gallery_again": {
    "text": "Show the regular gallery again",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles sync hidden filter toggle",
-   "where": "queue.js:9103"
+   "where": "queue.js:9128"
   },
   "queue.showing_hidden_back_to_outputs": {
    "text": "Showing hidden — back to Outputs",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles sync hidden filter toggle",
-   "where": "queue.js:9101"
+   "where": "queue.js:9126"
   },
   "queue.song_as_a_sequence_each": {
    "text": "song as a sequence, each part starting where the last one’s mouth ",
@@ -17285,7 +17395,7 @@
   "queue.sound": {
    "text": "Sound",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10373"
+   "where": "queue.js:10398"
   },
   "queue.sound_out_in_a_single": {
    "text": "sound out, in a single pass. It runs fully\n        locally and sits beside LTX in the engine switcher — installing it\n        changes nothing about your existing renders. H3 covers Text and\n        Image; LTX still covers every other mode.",
@@ -17300,7 +17410,7 @@
   "queue.sound_steps": {
    "text": " sound steps",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Sound … Cleaned up · made again with the full model … sound steps»",
-   "where": "queue.js:10374"
+   "where": "queue.js:10399"
   },
   "queue.soundtrack_for_a_video": {
    "text": "Soundtrack for a video",
@@ -17315,12 +17425,12 @@
   "queue.speed": {
    "text": "Speed",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10363"
+   "where": "queue.js:10388"
   },
   "queue.started": {
    "text": "Started",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10524"
+   "where": "queue.js:10549"
   },
   "queue.starting_the_next_clip": {
    "text": "Starting the next clip",
@@ -17330,7 +17440,7 @@
   "queue.steps": {
    "text": "Steps",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10483"
+   "where": "queue.js:10508"
   },
   "queue.stop": {
    "text": "Stop",
@@ -17340,22 +17450,22 @@
   "queue.stop_after_this": {
    "text": "Stop after this {unit}",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · placeholders {unit} are filled in by the app",
-   "where": "queue.js:9214"
+   "where": "queue.js:9239"
   },
   "queue.stop_after_this_keeps_everything": {
    "text": "Stop after this {unit} keeps everything already rendered",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · placeholders {unit} are filled in by the app",
-   "where": "queue.js:9210"
+   "where": "queue.js:9235"
   },
   "queue.stop_now_loses_this": {
    "text": "Stop now (loses this {unit})",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · placeholders {unit} are filled in by the app",
-   "where": "queue.js:9215"
+   "where": "queue.js:9240"
   },
   "queue.stop_now_throws_away_the": {
    "text": "Stop now throws away the {unit} in progress too",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · placeholders {unit} are filled in by the app",
-   "where": "queue.js:9212"
+   "where": "queue.js:9237"
   },
   "queue.stop_the_current_render": {
    "text": "Stop the current render",
@@ -17370,17 +17480,17 @@
   "queue.stop_this_chained_render": {
    "text": "Stop this chained render?",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9206"
+   "where": "queue.js:9231"
   },
   "queue.stop_this_one_shot": {
    "text": "Stop this One Shot?",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9206"
+   "where": "queue.js:9231"
   },
   "queue.stop_this_render": {
    "text": "Stop this render?",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9207"
+   "where": "queue.js:9232"
   },
   "queue.stopped_before_generating_the_music": {
    "text": "Stopped before generating — the music engine is not ready.",
@@ -17405,7 +17515,7 @@
   "queue.stopping_after_this_keeping_everything": {
    "text": "Stopping after this {label} — keeping everything already rendered.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop · placeholders {label} are filled in by the app",
-   "where": "queue.js:9190"
+   "where": "queue.js:9215"
   },
   "queue.studio_restart_engine": {
    "text": "Studio → Restart Engine",
@@ -17415,7 +17525,7 @@
   "queue.style": {
    "text": "Style",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10214"
+   "where": "queue.js:10239"
   },
   "queue.switched_to_ltx_hailuo_h3": {
    "text": "Switched to LTX (Hailuo H3 makes its own sound). ",
@@ -17430,17 +17540,17 @@
   "queue.take_uses_the_same_recipe": {
    "text": "take uses the same recipe with a fresh seed; Generate anyway repeats ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles duplicate of loaded recipe · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The prompt, seed, size, quality and LoRAs all match. Render a new … take uses the same recipe with a fresh seed; Generate anyway repeats … this exact clip.»",
-   "where": "queue.js:10976"
+   "where": "queue.js:11001"
   },
   "queue.takes_of_this_prompt": {
    "text": " takes of this prompt",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «one render at a time … takes of this prompt»",
-   "where": "queue.js:10830"
+   "where": "queue.js:10855"
   },
   "queue.text_video": {
    "text": "Text → Video",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10253"
+   "where": "queue.js:10278"
   },
   "queue.than_an_error_so_phosphene": {
    "text": "than an error, so Phosphene stops instead.",
@@ -17450,12 +17560,12 @@
   "queue.that_job_is_no_longer": {
    "text": "That job is no longer queued.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles edit queued job",
-   "where": "queue.js:10572"
+   "where": "queue.js:10597"
   },
   "queue.that_render_already_finished_nothing": {
    "text": "That render already finished — nothing was stopped.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9182"
+   "where": "queue.js:9207"
   },
   "queue.the_base_model_weights_aren": {
    "text": "The base model weights aren't all downloaded yet — ",
@@ -17465,17 +17575,17 @@
   "queue.the_clip_costs_full_two": {
    "text": "the clip costs full two-stage time.\n\n",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Ingredients needs the LTX-2.3 generation — its reference adapter … has no 2.5 release yet, so on 2.5 the references are ignored and … the clip costs full two-stage time. … For reference-guided work on 2.5, use Image mode with Inspire — … or install the 2.3 pack from the Train tab.»",
-   "where": "queue.js:11060"
+   "where": "queue.js:11085"
   },
   "queue.the_clip_is_selected_in": {
    "text": "The clip is selected in Finder. Caption: ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles share clip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The clip is selected in Finder. Caption: … Could not copy or open Finder. Caption:»",
-   "where": "queue.js:8991"
+   "where": "queue.js:9016"
   },
   "queue.the_library_everything_else_was": {
    "text": "the library — everything else was restored, but the ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «the library — everything else was restored, but the … cast could not be. Re-train or re-download it to … re-render this clip faithfully.»",
-   "where": "queue.js:9923"
+   "where": "queue.js:9948"
   },
   "queue.the_macos_gpu_watchdog_killed": {
    "text": "The macOS GPU watchdog killed a Metal command buffer that ran ",
@@ -17485,7 +17595,7 @@
   "queue.the_model_will_not_reproduce": {
    "text": "The model will NOT reproduce these characters/styles. Toggle the LoRA on in the picker, then Generate.\n\n",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Your prompt mentions trigger word(s) from LoRA(s) that are NOT attached: … The model will NOT reproduce these characters/styles. Toggle the LoRA on in the picker, then Generate. … Generate without the LoRA anyway?»",
-   "where": "queue.js:11388"
+   "where": "queue.js:11413"
   },
   "queue.the_music_engine_needs_more": {
    "text": "The music engine needs more memory than this Mac has.",
@@ -17495,7 +17605,7 @@
   "queue.the_prompt_seed_size_quality": {
    "text": "The prompt, seed, size, quality and LoRAs all match. Render a new ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles duplicate of loaded recipe · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The prompt, seed, size, quality and LoRAs all match. Render a new … take uses the same recipe with a fresh seed; Generate anyway repeats … this exact clip.»",
-   "where": "queue.js:10975"
+   "where": "queue.js:11000"
   },
   "queue.the_render_crashed": {
    "text": "The render crashed.",
@@ -17525,17 +17635,17 @@
   "queue.this_clip_is_what_finished": {
    "text": "This clip is what finished before the Windows chain stopped — ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles windows continue from partial · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «This clip is what finished before the Windows chain stopped — … Extend continues it. The prompt below is the ORIGINAL clip’s; edit it … for what should happen next.»",
-   "where": "queue.js:8570"
+   "where": "queue.js:8595"
   },
   "queue.this_clip_s_sound_came": {
    "text": "This clip’s sound came out almost silent, and the prompt asked for sound. That can happen with the Pro speed-up.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles speedup quiet update",
-   "where": "queue.js:8886"
+   "where": "queue.js:8911"
   },
   "queue.this_clip_was_made_with": {
    "text": "This clip was made with Hailuo H3. ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles load params",
-   "where": "queue.js:9992"
+   "where": "queue.js:10017"
   },
   "queue.this_deletes_the_bad_files": {
    "text": "This deletes the bad files and fetches fresh copies (resumable).",
@@ -17545,12 +17655,12 @@
   "queue.this_exact_clip": {
    "text": "this exact clip.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles duplicate of loaded recipe · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The prompt, seed, size, quality and LoRAs all match. Render a new … take uses the same recipe with a fresh seed; Generate anyway repeats … this exact clip.»",
-   "where": "queue.js:10977"
+   "where": "queue.js:11002"
   },
   "queue.this_job_type_can_t": {
    "text": "This job type can’t be edited inline yet — remove it and queue a new one.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles edit queued job",
-   "where": "queue.js:10575"
+   "where": "queue.js:10600"
   },
   "queue.this_mac_renders_lip_sync": {
    "text": "This Mac renders Lip-sync up to ",
@@ -17585,7 +17695,7 @@
   "queue.this_prompt_contains_a_line": {
    "text": "This prompt contains a line of three dashes, which Batch uses to ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «This prompt contains a line of three dashes, which Batch uses to … separate prompts. Remove it, or use Many prompts instead.»",
-   "where": "queue.js:10818"
+   "where": "queue.js:10843"
   },
   "queue.this_size_is_paused_on": {
    "text": "This size is paused on this Mac.",
@@ -17595,7 +17705,7 @@
   "queue.this_will_render_the_same": {
    "text": "This will render the same clip as {name}",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles duplicate of loaded recipe · placeholders {name} are filled in by the app",
-   "where": "queue.js:10974"
+   "where": "queue.js:10999"
   },
   "queue.this_window_does_not_allow": {
    "text": "This window does not allow full screen — the viewer already fills it.",
@@ -17605,7 +17715,7 @@
   "queue.timing": {
    "text": "Timing",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10530"
+   "where": "queue.js:10555"
   },
   "queue.too_long_for_one_lip": {
    "text": "Too long for one Lip-sync clip on this Mac.",
@@ -17685,22 +17795,22 @@
   "queue.undo": {
    "text": "Undo",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles hide",
-   "where": "queue.js:8241"
+   "where": "queue.js:8266"
   },
   "queue.unit_part": {
    "text": "part",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9204"
+   "where": "queue.js:9229"
   },
   "queue.unit_window": {
    "text": "window",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9204"
+   "where": "queue.js:9229"
   },
   "queue.unknown": {
    "text": "Unknown",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10216"
+   "where": "queue.js:10241"
   },
   "queue.unmute": {
    "text": "Unmute",
@@ -17725,12 +17835,12 @@
   "queue.upscale": {
    "text": "Upscale",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body · this label is the term “Upscale”: make a finished video sharper and bigger (higher resolution)",
-   "where": "queue.js:10442"
+   "where": "queue.js:10467"
   },
   "queue.upscale_face_fix": {
    "text": "Upscale & Face Fix",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles submit retake",
-   "where": "queue.js:8740"
+   "where": "queue.js:8765"
   },
   "queue.use": {
    "text": "Use…",
@@ -17750,7 +17860,7 @@
   "queue.use_it_from_your_pinokio": {
    "text": "Use it from your Pinokio install",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11421"
+   "where": "queue.js:11446"
   },
   "queue.use_last_frame": {
    "text": "Use last frame",
@@ -17785,7 +17895,7 @@
   "queue.v2a_needs_a_clip": {
    "text": "Add sound needs a clip — pick one in Clip to add sound to, or choose one from Outputs.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11097"
+   "where": "queue.js:11122"
   },
   "queue.verify_error": {
    "text": "verify error: ",
@@ -17810,27 +17920,27 @@
   "queue.video_model_not_downloaded_title": {
    "text": "Video model is not downloaded yet",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles video model offer download modal",
-   "where": "queue.js:11807"
+   "where": "queue.js:11832"
   },
   "queue.voice_needs_training": {
    "text": "Train \"{name}\" in Voices before rendering, or switch Voice to \"No saved voice\".",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · placeholders {name} are filled in by the app",
-   "where": "queue.js:11184"
+   "where": "queue.js:11209"
   },
   "queue.voice_ref_max_two_pics": {
    "text": "A voice sample and pictures share 3 reference slots — remove one picture, or switch How to 'After render · closest match'.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11176"
+   "where": "queue.js:11201"
   },
   "queue.voice_ref_needs_refs": {
    "text": "Voice sample guidance needs H3 References in Text mode — add another picture, or switch How to 'After render · closest match'.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11170"
+   "where": "queue.js:11195"
   },
   "queue.voice_ref_no_sample": {
    "text": "This voice has no reference sample on disk — switch How to 'After render · closest match'.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11180"
+   "where": "queue.js:11205"
   },
   "queue.waiting": {
    "text": "Waiting",
@@ -17855,22 +17965,22 @@
   "queue.window": {
    "text": "Window",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles request stop",
-   "where": "queue.js:9208"
+   "where": "queue.js:9233"
   },
   "queue.window_prompts": {
    "text": "Window prompts",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10464"
+   "where": "queue.js:10489"
   },
   "queue.write_a_prompt_above_every": {
    "text": "Write a prompt above — every take renders that prompt.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles update batch summary",
-   "where": "queue.js:10816"
+   "where": "queue.js:10841"
   },
   "queue.write_a_prompt_above_first": {
    "text": "Write a prompt above first — a batch of takes renders that prompt.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue batch",
-   "where": "queue.js:10869"
+   "where": "queue.js:10894"
   },
   "queue.write_it_for_me": {
    "text": "Write it for me",
@@ -17920,7 +18030,7 @@
   "queue.yes": {
    "text": "Yes",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles render output info body",
-   "where": "queue.js:10216"
+   "where": "queue.js:10241"
   },
   "queue.your_first_video_is_ready": {
    "text": "Your first video is ready",
@@ -17940,22 +18050,22 @@
   "queue.your_prompt_contains_a_line": {
    "text": "Your prompt contains a line of three dashes. Batch uses that to ",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles queue batch · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Your prompt contains a line of three dashes. Batch uses that to … separate prompts, so it cannot repeat this one — remove the … dashes, or switch to Many prompts.»",
-   "where": "queue.js:10866"
+   "where": "queue.js:10891"
   },
   "queue.your_prompt_is_still_here": {
    "text": "Your prompt is still here; try again once it reconnects.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form",
-   "where": "queue.js:11437"
+   "where": "queue.js:11462"
   },
   "queue.your_prompt_mentions_trigger_word": {
    "text": "Your prompt mentions trigger word(s) from LoRA(s) that are NOT attached:\n\n",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles prepare and validate video form · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Your prompt mentions trigger word(s) from LoRA(s) that are NOT attached: … The model will NOT reproduce these characters/styles. Toggle the LoRA on in the picker, then Generate. … Generate without the LoRA anyway?»",
-   "where": "queue.js:11386"
+   "where": "queue.js:11411"
   },
   "queue.your_tall_copy_is_ready": {
    "text": "Your tall copy is ready. Pro adds: Make it vertical (AI fill), real picture above and below instead of a blur.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles vertical hint update",
-   "where": "queue.js:8865"
+   "where": "queue.js:8890"
   },
   "queue.your_weights_75_gb_are": {
    "text": "Your weights\n         (~75 GB) are still on disk and are",
@@ -18526,17 +18636,17 @@
   "revoice.choose": {
    "text": "Pick a voice for the lines you want to change. Press play to hear who says each line.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice draw",
-   "where": "queue.js:12060"
+   "where": "queue.js:12085"
   },
   "revoice.choose_clip_first": {
    "text": "Choose a clip first",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice selection changed",
-   "where": "queue.js:12115"
+   "where": "queue.js:12140"
   },
   "revoice.choose_training": {
    "text": "Pick a voice for the lines you want to change. Voices still training can be picked once they are ready.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice draw",
-   "where": "queue.js:12059"
+   "where": "queue.js:12084"
   },
   "revoice.clip": {
    "text": "Clip",
@@ -18556,17 +18666,17 @@
   "revoice.find_stopped_mode": {
    "text": "Finding the lines stopped. Choose the clip again to try once more.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice find",
-   "where": "queue.js:11967"
+   "where": "queue.js:11992"
   },
   "revoice.finding": {
    "text": "Finding who says what…",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice find",
-   "where": "queue.js:11956"
+   "where": "queue.js:11981"
   },
   "revoice.finding_short": {
    "text": "Finding the lines…",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice selection changed",
-   "where": "queue.js:12117"
+   "where": "queue.js:12142"
   },
   "revoice.hide_steps": {
    "text": "Hide these steps",
@@ -18576,12 +18686,12 @@
   "revoice.keep": {
    "text": "Keep the original voice",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice draw",
-   "where": "queue.js:12048"
+   "where": "queue.js:12073"
   },
   "revoice.keep_all": {
    "text": "Keep the original voices",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice draw",
-   "where": "queue.js:12021"
+   "where": "queue.js:12046"
   },
   "revoice.kept_lines": {
    "text": {
@@ -18589,27 +18699,27 @@
     "other": "Lines {lines} kept their original voices: {why}."
    },
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice kept text · placeholders {lines} {why} are filled in by the app · plural: {count} is the number",
-   "where": "queue.js:12159"
+   "where": "queue.js:12184"
   },
   "revoice.kept_why_failed": {
    "text": "making it in the new voice did not work, even on a second try",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice kept text",
-   "where": "queue.js:12157"
+   "where": "queue.js:12182"
   },
   "revoice.kept_why_long": {
    "text": "the new voice takes longer to say it than the gap before the next speaker",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice kept text",
-   "where": "queue.js:12154"
+   "where": "queue.js:12179"
   },
   "revoice.kept_why_voice": {
    "text": "none of its takes sounded like the chosen voice, even after more tries",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice kept text",
-   "where": "queue.js:12152"
+   "where": "queue.js:12177"
   },
   "revoice.kept_why_words": {
    "text": "the new voice did not say the words clearly, even on a second try",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice kept text",
-   "where": "queue.js:12156"
+   "where": "queue.js:12181"
   },
   "revoice.lines": {
    "text": "Lines",
@@ -18619,7 +18729,7 @@
   "revoice.mixed": {
    "text": "Mixed",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice draw",
-   "where": "queue.js:12022"
+   "where": "queue.js:12047"
   },
   "revoice.mode_intro": {
    "text": "Give any line a different voice. The picture and the rest of the sound stay exactly as they are, and a new copy is saved in Outputs.",
@@ -18634,7 +18744,7 @@
   "revoice.not_media": {
    "text": "Choose a video or audio file.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice upload",
-   "where": "queue.js:11926"
+   "where": "queue.js:11951"
   },
   "revoice.other_file": {
    "text": "Choose another file",
@@ -18645,17 +18755,17 @@
   "revoice.pick_one": {
    "text": "Pick a voice for at least one line",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice selection changed",
-   "where": "queue.js:12120"
+   "where": "queue.js:12145"
   },
   "revoice.play_line": {
    "text": "Play this line",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice draw",
-   "where": "queue.js:12037"
+   "where": "queue.js:12062"
   },
   "revoice.queued": {
    "text": "Re-voicing “{name}”. Follow it in the queue; the new copy appears in Outputs as “{name} (re-voiced)”.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice submit · placeholders {name} are filled in by the app",
-   "where": "queue.js:12135"
+   "where": "queue.js:12160"
   },
   "revoice.run_lines": {
    "text": {
@@ -18663,7 +18773,7 @@
     "other": "Re-voice {count} lines"
    },
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice selection changed · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "queue.js:12119"
+   "where": "queue.js:12144"
   },
   "revoice.step_clip": {
    "text": "Choose a clip, or use the one in the player.",
@@ -18683,27 +18793,27 @@
   "revoice.too_big": {
    "text": "This file is bigger than 64 MB. Export a shorter or smaller copy and try again.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice upload",
-   "where": "queue.js:11929"
+   "where": "queue.js:11954"
   },
   "revoice.upload_failed": {
    "text": "Could not add this file.",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice upload",
-   "where": "queue.js:11938"
+   "where": "queue.js:11963"
   },
   "revoice.uploading": {
    "text": "Adding the file…",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice upload",
-   "where": "queue.js:11933"
+   "where": "queue.js:11958"
   },
   "revoice.use_player": {
    "text": "Use the clip in the player: {name}",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice use player offer · placeholders {name} are filled in by the app",
-   "where": "queue.js:11899"
+   "where": "queue.js:11924"
   },
   "revoice.voice_for_line": {
    "text": "Voice for line {n}",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice draw · placeholders {n} are filled in by the app",
-   "where": "queue.js:12047"
+   "where": "queue.js:12072"
   },
   "revoice.waiting_ahead_mode": {
    "text": {
@@ -18711,7 +18821,7 @@
     "other": "Waiting for {count} jobs in the queue to finish first. Your clip keeps its place."
    },
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice find · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "queue.js:11975"
+   "where": "queue.js:12000"
   },
   "revoice.weak_lines": {
    "text": {
@@ -18719,27 +18829,27 @@
     "other": "Lines {lines} may look out of sync: {why}."
    },
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice weak text · placeholders {lines} {why} are filled in by the app · plural: {count} is the number",
-   "where": "queue.js:12176"
+   "where": "queue.js:12201"
   },
   "revoice.weak_why_late": {
    "text": "its words start late against the mouth",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice weak text",
-   "where": "queue.js:12174"
+   "where": "queue.js:12199"
   },
   "revoice.weak_why_one_late": {
    "text": "one word starts late against the mouth",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice weak text",
-   "where": "queue.js:12173"
+   "where": "queue.js:12198"
   },
   "revoice.weak_why_silent": {
    "text": "the mouth moves for a moment with no voice",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice weak text",
-   "where": "queue.js:12171"
+   "where": "queue.js:12196"
   },
   "revoice.weak_why_words": {
    "text": "the new voice did not say every word",
    "note": "Studio · in the Video screen: the form, the render queue, the Now card for the video being made, and the gallery of finished work · written by the code that handles revoice weak text",
-   "where": "queue.js:12169"
+   "where": "queue.js:12194"
   },
   "rmAllow.all_my_clips": {
    "text": "All my clips",
