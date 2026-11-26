@@ -25,11 +25,15 @@ song ended naturally or was cut.
 from __future__ import annotations
 
 import argparse
+import bisect
+from fractions import Fraction
 import json
+import math
 import os
 import platform
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 import threading
@@ -51,6 +55,273 @@ def say(*parts):
     print("[music]", *parts, flush=True)
 
 
+_VALID_METER_DENOMS = frozenset({1, 2, 4, 8, 16, 32})
+
+
+def _sanitize_cover_beats(events, duration: float, max_note_end: float = 0.0) -> list:
+    """Repair SheetSage2 rhythm events into a strictly valid beat grid.
+
+    The upstream lossless ABC exporter rejects an entire recording on a single
+    off-grid eighth_position, non-increasing timestamp, missing downbeat, or
+    non-consecutive beat ID inside one bar. Sanitize those glitches while
+    keeping the musical bar structure intact.
+    """
+    ordered = sorted(
+        (ev for ev in (events or ()) if isinstance(ev, dict)),
+        key=lambda ev: (
+            float(ev.get("time", 0.0)) if math.isfinite(float(ev.get("time", 0.0))) else 0.0,
+            int(ev.get("global_subbeat", ev.get("subbeat", 0))),
+        ),
+    )
+    has_meter = any(
+        isinstance((ev.get("values") or {}).get("rhythm"), dict)
+        and (ev["values"]["rhythm"].get("meter") is not None)
+        for ev in ordered
+    )
+    meter = None if has_meter else (4, 4)
+    raw_beats = []
+    for ev in ordered:
+        rhythm = (ev.get("values") or {}).get("rhythm")
+        if not isinstance(rhythm, dict):
+            continue
+        m = rhythm.get("meter")
+        if isinstance(m, (list, tuple)) and len(m) == 2:
+            try:
+                mn, md = int(m[0]), int(m[1])
+            except (TypeError, ValueError):
+                mn, md = 0, 0
+            if mn >= 1 and md in _VALID_METER_DENOMS:
+                meter = (mn, md)
+        eighth = rhythm.get("eighth_position")
+        if eighth is None or meter is None:
+            continue
+        try:
+            t = float(ev.get("time", 0.0))
+            pos = Fraction(int(eighth) * meter[1], 8)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(t) or pos.denominator != 1 or not (0 <= pos < meter[0]):
+            continue
+        raw_beats.append([t, int(pos) + 1, meter[0], meter[1]])
+
+    raw_beats.sort(key=lambda b: b[0])
+    beats = []
+    for b in raw_beats:
+        if beats and b[0] <= beats[-1][0] + 1e-4:
+            if b[1] == 1 and beats[-1][1] != 1:
+                beats[-1][1:] = b[1:]
+            continue
+        beats.append(b)
+    if len(beats) < 2:
+        return []
+
+    downbeats = [i for i, b in enumerate(beats) if b[1] == 1]
+    if not downbeats:
+        pos_in_bar = 1
+        for b in beats:
+            b[1] = pos_in_bar
+            pos_in_bar = pos_in_bar + 1 if pos_in_bar < b[2] else 1
+    else:
+        first_db = downbeats[0]
+        if first_db > 0:
+            num = beats[0][2]
+            start_id = max(1, num - first_db + 1) if first_db < num else 1
+            for j in range(first_db):
+                beats[j][1] = start_id + j
+        for idx, start_i in enumerate(downbeats):
+            end_i = downbeats[idx + 1] if idx + 1 < len(downbeats) else len(beats)
+            for offset in range(end_i - start_i):
+                beats[start_i + offset][1] = 1 + offset
+
+    tail_diffs = [b[0] - a[0] for a, b in zip(beats[-9:], beats[-8:]) if b[0] - a[0] > 1e-4]
+    if not tail_diffs:
+        tail_diffs = [b[0] - a[0] for a, b in zip(beats, beats[1:]) if b[0] - a[0] > 1e-4]
+    period = max(0.1, float(statistics.median(tail_diffs)) if tail_diffs else 0.5)
+    end = max(float(duration or 0.0), float(max_note_end or 0.0))
+    added = 0
+    while beats[-1][0] < end - 1e-6 and added < 2000:
+        prev = beats[-1]
+        next_id = prev[1] + 1 if prev[1] < prev[2] else 1
+        beats.append([prev[0] + period, next_id, prev[2], prev[3]])
+        added += 1
+    return beats
+
+
+def _sanitize_cover_notes(events, subbeat_times) -> dict:
+    """Snap melody notes onto the ABC subbeat grid, dropping sub-grid blips and overlaps."""
+    times = [float(t) for t in subbeat_times]
+    n_sub = len(times)
+    if n_sub < 2:
+        return {0: [], 1: []}
+    boundaries = [(times[i] + times[i + 1]) * 0.5 for i in range(n_sub - 1)]
+    raw = {0: [], 1: []}
+    for ev in events or ():
+        if not isinstance(ev, dict):
+            continue
+        try:
+            start = float(ev.get("time", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(start):
+            continue
+        for note in (ev.get("values") or {}).get("melody") or ():
+            try:
+                end = float(note["end_time"])
+                pitch = int(note["pitch"])
+                track = int(note["track"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if track not in (0, 1) or not (0 <= pitch <= 127):
+                continue
+            if not math.isfinite(end) or end <= start:
+                continue
+            raw[track].append((start, end, pitch))
+    cleaned = {}
+    for track in (0, 1):
+        quantized = []
+        for start, end, pitch in sorted(raw[track], key=lambda item: (item[0], item[2], item[1])):
+            st = max(0, min(bisect.bisect_left(boundaries, start), n_sub - 1))
+            et = max(0, min(bisect.bisect_left(boundaries, end), n_sub - 1))
+            if st >= n_sub - 1:
+                continue
+            if et <= st:
+                et = min(st + 1, n_sub - 1)
+            if et <= st:
+                continue
+            if quantized and st < quantized[-1][1]:
+                if st == quantized[-1][0]:
+                    if (et - st) > (quantized[-1][1] - quantized[-1][0]):
+                        quantized[-1] = [st, et, pitch]
+                    continue
+                quantized[-1][1] = st
+            quantized.append([st, et, pitch])
+        cleaned[track] = [(times[st], times[et], pitch) for st, et, pitch in quantized if et > st]
+    return cleaned
+
+
+def _sanitize_cover_intervals(events, field: str, duration: float, subbeat_times, *,
+                              validate=None, invalid_value=None, fallback_value=None) -> list:
+    """Snap chord/key/structure intervals onto the ABC subbeat grid without sub-grid blips."""
+    times = [float(t) for t in subbeat_times]
+    n_sub = len(times)
+    if n_sub < 2:
+        return []
+    t0, t1 = times[0], times[-1]
+    boundaries = [(times[i] + times[i + 1]) * 0.5 for i in range(n_sub - 1)]
+    ordered = sorted(
+        (ev for ev in (events or ()) if isinstance(ev, dict)),
+        key=lambda ev: (
+            float(ev.get("time", 0.0)) if math.isfinite(float(ev.get("time", 0.0))) else 0.0,
+            int(ev.get("global_subbeat", ev.get("subbeat", 0))),
+        ),
+    )
+    raw = []
+    for ev in ordered:
+        vals = ev.get("values") or {}
+        if field not in vals or vals[field] is None:
+            continue
+        try:
+            t = float(ev.get("time", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(t):
+            continue
+        val = str(vals[field]).strip()
+        if not val:
+            continue
+        if validate is not None:
+            try:
+                validate(val)
+            except ValueError:
+                if invalid_value is None:
+                    continue
+                val = invalid_value
+        raw.append([t, 0.0, val])
+    end_limit = max(float(duration or 0.0), t1)
+    for i, row in enumerate(raw):
+        row[1] = raw[i + 1][0] if i + 1 < len(raw) else end_limit
+    quantized = []
+    for a, b, val in raw:
+        a = max(t0, a)
+        b = min(t1, b)
+        if b <= a:
+            continue
+        st = max(0, min(bisect.bisect_left(boundaries, a), n_sub - 1))
+        et = max(0, min(bisect.bisect_left(boundaries, b), n_sub - 1))
+        if et <= st:
+            continue
+        if quantized and st < quantized[-1][1]:
+            quantized[-1][1] = st
+            if quantized[-1][1] <= quantized[-1][0]:
+                quantized.pop()
+        if quantized and quantized[-1][2] == val and quantized[-1][1] == st:
+            quantized[-1][1] = et
+        else:
+            quantized.append([st, et, val])
+    out = [[times[st], times[et], val] for st, et, val in quantized if et > st]
+    if not out and fallback_value is not None:
+        out = [[t0, t1, fallback_value]]
+    return out
+
+
+def recover_cover_abc(transcription, *, melody_only: bool = False) -> "str | None":
+    """Rebuild a validated ABC score when SheetSage2's strict exporter rejected
+    a single-event glitch (off-grid beat, skipped beat ID, sub-16th note or
+    chord blip, missing key, or unsupported chord quality) on an otherwise
+    decoded recording. Returns None if no usable beat grid was decoded."""
+    events = transcription.get("events") if isinstance(transcription, dict) else None
+    if not isinstance(events, list) or not events:
+        return None
+    max_note_end = 0.0
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        for note in (ev.get("values") or {}).get("melody") or ():
+            try:
+                end = float(note.get("end_time", 0.0))
+                if math.isfinite(end) and end > max_note_end:
+                    max_note_end = end
+            except (TypeError, ValueError):
+                pass
+    duration = float(transcription.get("duration_seconds") or 0.0)
+    abc_beats = _sanitize_cover_beats(events, duration, max_note_end=max_note_end)
+    if len(abc_beats) < 2:
+        return None
+    try:
+        import pretty_midi
+        from lyra.transcription.upstream import notation_sheetsage2 as ns
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        parsed = ns._parse_beats(ns._row_entries(abc_beats, "beats"), "beats")
+        measures, _ = ns.infer_measures(parsed, meter_conflict="infer")
+        subbeat_times, _, _ = ns._build_grid(parsed, measures)
+        by_track = _sanitize_cover_notes(events, subbeat_times)
+        midi = pretty_midi.PrettyMIDI(resolution=960)
+        for track, name in ((0, "Vocal"), (1, "Ins")):
+            inst = pretty_midi.Instrument(program=0, name=name)
+            for start, end, pitch in by_track[track]:
+                inst.notes.append(pretty_midi.Note(100, pitch, start, end))
+            midi.instruments.append(inst)
+        chords = ([] if melody_only else _sanitize_cover_intervals(
+            events, "chord", duration, subbeat_times,
+            validate=ns.chord_symbol_to_abc, invalid_value="N",
+        ))
+        keys = _sanitize_cover_intervals(
+            events, "key", duration, subbeat_times,
+            validate=ns.key_symbol_to_abc, fallback_value="C:major",
+        )
+        structures = _sanitize_cover_intervals(
+            events, "structure", duration, subbeat_times,
+        )
+        text, score = ns.generate_abc_from_data(
+            midi, abc_beats, chords, keys, structures, melody_only=melody_only,
+        )
+        return text if text and len(score.measures) > 0 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def cover_transcription_problem(transcription) -> "str | None":
     """Why a cover cannot go on from this transcription, or None.
 
@@ -61,6 +332,14 @@ def cover_transcription_problem(transcription) -> "str | None":
     and a shorter excerpt cannot help: the limit is per window, not per song.
     Only a missing score stops the cover."""
     if transcription.get("status") != "complete":
+        err = " ".join(str(transcription.get("abc_error") or "").split())
+        if "at least two" in err.lower() and "beat" in err.lower():
+            return ("could not read a score off this recording (no steady beat "
+                    "found). Try a cleaner recording, or a different part of "
+                    "the song.")
+        if err:
+            return (f"could not read a score off this recording ({err[:120]}). "
+                    "Try a cleaner recording, or a different part of the song.")
         return ("could not read a score off this recording. Try a cleaner "
                 "recording, or a different part of the song.")
     return None
@@ -190,20 +469,28 @@ def relax_guard():
     """The upstream guard samples SYSTEM-WIDE pressure and swap every 0.25 s
     and aborts on any non-normal reading. Inside Phosphene the panel, the
     browser and other apps move those numbers, so a single transient sample
-    killed whole songs. Keep the per-process footprint budget strict; tolerate
-    transient pressure while real headroom remains; bound swap growth by a
-    configurable, larger window. Same idea as yue2-studio's 24 GB patch."""
+    killed whole songs. Keep the per-process footprint budget and minimum
+    available RAM strict; tolerate cold background page-outs while memory
+    pressure is normal and real headroom remains (H78: macOS routinely pages
+    out >1 GiB of idle compressed pages from other apps when YuE2 wires ~10
+    GiB for Metal on 16-48 GB Macs), while still stopping on swapping under
+    sustained/critical pressure, tight headroom (<3 GiB), or runaway net swap
+    growth (>6 GiB)."""
     from lyra import measure
 
     gib, mib = measure._GIB, measure._MIB
     min_avail = float(os.environ.get("YUE2_MIN_AVAILABLE_GIB", "1.5"))
     swap_out = float(os.environ.get("YUE2_MAX_SWAP_OUT_MIB", "1024"))
     swap_growth = float(os.environ.get("YUE2_MAX_SWAP_GROWTH_MIB", "2048"))
+    swap_avail = float(os.environ.get("YUE2_SWAP_GUARD_AVAILABLE_GIB", str(max(3.0, min_avail * 2.0))))
+    hard_swap_growth = float(os.environ.get("YUE2_HARD_SWAP_GROWTH_MIB", str(max(6144.0, swap_growth * 3.0))))
+    pressure_samples = max(1, int(os.environ.get("YUE2_PRESSURE_SAMPLES", "4")))
     counters = {"pressure_warnings": 0, "peak_footprint_gib": 0.0, "min_available_gib": None}
 
     def check(self, sample):
         if self._baseline is None:
             self._baseline = sample
+            self._pressure_streak = 0
         footprint = sample["physical_footprint_bytes"]
         counters["peak_footprint_gib"] = max(counters["peak_footprint_gib"], round(footprint / gib, 2))
         avail = round(sample["system_available_bytes"] / gib, 2)
@@ -214,17 +501,25 @@ def relax_guard():
                               f"{self.memory_budget_gib:g} GiB budget")
         if sample["system_available_bytes"] < min_avail * gib:
             raise MemoryError(f"Less than {min_avail:g} GiB of system memory available")
-        if sample["system_memory_pressure_level"] != 1:
+        pressure = sample["system_memory_pressure_level"]
+        if pressure != 1:
             counters["pressure_warnings"] += 1
+            self._pressure_streak = getattr(self, "_pressure_streak", 0) + 1
+        else:
+            self._pressure_streak = 0
+        under_pressure = pressure >= 3 or self._pressure_streak >= pressure_samples
         swapped = sample["system_swap_out_bytes"] - self._baseline["system_swap_out_bytes"]
         growth = sample["system_swap_used_bytes"] - self._baseline["system_swap_used_bytes"]
-        if swapped > swap_out * mib or growth > swap_growth * mib:
+        low_headroom = sample["system_available_bytes"] < swap_avail * gib
+        swap_over = swapped > swap_out * mib or growth > swap_growth * mib
+        if growth > hard_swap_growth * mib or (swap_over and (under_pressure or low_headroom)):
             raise MemoryError(f"Stopping: the system is swapping ({swapped / mib:.0f} MiB out, "
                               f"{growth / mib:.0f} MiB swap growth)")
 
     measure.GPUExecution._check_sample = check
     return {"min_available_gib": min_avail, "max_swap_out_mib": swap_out,
-            "max_swap_growth_mib": swap_growth, "counters": counters}
+            "max_swap_growth_mib": swap_growth, "swap_guard_available_gib": swap_avail,
+            "hard_swap_growth_mib": hard_swap_growth, "counters": counters}
 
 
 def music_admission_snapshot() -> dict:
@@ -422,19 +717,32 @@ def main(argv=None):
             return 2
         gc.collect()
         mx.clear_cache()
-        problem = cover_transcription_problem(transcription)
-        if problem:
-            say("error", problem)
-            return 2
+        recovered_abc = None
+        if transcription.get("status") != "complete":
+            recovered_abc = recover_cover_abc(
+                transcription, melody_only=(args.cover_task != "full"))
+        if recovered_abc is not None:
+            (work / "score.abc").write_text(recovered_abc, encoding="utf-8")
+            say("listen", "a few timing glitches were cleaned up so the cover "
+                          "could keep the score")
+            abc = recovered_abc
+        else:
+            problem = cover_transcription_problem(transcription)
+            if problem:
+                say("error", problem)
+                return 2
+            abc = (work / "score.abc").read_text(encoding="utf-8")
         if transcription.get("truncated"):
             say("listen", "a busy passage ran past the transcriber's room; "
                           "the cover follows the score it did read")
-        abc = (work / "score.abc").read_text(encoding="utf-8")
         cover_info = {"source_sha256": transcription.get("source_audio_sha256"),
                       "truncated": bool(transcription.get("truncated")),
+                      "recovered": recovered_abc is not None,
                       "task": args.cover_task,
                       "seconds_read": args.cover_seconds,
                       "artifacts": str(work)}
+        if recovered_abc is not None and transcription.get("abc_error"):
+            cover_info["recovery_from"] = str(transcription.get("abc_error"))
         if args.transcribe_only:
             # "Get the score": the recording's sheet music, nothing rendered.
             # Same sidecar shape as a song so the gallery reads it the same

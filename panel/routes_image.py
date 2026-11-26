@@ -878,12 +878,10 @@ def post_image_generate(h, path, qs, ctype) -> None:
     for r in refs_in:
         if not isinstance(r, str) or not r.strip():
             h._json({"error": "each ref must be a non-empty path"}, 400); return
-        r = P.normalize_pasted_path(r)
-        rp = P.Path(r)
-        if not rp.is_absolute():
-            rp = (P.UPLOADS / r).resolve()
-        else:
-            rp = rp.resolve()
+        try:
+            r, rp = P._resolve_image_ref_path(r)
+        except OSError:
+            h._json({"error": f"ref image not found: {r}"}, 404); return
         # A picture outside uploads/outputs (Desktop, Downloads, an old
         # library) used to be refused here with "ref path not under
         # uploads/outputs" (H15: 6 failed renders on 4 Macs). Like every

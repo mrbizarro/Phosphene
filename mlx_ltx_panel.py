@@ -11383,7 +11383,8 @@ def h3_watchdog_line(lines) -> bool:
 
 
 _H3_METAL_OOM_RX = re.compile(
-    r"Insufficient Memory|kIOGPUCommandBufferCallbackErrorOutOfMemory",
+    r"Insufficient Memory|kIOGPUCommandBufferCallbackErrorOutOfMemory"
+    r"|metalalloc|kIOReturnNoSpace",
     re.IGNORECASE)
 
 
@@ -11401,6 +11402,77 @@ def h3_metal_oom_message(frames: int | None = None) -> str:
             "it ran out of memory). "
             + ("Make a shorter clip (5 s), " if longer else "Try a shorter clip, ")
             + "or a lower setting such as Draft, and quit other apps before you retry.")
+
+
+_H3_CRASH_PHASE_MAP = {
+    "text_encode_q8": "encode",
+    "text_cache_load": "encode",
+    "keyframe_encode": "encode",
+    "dit_load_bf16": "load",
+    "dit_load_q8": "load",
+    "dit_load_q4": "load",
+    "adaln_cache_and_noise": "load",
+    "joint_denoise": "denoise",
+    "video_vae_decode": "decode",
+    "audio_vae_decode": "decode",
+    "encode_mux": "decode",
+    "stitch": "decode",
+}
+
+
+def _h3_crash_phase(bare_phase: str | None) -> str:
+    """Map an H3 runner phase label onto CRASH_PHASES (encode/load/denoise/decode/start)."""
+    return _H3_CRASH_PHASE_MAP.get(str(bare_phase or "").strip(), "start")
+
+
+def h3_metal_crash_line(lines) -> str:
+    """Closed Metal/GPU crash_line class from an H3 runner tail, or "" if none."""
+    for ln in reversed(list(lines or ())):
+        cls = crash_line_class(ln)
+        if cls.startswith("gpu_"):
+            return cls
+    return ""
+
+
+def h3_watchdog_message(frames: int | None = None, *, was_short: bool = False,
+                        detail: str = "") -> str:
+    """Plain-words message for a Hailuo H3 GPU-watchdog stop (H79).
+    Leads with the watchdog cause inside the 80-char fleet mirror signature
+    (splitting first-hit from repeat-on-short-steps, and splitting both from
+    Metal OOM and other Metal driver errors) while preserving the metal_watchdog
+    analytics needle."""
+    longer = int(frames or 0) > 130          # longer than one 5 s window
+    low = str(detail or "").lower()
+    tag = ("Impacting Interactivity" if "impacting" in low
+           else "Caused GPU Timeout Error")
+    tail = f" ({detail[:180]})" if detail else f" ({tag})"
+    if detail and not _H3_WATCHDOG_RX.search(detail):
+        tail = f" ({tag}: {detail[:160]})"
+    if was_short:
+        return (
+            "Hailuo H3 stopped by macOS's GPU watchdog (short GPU steps already on). "
+            "Your Mac's graphics chip stopped this render to keep the screen responsive. "
+            + ("Try a 5-second clip or Draft quality, " if longer
+               else "Try a shorter clip or Draft quality, ")
+            + f"and close other apps that use the graphics chip heavily.{tail}")
+    return (
+        "Hailuo H3 stopped by macOS's GPU watchdog (switching to short GPU steps). "
+        "Your Mac's graphics chip stopped this render to keep the screen responsive. "
+        "Press Retry: from now on this Mac renders Hailuo H3 in smaller GPU steps, "
+        f"the remedy LTX videos already use; it may be a little slower.{tail}")
+
+
+def h3_metal_driver_message(crash_line: str, *, rc: int = 1,
+                            detail: str = "") -> str:
+    """Plain-words message for a non-OOM, non-watchdog Metal command-buffer stop
+    in Hailuo H3 (H79). Names the closed Metal sub-cause in the first 80 chars
+    so it never conflates with watchdog or allocation in the fleet mirror."""
+    cls = str(crash_line or "gpu_other").strip() or "gpu_other"
+    tail = f" ({detail[:180]})" if detail else ""
+    return (
+        f"Hailuo H3 graphics driver stopped the render (Metal: {cls}, exited with code {int(rc)}). "
+        "Try a shorter clip or Draft quality, quit other apps that use graphics, "
+        f"and update macOS if it keeps happening.{tail}")
 
 
 def h3_watchdog_mark(now: float | None = None) -> None:
@@ -39524,6 +39596,25 @@ def image_refs_refusal(engine_override, refs) -> str | None:
             f"render has {n}. Remove {n - cap} of them, then generate again.")
 
 
+def _resolve_image_ref_path(raw: str) -> tuple[str, Path]:
+    """Normalize and resolve one Image reference path.
+
+    Relative paths resolve under UPLOADS; a leading ``<UPLOADS.name>/``
+    prefix (for example ``panel_uploads/foo.png``) is also accepted when
+    the process working directory is not the repo root (the Mac app).
+    """
+    r = normalize_pasted_path(raw)
+    rp = Path(r)
+    if not rp.is_absolute():
+        cand = UPLOADS / rp
+        if not cand.is_file() and rp.parts[:1] == (UPLOADS.name,):
+            alt = UPLOADS.joinpath(*rp.parts[1:])
+            if alt.is_file():
+                cand = alt
+        rp = cand
+    return r, rp.resolve()
+
+
 def image_job_input_refusal(p: dict) -> str | None:
     """job_input_refusal for an Image job: what can only fail, said before it
     is queued.
@@ -39537,12 +39628,31 @@ def image_job_input_refusal(p: dict) -> str | None:
 
     Also (fleet 4.19.16, an Image job with more than 3 references): too many
     reference images for the engine - the worker used to discover it after
-    the job's turn and file it as a failed render."""
+    the job's turn and file it as a failed render.
+
+    H77 (fleet 5.0.57-5.0.83): missing reference images in ``refs`` passed
+    /queue/add, /queue/retry and /queue/batch because this check never tested
+    that each attached picture was still on disk, failing at worker time with
+    ``ref image not found``."""
     refs = p.get("refs") or []
-    if isinstance(refs, list):
-        why = image_refs_refusal(p.get("engine_override"), refs)
-        if why:
-            return why
+    if not isinstance(refs, list):
+        return "refs must be a list of paths"
+    why = image_refs_refusal(p.get("engine_override"), refs)
+    if why:
+        return why
+    for r in refs:
+        if not isinstance(r, str) or not r.strip():
+            return "Each reference image must be a file path."
+        r_norm = normalize_pasted_path(r)
+        try:
+            r_norm, rp = _resolve_image_ref_path(r)
+            exists = rp.is_file()
+        except OSError:
+            exists = False
+        if not exists:
+            return (f"The reference image is no longer on disk: {r_norm}. It was "
+                    "moved, renamed or deleted after it was picked. Remove it or "
+                    "pick it again, then generate again.")
     for entry in (p.get("loras") or []):
         lp = str((entry or {}).get("path") or "").strip() if isinstance(entry, dict) else ""
         if not lp or not lp.startswith(("/", "~")):
@@ -39946,7 +40056,12 @@ def copy_attached_reference(value: str) -> str:
         return value
     src = Path(value)
     if not src.is_absolute() and not src.is_file():
-        src = UPLOADS / src
+        cand = UPLOADS / src
+        if not cand.is_file() and src.parts[:1] == (UPLOADS.name,):
+            alt = UPLOADS.joinpath(*src.parts[1:])
+            if alt.is_file():
+                cand = alt
+        src = cand
     if not src.is_file():
         return value
     src = src.resolve()
@@ -42372,9 +42487,13 @@ def run_image_job_inner(job: dict) -> None:
     for r in refs_in:
         if not isinstance(r, str) or not r.strip():
             raise RuntimeError("each ref must be a non-empty path string")
-        r = normalize_pasted_path(r)
-        rp = Path(r)
-        rp = (rp if rp.is_absolute() else (UPLOADS / r)).resolve()
+        try:
+            r, rp = _resolve_image_ref_path(r)
+        except OSError:
+            raise RuntimeError(
+                f"The reference image is no longer on disk: {r}. It was moved, "
+                "renamed or deleted after it was picked. Remove it or pick it "
+                "again, then generate again.")
         # The character sheets are a legitimate reference too: the Storyboard's
         # anchor stills are drawn from a character's own sheet.
         allowed = [UPLOADS.resolve(), *output_roots(), _CHARACTERS_CACHE_PATH.resolve()]
@@ -42382,7 +42501,10 @@ def run_image_job_inner(job: dict) -> None:
             raise RuntimeError("This queued reference is outside Phosphene’s uploads and outputs folders. "
                                "Attach the reference again so Phosphene can keep a copy, then retry.")
         if not rp.is_file():
-            raise RuntimeError(f"ref image not found: {r}")
+            raise RuntimeError(
+                f"The reference image is no longer on disk: {r}. It was moved, "
+                "renamed or deleted after it was picked. Remove it or pick it "
+                "again, then generate again.")
         refs_resolved.append(str(rp))
 
     try:
@@ -46027,7 +46149,14 @@ def run_h3_job_inner(job: dict) -> None:
                 # The runner refused a broken render and said why (NaN/inf
                 # latents, blank decode) — that sentence IS the diagnosis.
                 raise RuntimeError(_runner_msg)
+            _h3_crash_line = h3_metal_crash_line(list(_h3_tail))
+            _h3_cphase = _h3_crash_phase(bare_phase)
+            if _h3_crash_line:
+                job["crash_line"] = _h3_crash_line
+                job["crash_phase"] = _h3_cphase
             if h3_metal_oom_line(list(_h3_tail)):
+                job["crash_line"] = "gpu_oom"
+                job["crash_phase"] = _h3_cphase
                 # Fleet 18 Nov: Metal "Insufficient Memory" on 16 GB Macs making
                 # 10-15 s clips reached the user as the raw Metal line. Same
                 # needle the analytics class reads (metal_oom), plain words up
@@ -46055,6 +46184,8 @@ def run_h3_job_inner(job: dict) -> None:
             # way since #44; the H3 path never got the same treatment.
             if rc < 0:
                 if h3_watchdog_line(list(_h3_tail)):
+                    if _h3_cphase in WATCHDOG_PHASES:
+                        job["watchdog_phase"] = _h3_cphase
                     h3_watchdog_mark()      # the next H3 render starts short
                 try:
                     _sig = signal.Signals(-rc).name
@@ -46080,16 +46211,17 @@ def run_h3_job_inner(job: dict) -> None:
             if rc != 0 and h3_watchdog_line(list(_h3_tail)):
                 # The next H3 render on this Mac starts in short GPU steps.
                 _h3_was_short = h3_watchdog_seen()
+                if _h3_cphase in WATCHDOG_PHASES:
+                    job["watchdog_phase"] = _h3_cphase
                 h3_watchdog_mark()
-                if not _h3_was_short:
-                    raise RuntimeError(
-                        f"H3 render exited with code {rc}"
-                        + (f" — last line: {_last[:220]}" if _last else "")
-                        + ". macOS's GPU watchdog stopped it (one graphics step ran "
-                          "too long on this Mac). Press Retry: from now on this Mac "
-                          "renders Hailuo H3 in smaller GPU steps, the remedy LTX "
-                          "videos already use; it may be a little slower. "
-                          f"(metrics at {metrics_path}).")
+                raise RuntimeError(
+                    h3_watchdog_message(
+                        frames, was_short=_h3_was_short, detail=_last)
+                    + f" (metrics at {metrics_path}).")
+            if rc != 0 and _h3_crash_line:
+                raise RuntimeError(
+                    h3_metal_driver_message(_h3_crash_line, rc=rc, detail=_last)
+                    + f" (metrics at {metrics_path}).")
             raise RuntimeError(
                 f"H3 render exited with code {rc}"
                 + (f" — last line: {_last[:220]}" if _last else "")

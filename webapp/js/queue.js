@@ -3121,7 +3121,7 @@ async function deleteUpload(path) {
     if (els && els.hidden && els.hidden.value === path) pickerSetImage(key, '');
   });
   await refreshUploadsStrip();
-  if (typeof refreshIngredientRecent === 'function') { try { refreshIngredientRecent(); } catch (e) {} }
+  if (typeof IMG_STUDIO !== 'undefined' && Array.isArray(IMG_STUDIO.refs)) { IMG_STUDIO.refs.forEach((ref, idx) => { if (ref && ref.path === path && typeof imgStudioClearRef === 'function') imgStudioClearRef(idx); }); } if (typeof imgStudioRefreshRecent === 'function') { try { imgStudioRefreshRecent(); } catch (e) {} } if (typeof refreshIngredientRecent === 'function') { try { refreshIngredientRecent(); } catch (e) {} }
 }
 
 // ====== Pictures (Hailuo H3): one place to give the shot its pictures =========
@@ -4771,6 +4771,29 @@ function friendlyJobError(raw, engine) {
       hint: T('queue.h3_oom_hint', 'Make a shorter clip (5 s) or pick a lower setting such as Draft, and quit other apps before you retry.'),
       details: _redactLocalPaths(raw) || raw,
       docsAnchor: 'memory',
+    };
+  }
+  // H79: Hailuo H3 GPU-watchdog and Metal graphics-driver stops exit with code 1
+  // (not SIGABRT), so the SIGABRT watchdog branch below never saw them and they
+  // fell through to generic "Hailuo H3 stopped." Split them clearly from OOM.
+  if (/Hailuo H3 stopped by macOS's GPU watchdog/i.test(raw)
+      || (engine === 'h3' && /impacting interactivity|commandbuffercallbackerrorimpactinginteractivity|caused gpu timeout error|commandbuffercallbackerrortimeout/i.test(raw))) {
+    return {
+      friendly: T('queue.macos_stopped_the_render_this', 'macOS stopped the render — this Mac ran out of GPU time.'),
+      hint: T('queue.try_fast_or_a_shorter', 'Try: Fast or a shorter length')
+          + T('queue.close_other_apps_using_the', ' · close other apps using the GPU ')
+          + T('queue.browser_video_games_another_ai', '(browser video, games, another AI app) · restart the Mac if it ')
+          + T('queue.keeps_happening', 'keeps happening.'),
+      details: _redactLocalPaths(raw) || raw,
+      docsAnchor: 'gpu-watchdog',
+    };
+  }
+  if (/Hailuo H3 graphics driver stopped the render/i.test(raw)) {
+    return {
+      friendly: T('queue.hailuo_h3_stopped', 'Hailuo H3 stopped.'),
+      hint: T('queue.try_shorter_quit_graphics_apps', 'Try a shorter clip or a smaller size · quit other apps that use graphics ')
+          + T('queue.graphics_apps_update_macos', '(browser video, games, other AI apps) · update macOS.'),
+      details: _redactLocalPaths(raw) || raw,
     };
   }
   // Fleet 21 Nov 2026: h3_busy_refusal_message naming the top memory apps is
@@ -8305,7 +8328,7 @@ async function deleteOutput(path) {
     }
     // The Show-all cache too, or filteredMainOutputs() resurrects it (UI-06).
     outputsCacheMutated([path]);
-    currentOutputs = [];
+    if (typeof IMG_STUDIO !== 'undefined' && Array.isArray(IMG_STUDIO.refs)) { IMG_STUDIO.refs.forEach((ref, idx) => { if (ref && ref.path === path && typeof imgStudioClearRef === 'function') imgStudioClearRef(idx); }); } currentOutputs = [];
     poll();
     // Undo puts back exactly what this delete moved (/output/restore takes
     // the server's one-time token, never a path from here).

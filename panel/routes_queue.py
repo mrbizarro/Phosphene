@@ -652,7 +652,7 @@ def post_queue_batch(h, path, qs, ctype) -> None:
     ids = []
     try:
         built = [P.make_job(form, override_prompt=pr) for pr in chunks]
-    except P.CharacterRequestError as exc:
+    except (P.CharacterRequestError, ValueError) as exc:
         h._json({"error": str(exc)}, 400); return
     # 4.19.2: the same up-front refusals /queue/add makes. A batch skipped
     # them, so a batch of image prompts whose picture had gone failed once per
@@ -1009,7 +1009,7 @@ def post_run(h, path, qs, ctype) -> None:
     # it must be polite here too.
     try:
         job = P.make_job(form)
-    except P.CharacterRequestError as exc:
+    except (P.CharacterRequestError, ValueError) as exc:
         h._json({"error": str(exc)}, 400); return
     # 4.17.5: a job that can only fail for want of its input (Upscale or
     # Control with no clip, Image with no picture, an unknown mode) is refused
