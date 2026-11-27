@@ -8,6 +8,7 @@ back to prompts, sidecars or file names.
 """
 from __future__ import annotations
 
+import json
 import re
 
 TITLE_MAX = 60
@@ -52,11 +53,33 @@ def _trim(t: str, limit: int) -> str:
     return cut.rstrip(" ,;:-.") + "…"
 
 
+def _ideogram_description(prompt: str):
+    """high_level_description of an Ideogram 4 caption, else None.
+
+    Layout mode sends the structured caption as its prompt, a JSON string
+    (ideogram_caption.build_caption). Same test as webapp/js/queue.js
+    _parseIdeoCaption, so the title is the readable line, never raw JSON.
+    """
+    t = prompt.strip()
+    if not t.startswith("{"):
+        return None
+    try:
+        cap = json.loads(t)
+    except (ValueError, RecursionError):
+        return None
+    if isinstance(cap, dict) and isinstance(cap.get("high_level_description"), str):
+        return cap["high_level_description"]
+    return None
+
+
 def display_title(prompt, label=None, limit: int = TITLE_MAX) -> str:
     lab = re.sub(r"\s+", " ", str(label or "")).strip()
     if lab:
         return _trim(lab, limit)
     orig = str(prompt or "")
+    ideo = _ideogram_description(orig)
+    if ideo is not None:
+        orig = ideo
     t = _clean(_DIALOGUE.sub(" ", orig))
     if not t:
         inner = " ".join(re.findall(r"<d>([\s\S]*?)</d>", orig, re.I))
