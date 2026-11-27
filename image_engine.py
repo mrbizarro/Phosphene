@@ -672,6 +672,20 @@ class ImageEngineConfig:
     h3restyle_steps: int = 16         # sigma points (15 forwards)
     h3restyle_mp: float = 1.0         # output megapixels at the content's shape
 
+    # Ming-Image-0.2-Design (inclusionAI, MIT, R&D L92): pure-MLX runner in Phosphene's own
+    # scripts/ming_image/ package. Standard (~1 MP) or High (~4 MP), 12 steps, native RGBA PNG.
+    ming_python_path: str = ""
+    ming_root_dir: str = ""           # Studio root (PYTHONPATH for -m scripts.ming_image.run)
+    ming_model_dir: str = ""          # folder holding the 18 pinned MLX weight files
+    ming_tier: str = "standard"       # "standard" (~1 MP) | "high" (~4 MP)
+    ming_steps: int = 12
+    ming_low_memory: str = "auto"     # "auto" | "off" | "llm" | "full"
+    ming_memory_gb: float = 0.0
+    ming_wired_gb: float = 0.0
+    ming_transparent: bool = False
+    ming_max_refs: int = 1
+    ming_memory_setting: str = ""
+
     def to_public_dict(self) -> dict:
         d = asdict(self)
         if d.get("bfl_api_key"):
@@ -794,6 +808,8 @@ def generate(*, prompt: str, n: int, output_dir: Path,
         return _generate_h3image(prompt, n, aspect, output_dir, base_seed, config, refs=refs, on_log=on_log)
     if config.kind == "h3restyle":
         return _generate_h3restyle(prompt, n, output_dir, base_seed, config, refs=refs, on_log=on_log)
+    if config.kind == "ming":
+        return _generate_ming(prompt, n, aspect, output_dir, base_seed, config, refs=refs, on_log=on_log)
     raise ValueError(f"unknown image engine kind: {config.kind!r}")
 
 
@@ -847,6 +863,11 @@ def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
         if missing:
             return False, "Restyle on Hailuo H3 is not installed: " + "; ".join(missing)
         return True, f"Restyle on Hailuo H3 ready ({config.h3restyle_mp:g} MP, {max(1, config.h3restyle_steps - 1)} steps)"
+    if config.kind == "ming":
+        missing = ming_missing(config)
+        if missing:
+            return False, "Ming-Image 0.2 Design is not installed: " + "; ".join(missing)
+        return True, f"Ming-Image 0.2 Design ready ({config.ming_tier}, {config.ming_steps} steps)"
     return False, f"unknown engine kind: {config.kind!r}"
 
 
@@ -3215,4 +3236,148 @@ def _generate_h3restyle(prompt: str, n: int, output_dir: Path, base_seed: int | 
                         "references": 1, "refs_ignored": False,
                         "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
                         "seconds": float(info.get("request_seconds") or info.get("total_seconds") or 0.0)})
+    return results
+
+
+# ---- Ming-Image-0.2-Design (inclusionAI, MIT, R&D L92) --------------------------------------------
+def ming_missing(config: ImageEngineConfig) -> list[str]:
+    """What is not on disk yet for Ming-Image 0.2 Design ([] = ready)."""
+    out: list[str] = []
+    py = config.ming_python_path
+    if not py or not Path(py).exists():
+        out.append("the MLX runtime is not installed")
+    root = Path(config.ming_root_dir) if config.ming_root_dir else Path(__file__).resolve().parent
+    if not (root / "scripts" / "ming_image" / "run.py").is_file():
+        out.append("this Studio build has no Ming-Image runner")
+    model_dir = Path(config.ming_model_dir) if config.ming_model_dir else None
+    if model_dir is None or not (model_dir / "config.json").is_file() or not (model_dir / "index.json").is_file():
+        out.append("the Ming-Image 0.2 Design model is not downloaded")
+    else:
+        try:
+            from scripts.ming_image import fetch as _ming_fetch
+            bad = _ming_fetch.verify_directory(model_dir, check_sha=False)
+            if bad:
+                out.append(f"the Ming-Image 0.2 Design download is incomplete ({len(bad)} file(s) missing)")
+        except Exception:
+            pass
+    return out
+
+
+def _generate_ming(prompt: str, n: int, aspect: str, output_dir: Path, base_seed: int | None,
+                   config: ImageEngineConfig, refs: list[str] | None = None,
+                   on_log: "callable | None" = None) -> list[dict]:
+    import json as _json
+    import os
+    import random
+    import subprocess
+
+    missing = ming_missing(config)
+    if missing:
+        raise FileNotFoundError("Ming-Image 0.2 Design is not ready: " + "; ".join(missing))
+    refs = [str(r) for r in (refs or []) if r]
+    # Enforce the model's supported reference cap (updated after Wave 2 testing).
+    max_refs = max(0, int(getattr(config, "ming_max_refs", 1)))
+    used_refs = refs[:max_refs] if max_refs > 0 else []
+    refs_ignored = len(refs) > len(used_refs)
+    if refs_ignored and on_log:
+        if max_refs == 0:
+            on_log("[ming-image] reference pictures ignored.")
+        else:
+            on_log(f"[ming-image] using the first {max_refs} reference picture(s); extra slots ignored.")
+    tier = str(config.ming_tier or "standard").lower()
+    if tier not in ("standard", "high"):
+        tier = "standard"
+    if used_refs:
+        # Upstream image-edit runs on the 1024 bucket (Standard).
+        tier = "standard"
+    root = Path(config.ming_root_dir) if config.ming_root_dir else Path(__file__).resolve().parent
+    env = _clean_subprocess_env()
+    prev_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{root}:{prev_pp}" if prev_pp else str(root)
+
+    results: list[dict] = []
+    ts = int(time.time() * 1000)
+    for i in range(n):
+        seed = (base_seed + i) if base_seed is not None else random.randint(0, 2**31 - 1)
+        png = output_dir / f"cand_{i:02d}_ming_{ts}.png"
+        metrics = output_dir / f"cand_{i:02d}_ming_{ts}.json"
+        cmd = [
+            config.ming_python_path, "-m", "scripts.ming_image.run",
+            "--model", str(config.ming_model_dir),
+            f"--prompt={prompt}",
+            "--tier", tier,
+            "--aspect", str(aspect or ("match" if used_refs else "1:1")),
+            "--steps", str(int(config.ming_steps or 12)),
+            "--seed", str(seed),
+            "--low-memory", str(config.ming_low_memory or "auto"),
+            "--out", str(png),
+            "--metrics", str(metrics),
+        ]
+        for ref_path in used_refs:
+            cmd += ["--input-image", ref_path]
+        if config.ming_memory_gb > 0:
+            cmd += ["--memory-gb", f"{float(config.ming_memory_gb):.1f}"]
+        if config.ming_wired_gb > 0:
+            cmd += ["--wired-gb", f"{float(config.ming_wired_gb):.1f}"]
+        if config.ming_transparent:
+            cmd += ["--transparent"]
+        if on_log:
+            mode_tag = f"edit, {len(used_refs)} ref(s)" if used_refs else tier
+            on_log(f"[ming-image] image {i + 1}/{n}: {mode_tag} ({aspect}), seed {seed}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                errors="replace", env=env, start_new_session=True)
+        _register_active_proc(proc)
+        deadline = float(os.environ.get("PHOSPHENE_MING_TIMEOUT_S", "1800"))
+        timed_out = {"v": False}
+
+        def _kill():
+            timed_out["v"] = True
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+
+        wd = threading.Timer(deadline, _kill)
+        wd.daemon = True
+        wd.start()
+        try:
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if "low_memory=" in line:
+                        for tok in line.split():
+                            t_clean = tok.strip("(),")
+                            if t_clean.startswith("low_memory="):
+                                config.ming_memory_setting = t_clean.split("=", 1)[1][:24]
+                    if line and on_log:
+                        on_log(line if line.startswith("[ming-image]") else f"[ming-image] {line}")
+            rc = proc.wait()
+        except BaseException:
+            proc.kill()
+            proc.wait()
+            raise
+        finally:
+            wd.cancel()
+            _unregister_active_proc(proc)
+            if proc.stdout is not None:
+                proc.stdout.close()
+        if timed_out["v"]:
+            raise RuntimeError(f"Ming-Image 0.2 Design exceeded its {deadline:.0f}s deadline and was stopped")
+        if rc in (-15, 143, -9, 137, -2, 130):
+            raise ImageJobCancelled(f"Ming-Image 0.2 Design cancelled by /stop (rc={rc})")
+        if rc != 0:
+            raise RuntimeError(f"Ming-Image 0.2 Design failed with rc={rc}")
+        if not png.exists():
+            raise RuntimeError(f"Ming-Image 0.2 Design finished but no PNG at {png}")
+        info: dict = {}
+        try:
+            info = _json.loads(metrics.read_text())
+        except Exception:
+            pass
+        results.append({
+            "png_path": str(png), "seed": seed, "engine": "ming-image",
+            "references": len(used_refs), "refs_ignored": bool(refs_ignored),
+            "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
+            "seconds": float(info.get("total_seconds") or 0.0),
+        })
     return results

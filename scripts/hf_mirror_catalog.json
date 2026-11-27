@@ -885,6 +885,146 @@
     }
    ],
    "bytes": 654465352
+  },
+  "amarck/Ming-Image-0.2-Design-MLX": {
+   "revision": "167212531758b9eabe443fdddc548c11d2281e22",
+   "what": "Pictures: Ming-Image 0.2 Design (MLX weights)",
+   "files": [
+    {
+     "path": "LICENSE",
+     "size": 1068,
+     "sha256": "b772c54f1f150a680e7c083a92431c518cf62821a407f6cccdf53f6a07bcf702",
+     "blob": "e304dd551e088c61be4419a4c0f212228ba0139b"
+    },
+    {
+     "path": "cond.safetensors",
+     "size": 2683139985,
+     "sha256": "1a2ee9d99502afdb418a7923a46d176a749a97c40f68f4d29235c64dcaac374f",
+     "blob": "1a2ee9d99502afdb418a7923a46d176a749a97c40f68f4d29235c64dcaac374f"
+    },
+    {
+     "path": "config.json",
+     "size": 6344,
+     "sha256": "1b2e284feecd5e8bf7a9363dfc863bd8ccb22ae12cdbab4e600485229a34b561",
+     "blob": "9a90a21e1d6d0be5d93bb2e19b8e4ca0554bed0e"
+    },
+    {
+     "path": "dit-00001-of-00003.safetensors",
+     "size": 4993702052,
+     "sha256": "5100d03bc4b4b0fa22c7bda4bab7958bc097aa5e6165ff552aa148d7f6ec8d22",
+     "blob": "5100d03bc4b4b0fa22c7bda4bab7958bc097aa5e6165ff552aa148d7f6ec8d22"
+    },
+    {
+     "path": "dit-00002-of-00003.safetensors",
+     "size": 4986868726,
+     "sha256": "560e78c3490f80f3a4f0e5a480c5f8020791ab7cc40e2d5681b1560e6c0a8531",
+     "blob": "560e78c3490f80f3a4f0e5a480c5f8020791ab7cc40e2d5681b1560e6c0a8531"
+    },
+    {
+     "path": "dit-00003-of-00003.safetensors",
+     "size": 2329287551,
+     "sha256": "07853468afa6d139a79d8823b6ad26dd70d29d0176ebeedbc33caec2f2968ce0",
+     "blob": "07853468afa6d139a79d8823b6ad26dd70d29d0176ebeedbc33caec2f2968ce0"
+    },
+    {
+     "path": "index.json",
+     "size": 116478,
+     "sha256": "6562c982d59dba11023b4b5b2b7878d95df1895257407a24fe8ba9b9fe6eb5dd",
+     "blob": "d6602b6a0f788097efec0c3068e9541684bc81e2"
+    },
+    {
+     "path": "llm-q8-00001-of-00004.safetensors",
+     "size": 4736903729,
+     "sha256": "1fd472b8541edf75e2e05914315b315da5892b55c28c304ca1663871974cfba6",
+     "blob": "1fd472b8541edf75e2e05914315b315da5892b55c28c304ca1663871974cfba6"
+    },
+    {
+     "path": "llm-q8-00002-of-00004.safetensors",
+     "size": 4960768234,
+     "sha256": "c08686ffd26d2db98fe83f283207d41dbd8a06f95e652654fb528a4458a7ccc8",
+     "blob": "c08686ffd26d2db98fe83f283207d41dbd8a06f95e652654fb528a4458a7ccc8"
+    },
+    {
+     "path": "llm-q8-00003-of-00004.safetensors",
+     "size": 4942077028,
+     "sha256": "e6482ac6c90ffeb9cfc85d27b829ac0720de77c315847135c41254222ffe2f1e",
+     "blob": "e6482ac6c90ffeb9cfc85d27b829ac0720de77c315847135c41254222ffe2f1e"
+    },
+    {
+     "path": "llm-q8-00004-of-00004.safetensors",
+     "size": 2660930158,
+     "sha256": "e08bf09edf10fc44ccc6e2ae83d462abdc897d1f8040079fe54a11884466b329",
+     "blob": "e08bf09edf10fc44ccc6e2ae83d462abdc897d1f8040079fe54a11884466b329"
+    },
+    {
+     "path": "quantization.json",
+     "size": 54,
+     "sha256": "4996a9a28c366dd41ca405d15f5e56d6427937464e18bd9e9559ade33cfcb4c1",
+     "blob": "59431fbc42f0d45167d6eb2dcd8e5247a69a12df"
+    },
+    {
+     "path": "tokenizer/config.json",
+     "size": 5557,
+     "sha256": "f797c39adcd1624e5bfc94f60d2a86095dc40978f8cf230fcd11ada877c597ea",
+     "blob": "62460cdbf751d054560ee1f9617e3c7b8228b41d"
+    },
+    {
+     "path": "tokenizer/preprocessor_config.json",
+     "size": 450,
+     "sha256": "e63066dde0329df1642c8dd9a269d613307804084d12e0787ccc887839339091",
+     "blob": "9739862aebf35b07461b17b284eecc11358dc8ce"
+    },
+    {
+     "path": "tokenizer/special_tokens_map.json",
+     "size": 879,
+     "sha256": "8c383d444e75b12f2643b4695bece7f3dd1d43725d8a26deeb019aa40a8f891d",
+     "blob": "b1c30e2790a14344736a6e988747048007534aee"
+    },
+    {
+     "path": "tokenizer/tokenizer.json",
+     "size": 12210709,
+     "sha256": "e7ff01708d504f7bf4dbf7f5815adde57bab9a40e7f563ab6ad1acace4464917",
+     "blob": "e7ff01708d504f7bf4dbf7f5815adde57bab9a40e7f563ab6ad1acace4464917"
+    },
+    {
+     "path": "tokenizer/tokenizer_config.json",
+     "size": 58759,
+     "sha256": "861c20bea04c2057362f226658ad9209978ff294b8a95591a0d32f69dbd3fc28",
+     "blob": "f40c2dbb0b1a615329bd094a8b034f398f57906c"
+    },
+    {
+     "path": "vae.safetensors",
+     "size": 50596879,
+     "sha256": "0e461aa8b9cad9fd7d8e5fa8c5dd2df66a0829b2b8baa16f214877dedc19e192",
+     "blob": "0e461aa8b9cad9fd7d8e5fa8c5dd2df66a0829b2b8baa16f214877dedc19e192"
+    }
+   ],
+   "bytes": 32356674640
+  },
+  "inclusionAI/Ming-Image-0.2-Design": {
+   "revision": "3538f4c311cf8f5256d631ddb7f47793f741aa2e",
+   "what": "Pictures: Ming-Image 0.2 Design (edit vision + RGBA VAE encoder slices)",
+   "files": [
+    {
+     "path": "mllm/model-00001-of-00007.safetensors",
+     "size": 4998661520,
+     "sha256": "7cf3d5e41fb13a949e86608409ca1189750aa707c1d15629be96230d676547fb",
+     "blob": "7cf3d5e41fb13a949e86608409ca1189750aa707c1d15629be96230d676547fb"
+    },
+    {
+     "path": "mllm/model-00007-of-00007.safetensors",
+     "size": 4011054224,
+     "sha256": "139c1952cde5680460d02eb1a8ad8d96273f0472afff0460bb39cbbeb43b4692",
+     "blob": "139c1952cde5680460d02eb1a8ad8d96273f0472afff0460bb39cbbeb43b4692"
+    },
+    {
+     "path": "vae/diffusion_pytorch_model.safetensors",
+     "size": 253817336,
+     "sha256": "06520463778e64dca1039c7447890065ee220bc408d15412182e5c3e06f304f1",
+     "blob": "06520463778e64dca1039c7447890065ee220bc408d15412182e5c3e06f304f1"
+    }
+   ],
+   "bytes": 9263533080
   }
  },
  "hf_only": {
@@ -893,5 +1033,5 @@
   "black-forest-labs/FLUX.1-Krea-dev": "it needs a Hugging Face login (gated)",
   "black-forest-labs/flux-3-image-klein": "it needs a Hugging Face login (gated)"
  },
- "built": "2026-11-22"
+ "built": "2026-11-27"
 }

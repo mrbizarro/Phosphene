@@ -5922,8 +5922,9 @@ for line in sys.__stdin__:
         p = msg.get("params", {}) or {}
         user_prompt = (p.get("prompt") or "").strip()
         mode = (p.get("mode") or "t2v").lower()
-        if mode not in ("t2v", "i2v"):
+        if mode not in ("t2v", "i2v", "design_layout"):
             mode = "t2v"
+        aspect = str(p.get("aspect") or "").strip()
         seed = _coerce_seed(p.get("seed", 10))
         if seed < 0:
             seed = 10
@@ -5945,74 +5946,99 @@ for line in sys.__stdin__:
             t0 = time.time()
             _mlx_mem_reset_run()
             lm = get_gemma_lm()
-            # Build augmented system prompt: official + Phosphene addendum.
-            base_sys = (lm.default_gemma_t2v_system_prompt if mode == "t2v"
-                        else lm.default_gemma_i2v_system_prompt)
-            addendum_lines = [
-                "",
-                "#### Phosphene addendum (overrides any conflict above):",
-                "- Preserve every camera-move and shot description the user",
-                "  wrote verbatim. Do not add invented camera motion.",
-                "- If the user said 'cool bike' / 'a guy' / vague nouns,",
-                "  keep them generic. DO NOT invent specific brands, model",
-                "  numbers, or location styles (no 'futuristic', 'neon-lit',",
-                "  'polished chrome' unless the user said so).",
-                "- Color and lighting: prefer one or two concrete words",
-                "  ('warm afternoon sun', 'overcast sky') over flowery",
-                "  cascades ('shimmering golden hour bathed in...').",
-                "- Audio sentence stays as one trailing line that begins",
-                "  with 'Audio:'.",
-            ]
-            if not translate:
-                addendum_lines += [
-                    "",
-                    "#### Language (overrides the base instruction above):",
-                    "- Write the enhanced prompt in the SAME language the",
-                    "  user's original prompt is written in. Do NOT",
-                    "  translate it to English.",
-                ]
-            if preserve_tokens:
-                addendum_lines += [
-                    "",
-                    "#### LoRA trigger tokens — PRESERVE CASE-EXACT:",
-                    ("The user's prompt contains LoRA trigger tokens that "
-                     "MUST appear in the output exactly as written, "
-                     "lowercase, no spelling changes, no capitalization "
-                     "changes, no substitutions:"),
-                    "  " + ", ".join(preserve_tokens),
-                    ("These tokens identify trained character / style LoRAs. "
-                     "Re-casing or rewording them breaks tokenization and "
-                     "the LoRA will not fire. If you would normally rephrase "
-                     "(e.g. 'Bizarrotrn the man' → 'a man named Bizarro'), "
-                     "DO NOT — emit the token verbatim, in lowercase."),
-                ]
-            addendum_lines += _enhance_lora_notes_lines(p.get("lora_notes"))
-            augmented_sys = base_sys + "\n" + "\n".join(addendum_lines)
-            if mode == "t2v":
-                enhanced = lm.enhance_t2v(user_prompt, seed=seed,
-                                           system_prompt=augmented_sys)
-            else:
-                enhanced = lm.enhance_i2v(user_prompt, seed=seed,
-                                           system_prompt=augmented_sys)
-            # Post-hoc safety: case-exact restore for any preserve token
-            # that Gemma still managed to mutate. Catches "Bizarrotrn" →
-            # restore "bizarrotrn".
             restored: list[str] = []
-            for tok in preserve_tokens:
-                if not tok:
-                    continue
-                if tok in enhanced:
-                    continue  # already case-exact, no work
-                # Case-insensitive locate + replace with case-exact token.
-                import re
-                pat = re.compile(re.escape(tok), re.IGNORECASE)
-                new_enhanced, n = pat.subn(tok, enhanced)
-                if n > 0:
-                    enhanced = new_enhanced
-                    restored.append(tok)
-            if restored:
-                emit({"event": "log",
-                      "line": f"  [enhance] restored case-exact trigger(s): {', '.join(restored)}"})
+            if mode == "design_layout":
+                # Ming-Image-0.2-Design upstream MIT Figma-style JSON layout rewriter
+                # (inclusionAI/Ming-Image assets/t2i_rewriter_system_prompt.txt).
+                from scripts.ming_image import pins as _ming_pins
+                user_msg = user_prompt
+                if aspect and aspect.lower() not in ("match", "auto"):
+                    user_msg = f"Target aspect ratio: {aspect.rstrip('s')}\n\n{user_prompt}"
+                messages = [
+                    {"role": "system", "content": _ming_pins.DESIGN_LAYOUT_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_msg},
+                ]
+                raw = lm._enhance(messages, max_new_tokens=1024, seed=seed)
+                # Strip optional markdown code fences and normalize valid JSON cleanly.
+                cleaned = raw.strip()
+                i_obj, j_obj = cleaned.find("{"), cleaned.rfind("}")
+                if i_obj >= 0 and j_obj > i_obj:
+                    candidate = cleaned[i_obj : j_obj + 1]
+                    try:
+                        parsed_obj = json.loads(candidate)
+                        if isinstance(parsed_obj, dict):
+                            cleaned = json.dumps(parsed_obj, indent=2, ensure_ascii=False)
+                    except Exception:
+                        pass
+                enhanced = cleaned
+            else:
+                # Build augmented system prompt: official + Phosphene addendum.
+                base_sys = (lm.default_gemma_t2v_system_prompt if mode == "t2v"
+                            else lm.default_gemma_i2v_system_prompt)
+                addendum_lines = [
+                    "",
+                    "#### Phosphene addendum (overrides any conflict above):",
+                    "- Preserve every camera-move and shot description the user",
+                    "  wrote verbatim. Do not add invented camera motion.",
+                    "- If the user said 'cool bike' / 'a guy' / vague nouns,",
+                    "  keep them generic. DO NOT invent specific brands, model",
+                    "  numbers, or location styles (no 'futuristic', 'neon-lit',",
+                    "  'polished chrome' unless the user said so).",
+                    "- Color and lighting: prefer one or two concrete words",
+                    "  ('warm afternoon sun', 'overcast sky') over flowery",
+                    "  cascades ('shimmering golden hour bathed in...').",
+                    "- Audio sentence stays as one trailing line that begins",
+                    "  with 'Audio:'.",
+                ]
+                if not translate:
+                    addendum_lines += [
+                        "",
+                        "#### Language (overrides the base instruction above):",
+                        "- Write the enhanced prompt in the SAME language the",
+                        "  user's original prompt is written in. Do NOT",
+                        "  translate it to English.",
+                    ]
+                if preserve_tokens:
+                    addendum_lines += [
+                        "",
+                        "#### LoRA trigger tokens — PRESERVE CASE-EXACT:",
+                        ("The user's prompt contains LoRA trigger tokens that "
+                         "MUST appear in the output exactly as written, "
+                         "lowercase, no spelling changes, no capitalization "
+                         "changes, no substitutions:"),
+                        "  " + ", ".join(preserve_tokens),
+                        ("These tokens identify trained character / style LoRAs. "
+                         "Re-casing or rewording them breaks tokenization and "
+                         "the LoRA will not fire. If you would normally rephrase "
+                         "(e.g. 'Bizarrotrn the man' → 'a man named Bizarro'), "
+                         "DO NOT — emit the token verbatim, in lowercase."),
+                    ]
+                addendum_lines += _enhance_lora_notes_lines(p.get("lora_notes"))
+                augmented_sys = base_sys + "\n" + "\n".join(addendum_lines)
+                if mode == "t2v":
+                    enhanced = lm.enhance_t2v(user_prompt, seed=seed,
+                                               system_prompt=augmented_sys)
+                else:
+                    enhanced = lm.enhance_i2v(user_prompt, seed=seed,
+                                               system_prompt=augmented_sys)
+                # Post-hoc safety: case-exact restore for any preserve token
+                # that Gemma still managed to mutate. Catches "Bizarrotrn" →
+                # restore "bizarrotrn".
+                for tok in preserve_tokens:
+                    if not tok:
+                        continue
+                    if tok in enhanced:
+                        continue  # already case-exact, no work
+                    # Case-insensitive locate + replace with case-exact token.
+                    import re
+                    pat = re.compile(re.escape(tok), re.IGNORECASE)
+                    new_enhanced, n = pat.subn(tok, enhanced)
+                    if n > 0:
+                        enhanced = new_enhanced
+                        restored.append(tok)
+                if restored:
+                    emit({"event": "log",
+                          "line": f"  [enhance] restored case-exact trigger(s): {', '.join(restored)}"})
             elapsed = round(time.time() - t0, 2)
             _last_activity = time.time()
             emit({

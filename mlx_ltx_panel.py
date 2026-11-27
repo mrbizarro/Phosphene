@@ -17771,6 +17771,292 @@ def _h3restyle_install(push_log, fetch_fn=None) -> dict:
             "license": H3RESTYLE_LICENSE, "credit": H3RESTYLE_CREDIT, "download_gb": H3RESTYLE_DOWNLOAD_GB}
 
 
+# ---- Ming-Image-0.2-Design (inclusionAI, MIT, R&D L92) — native pure-MLX runner -----------------
+# Fetches the 18 pinned MLX weight files directly from Hugging Face (with China mirror fallback via
+# scripts/hf_source.py, exact size + SHA-256 verified) and runs them in Phosphene's own MLX venv.
+# Supports Standard (~1 MP) and High (~4 MP) across all Studio aspect ratios, native RGBA output,
+# and layer/block streaming for 16-24 GB Macs. Port folder: ports/ming-image-0-2-design.
+from scripts.ming_image import pins as _ming_pins  # noqa: E402
+from scripts.ming_image import fetch as _ming_fetch  # noqa: E402
+
+MING_DIRNAME = "ming-image-0-2-design"
+MING_REPO = _ming_pins.WEIGHTS_REPO
+MING_REVISION = _ming_pins.WEIGHTS_REVISION
+MING_UPSTREAM_REPO = _ming_pins.UPSTREAM_REPO
+MING_UPSTREAM_REVISION = _ming_pins.UPSTREAM_REVISION
+MING_TOTAL_BYTES = _ming_pins.TOTAL_BYTES
+MING_DOWNLOAD_GB = _ming_pins.DOWNLOAD_GB
+MING_DISK_NEED_GB = 36.0
+MING_STEPS = _ming_pins.DEFAULT_STEPS
+MING_MAX_REFS = 1
+MING_TIERS = {"standard": 1.0, "high": 4.0}
+MING_LICENSE = _ming_pins.LICENSE_NAME
+MING_NAME = _ming_pins.MODEL_NAME
+MING_LABEL = "Ming-Image 0.2 Design (inclusionAI)"
+MING_CREDIT = _ming_pins.CREDIT
+MING_NOTICE = _ming_pins.NOTICE
+# Measured on M4 Max 64 GB (Wave 1 T2I & Wave 2 Edit bench + fit passes, 27 Nov 2026):
+# - default llm stream (24-64 GB+, bit-identical to resident):
+#   - T2I Standard 1024: 14.30 GiB footprint (12.22 GiB MLX), 70.5 s; High 2048: 13.34 GiB MLX, 296.6 s
+#   - Edit Standard 1024 (held 24 GB): 14.82 GiB footprint (12.54 GiB MLX), 125 s (119-142 s across 6 edits)
+# - full stream (16 GB, held on 64 GB Mac):
+#   - T2I Standard 1024: 4.96 GiB footprint (2.59 GiB MLX), 81.6 s
+#   - Edit Standard 1024: 5.11 GiB footprint (2.71 GiB MLX), 163.5 s, 0.00 GiB swap growth
+#   - High 4 MP stays 24 GB+ (decode peaks 10.17 GiB MLX).
+MING_PEAK_GB = {"standard": 14.8, "high": 16.5}
+MING_LOWMEM_PEAK_GB = {"standard": 5.1, "high": 16.5}
+MING_MEASURED_ETA = {"standard": 71, "high": 297}
+MING_LOWMEM_ETA = {"standard": 82, "high": 297}
+MING_FULL_MAX_RAM_GB = 18.5
+_ming_dl_lock = threading.Lock()
+_ming_dl_state: dict = {}
+_MING_FILE_LINE = re.compile(r"^\[ming-image\]\s+\[(\d+)/(\d+)\]\s+(fetching|verified|cached)")
+
+
+def _ming_dir() -> Path:
+    env = (os.environ.get("PHOSPHENE_MING_IMAGE_DIR") or "").strip()
+    if env:
+        return Path(env).expanduser()
+    return MODELS_DIR / MING_DIRNAME
+
+
+def _ming_python() -> Path | None:
+    import importlib.util  # noqa: PLC0415
+
+    cands = [
+        HELPER_PYTHON,
+        MLX / "env" / "bin" / "python3.11",
+        MLX / "env" / "bin" / "python3",
+        MLX / ".venv" / "bin" / "python3.11",
+        MLX / ".venv" / "bin" / "python3",
+        ROOT / "ltx-2-mlx" / "env" / "bin" / "python3.11",
+        ROOT / "ltx-2-mlx" / "env" / "bin" / "python3",
+    ]
+    for cand in cands:
+        if cand and cand.is_file():
+            return cand
+    if importlib.util.find_spec("mlx") is not None:
+        cur = Path(sys.executable)
+        if cur.is_file():
+            return cur
+    return None
+
+
+def ming_supported() -> bool:
+    return (_ming_python() is not None) and (ROOT / "scripts" / "ming_image" / "run.py").is_file()
+
+
+def ming_lowmem_mode() -> str:
+    ram = float(SYSTEM_RAM_GB or 0)
+    if ram <= 0 or ram <= MING_FULL_MAX_RAM_GB:
+        return "full"
+    return "llm"
+
+
+def ming_need_gb(tier: str = "standard") -> float:
+    t = "high" if str(tier).lower() == "high" else "standard"
+    if ming_lowmem_mode() == "full":
+        return float(MING_LOWMEM_PEAK_GB[t])
+    return float(MING_PEAK_GB[t])
+
+
+def ming_eta_sec(tier: str = "standard") -> float:
+    t = "high" if str(tier).lower() == "high" else "standard"
+    return float(MING_LOWMEM_ETA[t] if ming_lowmem_mode() == "full" else MING_MEASURED_ETA[t])
+
+
+def ming_paths() -> dict:
+    root = _ming_dir()
+    bad = _ming_fetch.verify_directory(root, check_sha=False)
+    return {"dir": root, "files_ok": not bad, "missing": bad}
+
+
+def ming_status() -> dict:
+    supported = ming_supported()
+    paths = ming_paths()
+    downloaded = bool(paths["files_ok"])
+    return {
+        "available": bool(supported and downloaded),
+        "supported": supported,
+        "downloaded": downloaded,
+        "reason": ("engine_missing" if not supported else "not_downloaded" if not downloaded else "ok"),
+        "modes": ["t2i", "edit"],
+        "max_refs": MING_MAX_REFS,
+        "steps": MING_STEPS,
+        "tiers": dict(MING_TIERS),
+        "eta_sec": {t: ming_eta_sec(t) for t in MING_TIERS},
+        "low_memory": ming_lowmem_mode(),
+        "download_gb": MING_DOWNLOAD_GB,
+        "disk_need_gb": MING_DISK_NEED_GB,
+        "repo": MING_REPO,
+        "revision": MING_REVISION,
+        "upstream_repo": MING_UPSTREAM_REPO,
+        "license": MING_LICENSE,
+        "name": MING_NAME,
+        "label": MING_LABEL,
+        "credit": MING_CREDIT,
+        "notice": MING_NOTICE,
+        "missing": list(paths["missing"]),
+        "install_available": bool(supported),
+        "installing": _ming_dl_state.get("status") == "downloading",
+        "download": dict(_ming_dl_state),
+    }
+
+
+def ming_engine_config(tier: str = "standard", transparent: bool = False):
+    py = _ming_python()
+    t = "high" if str(tier).lower() == "high" else "standard"
+    ram = float(SYSTEM_RAM_GB or 0)
+    cap = max(8.0, min(38.0, round(ram - max(6.0, ram / 8.0), 1))) if ram > 0 else 10.0
+    return agent_image_engine.ImageEngineConfig(
+        kind="ming",
+        ming_python_path=str(py) if py else "",
+        ming_root_dir=str(ROOT),
+        ming_model_dir=str(_ming_dir()),
+        ming_tier=t,
+        ming_steps=MING_STEPS,
+        ming_low_memory=ming_lowmem_mode(),
+        ming_memory_gb=cap,
+        ming_wired_gb=max(6.0, round(cap - 4.0, 1)),
+        ming_transparent=bool(transparent),
+        ming_max_refs=MING_MAX_REFS,
+    )
+
+
+def ming_engine_rows() -> list[dict]:
+    status = ming_status()
+    rows = []
+    for tier in ("standard", "high"):
+        engine = f"ming_{tier}_inline"
+        need = ming_need_gb(tier)
+        try:
+            fits, mac_gb = _image_engine_fit(need)
+        except Exception:                                          # noqa: BLE001
+            fits, mac_gb = True, 0
+        sec, samples = ming_eta_sec(tier), "bench-m4max-64gb"
+        observed = _IMG_ENGINE_TIMING.get(engine) or []
+        if len(observed) >= 2:
+            sec = round(sum(max(1.0, el / max(1, n)) for (n, el) in observed) / len(observed), 1)
+            samples = f"observed-{len(observed)}"
+        eta_txt = f"~{int(round(sec))} s" if sec < 90 else _h3image_eta_text(sec)
+        mp_txt = "1 MP" if tier == "standard" else "4 MP"
+        rows.append({
+            "engine": engine, "max_refs": MING_MAX_REFS, "repo_id": MING_REPO,
+            "cached": bool(status["downloaded"]), "ram_need_gb": round(float(need), 1),
+            "mac_gb_needed": int(mac_gb), "fits_mac": bool(fits), "partial": False, "partial_gb": 0,
+            "family_installed": bool(status["supported"]),
+            "download_gb": MING_DOWNLOAD_GB, "sec_per_image": sec, "cold_start_sec": 0.0,
+            "samples_source": samples, "gated": False, "megapixels": MING_TIERS[tier],
+            "version_label": f"{MING_NAME} — {tier.capitalize()} ({mp_txt}, {eta_txt})",
+            "license": MING_LICENSE, "label": MING_LABEL, "credit": MING_CREDIT,
+            "ming_reason": status["reason"], "installing": bool(status["installing"]),
+            "install_error": (status["download"] or {}).get("error"),
+            "install_step": (status["download"] or {}).get("step"),
+            "install_file": (status["download"] or {}).get("file"),
+            "install_files": (status["download"] or {}).get("files"),
+        })
+    return rows
+
+
+def _ming_sidecar_credit() -> dict:
+    return {
+        "model": f"{MING_REPO}@{MING_REVISION[:7]}",
+        "ming_design": {
+            "repo": MING_REPO, "revision": MING_REVISION,
+            "upstream_repo": MING_UPSTREAM_REPO, "upstream_revision": MING_UPSTREAM_REVISION,
+            "license": MING_LICENSE, "credit": MING_CREDIT, "notice": MING_NOTICE,
+        },
+    }
+
+
+def _ming_available() -> bool:
+    try:
+        return bool(ming_status()["available"])
+    except Exception:                                              # noqa: BLE001
+        return False
+
+
+def _ming_fetch_bg(target_dir: Path, push_log, runner=None) -> None:
+    py = _ming_python()
+    cmd = [str(py), "-m", "scripts.ming_image.fetch", "--dir", str(target_dir)]
+    env = {k: v for k, v in _h3_v13_fetch_env().items() if not k.startswith("Malloc")}
+    prev_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{ROOT}:{prev_pp}" if prev_pp else str(ROOT)
+    proc = None
+    try:
+        push_log(f"[image:ming] fetching {MING_REPO} @ {MING_REVISION[:7]} (~{MING_DOWNLOAD_GB:g} GB, {MING_LICENSE})")
+        proc = (runner or subprocess.Popen)(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", env=env)
+        tail: list[str] = []
+        if proc.stdout is not None:
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    tail = (tail + [line])[-6:]
+                    _ming_dl_state.update(step=line[:160])
+                    m = _MING_FILE_LINE.match(line)
+                    if m:
+                        _ming_dl_state.update(file=int(m.group(1)), files=int(m.group(2)), status="downloading")
+        rc = proc.wait()
+        if rc != 0:
+            raise RuntimeError(" | ".join(tail) or f"fetch exited with {rc}")
+        _ming_dl_state.clear()
+        _ming_dl_state.update(status="done", error=None)
+        push_log("[image:ming] downloaded and ready")
+    except Exception as exc:                                       # noqa: BLE001
+        _ming_dl_state.clear()
+        _ming_dl_state.update(status="error", error=str(exc)[:400])
+        push_log(f"[image:ming] download failed: {exc}")
+    finally:
+        if proc is not None and getattr(proc, "stdout", None) is not None:
+            try:
+                proc.stdout.close()
+            except Exception:                                      # noqa: BLE001
+                pass
+        try:
+            h3_status_invalidate()
+        except Exception:                                          # noqa: BLE001
+            pass
+
+
+def _ming_install(push_log, fetch_fn=None) -> dict:
+    if not ming_supported():
+        return {"ok": False, "error": "Ming-Image 0.2 Design needs the Phosphene MLX runtime. Finish setup first."}
+    resolved = ming_paths()
+    target = resolved["dir"]
+    if resolved["files_ok"]:
+        return {"ok": True, "started": False, "already_installed": True, "dir": str(target)}
+    with _ming_dl_lock:
+        if _ming_dl_state.get("status") == "downloading":
+            return {"ok": False, "error": "a Ming-Image 0.2 Design download is already active"}
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            free_gb = shutil.disk_usage(target).free / 1e9
+        except OSError:
+            free_gb = None
+        try:
+            have_gb = sum(f.stat().st_size for f in target.rglob("*") if f.is_file()) / 1e9
+        except OSError:
+            have_gb = 0.0
+        need_gb = max(4.0, MING_DISK_NEED_GB - have_gb)
+        if free_gb is not None and free_gb < need_gb:
+            return {"ok": False,
+                    "error": f"Ming-Image 0.2 Design needs about {need_gb:.0f} GB free "
+                             f"({MING_DOWNLOAD_GB:g} GB download in all). This disk has {free_gb:.1f} GB free."}
+        _ming_dl_state.clear()
+        _ming_dl_state.update(
+            status="downloading",
+            file=0,
+            files=len(_ming_pins.PINNED_FILES) + len(_ming_pins.EDIT_OUTPUT_FILES),
+            error=None,
+        )
+    fn = fetch_fn or _ming_fetch_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True, name="ming-fetch").start()
+    return {"ok": True, "started": True, "dir": str(target), "repo": MING_REPO,
+            "revision": MING_REVISION, "license": MING_LICENSE, "credit": MING_CREDIT,
+            "download_gb": MING_DOWNLOAD_GB}
+
+
 # ---- lightx2v v1.3 (Best at High) — resolver, argv, status, fetch ------------
 def h3_supports_video_shift() -> bool:
     """Whether the INSTALLED runner takes `--video-shift` (v1.3's own shift 6;
@@ -19871,6 +20157,8 @@ def h3_status() -> dict:
         "h3image": h3image_status(),
         # Restyle a picture on H3 (Images lane, R&D L55). Same shape, one more rung (the P-H3-Image decoder).
         "h3restyle": h3restyle_status(),
+        # Ming-Image-0.2-Design (Images lane, R&D L92, MIT).
+        "ming": ming_status(),
         # Pika H3 Flex — a Speed choice of its own. Same three-cause shape.
         "flex": (h3_flex_status() if available else
                  {"available": False, "supported": False, "downloaded": False,
@@ -21821,6 +22109,13 @@ ENGINES: tuple[dict, ...] = (
          "modes": ("edit",), "serves_label": "Edit", "preview": True,
          "image_engines": ("h3restyle_inline",),
          "capability": "images.h3_restyle"},
+        {"id": "ming_design", "label": "Ming-Image 0.2 Design", "sublabel": "UI, posters & RGBA",
+         "tagline": "visual design, web UI, posters, picture editing, clean text, and transparent RGBA generation",
+         "mark": "eng-mark-img-ming", "accent": "#5B8CFF",
+         "accent_dim": "rgba(91,140,255,0.14)", "accent_soft": "rgba(91,140,255,0.42)",
+         "modes": ("t2i", "edit"), "serves_label": "Text and Edit", "preview": True,
+         "image_engines": ("ming_standard_inline", "ming_high_inline"),
+         "capability": "images.ming_design"},
     )),
     # ---- Flux Video ---------------------------------------------------------
     # Weights are announced, not released. The entry is real (and rendered as
@@ -39582,6 +39877,8 @@ def image_max_refs(engine_override) -> int:
         return h3image_max_refs()
     if eng.startswith("h3restyle"):
         return 1                      # the picture to restyle; a second anchor makes the model copy one
+    if eng.startswith("ming_"):
+        return MING_MAX_REFS          # single-picture edit (multi-ref tested and left off for this checkpoint)
     return IMAGE_MAX_REFS_FLUX3 if eng in flux3_engine.PRESETS else IMAGE_MAX_REFS
 
 
@@ -40472,6 +40769,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             push(f"[image] {engine_override} is not ready on this Mac (it needs the Hailuo H3 pack and its "
                  "own download) - rendering with Auto instead.")
             engine_override = "auto"
+        if engine_override.startswith("ming_") and not _ming_available():
+            push(f"[image] {engine_override} is not ready on this Mac (needs its one-time download) "
+                 "- rendering with Auto instead.")
+            engine_override = "auto"
         if engine_override.startswith("h3image") and not _h3image_available():
             push(f"[image] {engine_override} is not ready on this Mac (it needs the Hailuo H3 pack and its "
                  "own download) - rendering with Auto instead.")
@@ -40515,6 +40816,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 # this line was added.
                 "ideo_quantize": f("ideo_quantize", ""),
                 "ideo_reference_bridge": f("ideo_reference_bridge", ""),
+                "ming_transparent": f("ming_transparent", ""),
                 "aspect": aspect,
                 "n": n,
                 "seed": str(seed),
@@ -42113,6 +42415,8 @@ def _preflight_estimate_ram_gb(cfg, refs: int = 0) -> float:
         return h3image_need_gb(_h3image_tier_of_mp(getattr(cfg, "h3image_mp", 8.0)), refs)
     if cfg.kind == "h3restyle":
         return H3RESTYLE_PEAK_GB
+    if cfg.kind == "ming":
+        return ming_need_gb(getattr(cfg, "ming_tier", "standard"))
     if cfg.kind == "hidream":
         # 2026-05-31 review fix: HiDream-O1 BF16 was exempt from the RAM gate
         # (fell through to the 1.0 GB `!= mflux` branch). Its Metal residency
@@ -42256,6 +42560,8 @@ _IMAGE_ENGINE_LABELS = {
     "h3image_draft_inline": "MiniMax-H3-Image (Draft, 4 MP)",
     "h3image_standard_inline": "MiniMax-H3-Image (Standard, 8 MP)",
     "h3image_high_inline": "MiniMax-H3-Image (High, 16 MP)",
+    "ming_standard_inline": "Ming-Image 0.2 Design (Standard, 1 MP)",
+    "ming_high_inline": "Ming-Image 0.2 Design (High, 4 MP)",
 }
 
 # Fleet Mac sizes, for "needs a 32 GB Mac" copy. The pre-flight compares
@@ -42348,6 +42654,11 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto", refs: int = 0) -
             "Restyle on Hailuo H3 isn't ready on this Mac: it runs on the Hailuo H3 pack, decodes with "
             "P-H3-Image and needs its own one-time download. Pick Restyle a picture in Image Studio and "
             "click its download chip.")
+    if str(engine_override or "").lower().startswith("ming_") and not _ming_available():
+        raise RenderRefused(
+            "pack_missing",
+            "Ming-Image 0.2 Design isn't downloaded on this Mac yet. Pick Ming-Image 0.2 Design in "
+            "Image Studio and click its download chip, or use FLUX.2 [klein] now.")
     if str(engine_override or "").lower().startswith("hidream") and not _hidream_available():
         raise RenderRefused(
             "pack_missing",
@@ -42719,6 +43030,7 @@ def run_image_job_inner(job: dict) -> None:
             **(_ph3image_sidecar_credit() if cfg.kind == "ph3image" else {}),
             **(_h3image_sidecar_credit() if cfg.kind == "h3image" else {}),
             **(_h3restyle_sidecar_credit() if cfg.kind == "h3restyle" else {}),
+            **(_ming_sidecar_credit() if cfg.kind == "ming" else {}),
         }
         try:
             sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
@@ -42736,6 +43048,7 @@ def run_image_job_inner(job: dict) -> None:
     p["engine"] = cfg.kind + (f"/{cfg.mflux_family}" if cfg.kind == "mflux" else "")
     p["model"] = (f"{PH3IMAGE_REPO}@{PH3IMAGE_REVISION[:7]}" if cfg.kind == "ph3image"
                   else f"{H3IMAGE_REPO}@{H3IMAGE_REVISION[:7]}" if cfg.kind == "h3image"
+                  else f"{MING_REPO}@{MING_REVISION[:7]}" if cfg.kind == "ming"
                   else getattr(cfg, "mflux_model", None) or cfg.kind)
     p["output_dir"] = str(out_dir)
     push(f"Image job done: {len(candidate_paths)} candidate(s) in {elapsed}s "
@@ -50979,6 +51292,7 @@ _RESTART_BUSY_STATES = frozenset({"running", "starting", "downloading", "buildin
 _RESTART_BUSY_INSTALLS = ("MUSIC_INSTALL", "SPEECH_INSTALL", "ENGINE_REPAIR", "H3_REPAIR",
                           "H3_APP_INSTALL", "H3_APP_RUNNER_STATE")
 _RESTART_BUSY_DOWNLOADS = ("DOWNLOAD", "IMAGE_REPO_DOWNLOAD", "_ph3image_dl_state", "_h3image_dl_state",
+                           "_ming_dl_state",
                            "_h3_turbo_dl_state", "_h3_tristep_dl_state", "_h3_flex_dl_state",
                            "_h3_flex_turbo_dl_state", "_h3_v13_dl_state")
 
@@ -51904,6 +52218,13 @@ def _build_image_engine_config(
     if engine_override == "h3restyle_inline":
         # Restyle a picture on H3: one recipe, the measured one (L55).
         return h3restyle_engine_config()
+    if engine_override in ("ming_standard_inline", "ming_high_inline"):
+        _ming_trans = (str((form or {}).get("ming_transparent") or "").strip().lower()
+                       in ("1", "true", "yes", "on"))
+        return ming_engine_config(
+            "high" if engine_override == "ming_high_inline" else "standard",
+            transparent=_ming_trans,
+        )
     if engine_override == "mock_inline":
         return agent_image_engine.ImageEngineConfig(kind="mock")
     if engine_override == "flux2_klein_inline":

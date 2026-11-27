@@ -117,6 +117,7 @@
 <symbol id="eng-mark-img-h3i" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8.6v6.8M12.4 8.6v6.8M8 12h4.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.4 9.2h2.4M16.6 9.2v5.6M15.4 14.8h2.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
 <symbol id="eng-mark-img-h3r" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7.4 15.6l4.2-4.2 2.4 2.4 3.2-3.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.6" cy="8.8" r="1.3" fill="currentColor"/></symbol>
 <symbol id="eng-mark-img-ph3" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8.6v6.8M12.4 8.6v6.8M8 12h4.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.6 10.6v2.8M17.6 9.4v5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+<symbol id="eng-mark-img-ming" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7.6 15.6V8.6l4.4 4.2 4.4-4.2v7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 <symbol id="ph-speaker-slash" viewBox="0 0 256 256"><line x1="48" y1="40" x2="208" y2="216" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M80,168H32a8,8,0,0,1-8-8V96a8,8,0,0,1,8-8H80l72-56V147" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M152,179v45L94.4,179.2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 </defs>
 </svg>
@@ -2923,6 +2924,11 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <label id="imgStudioPromptLabel" class="ideo-prompt-label" for="imgStudioPrompt" hidden></label>
         <textarea id="imgStudioPrompt" class="composer-prompt" rows="4"
                   placeholder="A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic" data-i18n-placeholder="imgStudioPrompt.placeholder.a_cinematic_medium_close"></textarea>
+        <div id="mingPromptTools" class="ming-prompt-tools" hidden>
+          <button type="button" class="ghost-btn" id="mingDesignEnhanceBtn" onclick="mingDesignEnhance()" title="Rewrite a short idea into a structured Figma-style layout prompt locally" data-i18n-title="mingDesignEnhanceBtn.title.rewrite_design_layout" data-i18n="mingDesignEnhanceBtn.design_layout"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Design layout</button>
+          <button type="button" class="ghost-btn" id="mingDesignUndoBtn" onclick="mingDesignUndo()" hidden data-i18n="mingDesignUndoBtn.undo">Undo</button>
+          <span class="hint" id="mingDesignStatus" style="font-size:12px;"></span>
+        </div>
       </div>
 
       <!-- ============== IDEOGRAM 4 — visual text-placement canvas ==============
@@ -3206,6 +3212,10 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
                    prompt names. Free (owner, card 788). The time in the label is replaced at load by
                    /image/engine_status `version_label` (H3RESTYLE_MEASURED_ETA in mlx_ltx_panel.py). -->
               <option value="h3restyle_inline" data-i18n="imgStudioEngine.restyle_a_picture">Restyle a picture (on MiniMax H3) (1 MP, ~2 min)</option>
+              <!-- Ming-Image-0.2-Design (inclusionAI, MIT), port L92. Times are replaced at load by
+                   /image/engine_status `version_label` from MING_MEASURED_ETA / MING_LOWMEM_ETA. -->
+              <option value="ming_standard_inline" data-i18n="imgStudioEngine.ming_design_standard">Ming-Image 0.2 Design &mdash; Standard (1 MP)</option>
+              <option value="ming_high_inline" data-i18n="imgStudioEngine.ming_design_high">Ming-Image 0.2 Design &mdash; High (4 MP)</option>
               <option value="mock_inline" id="imgStudioMockOption" hidden data-i18n="imgStudioMockOption.mock_testing_debug_only">Mock (testing — debug only)</option>
             </select>
             <span class="studio-version-only" id="imgStudioVersionOnly" hidden></span>
@@ -3219,6 +3229,13 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
         <!-- Feedback 3: the FLUX 3 paragraph folds into "More info" (stage.js still shows/hides #flux3Notice). -->
         <details id="flux3Notice" class="more-info img-flux3-info" hidden><summary data-i18n="flux3Notice.about_flux_3_klein">About FLUX 3 Klein</summary>
         <p data-i18n="flux3Notice.flux_3_klein_by">FLUX 3 Klein by Black Forest Labs. Free. Standard: 16 steps. Base Quality: 50 steps, separate download. Q8 recommended; Q6 uses less memory. 32 GB Mac recommended; 24 GB with small Q4 images and one reference. <button type="button" class="ghost-btn" onclick="openLicence('flux3', {readOnly:true})" data-i18n="flux3Notice.flux_kommunity_licence">FLUX Kommunity licence</button></p></details>
+
+        <div id="mingTransparentRow" class="field" hidden style="margin:4px 0 6px;">
+          <label class="toggle" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" id="imgStudioMingTransparent">
+            <span data-i18n="mingTransparentRow.transparent_background_rgba_png">Transparent background (RGBA PNG)</span>
+          </label>
+        </div>
 
         <div>
           <div class="mini-fields">

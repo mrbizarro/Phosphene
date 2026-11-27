@@ -30,6 +30,11 @@ function imgStudioUpdateValidity() {
   const flux3Notice = document.getElementById('flux3Notice');
   if (flux3Notice) flux3Notice.hidden = !flux3;
   const refsCount = IMG_STUDIO.refs.filter(r => r && r.path).length;
+  const isMing = eng.value.startsWith('ming_');
+  const mingRow = document.getElementById('mingTransparentRow');
+  if (mingRow) mingRow.hidden = !isMing || refsCount > 0;
+  const mingTools = document.getElementById('mingPromptTools');
+  if (mingTools) mingTools.hidden = !isMing || refsCount > 0;
   const needsRefs = imgStudioRequiresRefs(eng.value);
   let invalidReason = '';
   // Family-install gate (issue #12): refuse upfront when the chosen
@@ -39,7 +44,8 @@ function imgStudioUpdateValidity() {
     ? _IMG_ENGINE_STATUS[eng.value] : null;
   const ph3Why = (eng.value.startsWith('ph3image') && engInfo) ? ph3imageNotReady(engInfo)
     : (eng.value.startsWith('h3image') && engInfo) ? h3imageNotReady(engInfo)
-    : (eng.value.startsWith('h3restyle') && engInfo) ? h3restyleNotReady(engInfo) : '';
+    : (eng.value.startsWith('h3restyle') && engInfo) ? h3restyleNotReady(engInfo)
+    : (eng.value.startsWith('ming_') && engInfo) ? mingNotReady(engInfo) : '';
   if (ph3Why) {
     invalidReason = ph3Why;
   } else if (engInfo && engInfo.family_installed === false) {
@@ -89,6 +95,16 @@ function imgStudioUpdateValidity() {
   // P-H3-Image is text-to-image only: a loaded picture is dropped. Say so, and name the model that edits.
   if (!invalidReason && !softNotice && eng.value.startsWith('ph3image') && refsCount >= 1) {
     softNotice = T('stage.ph3image_reference_ignored', 'Heads up: P-H3-Image makes pictures from words only, so your reference picture will be IGNORED. To edit or reuse a picture, switch Model to MiniMax-H3-Image.');
+  }
+  if (!invalidReason && !softNotice && eng.value.startsWith('ming_') && refsCount >= 1) {
+    const mingCap = (engInfo && typeof engInfo.max_refs === 'number') ? engInfo.max_refs : 1;
+    if (mingCap === 0) {
+      softNotice = T('stage.ming_reference_ignored', 'Heads up: Ming-Image 0.2 Design makes pictures from words only, so your reference picture will be IGNORED. To edit or reuse a picture, switch Model to Reference Edit or MiniMax-H3-Image.');
+    } else if (refsCount > mingCap) {
+      softNotice = T('stage.ming_extra_refs_ignored', 'Heads up: Ming-Image 0.2 Design edits Picture 1 only; extra reference slots will be ignored.');
+    } else if (eng.value === 'ming_high_inline') {
+      softNotice = T('stage.ming_edit_runs_standard', 'Note: Ming-Image 0.2 Design picture editing runs at Standard (1 MP) size.');
+    }
   }
   // SYS-13: `image_ram` is the #1 refusal (78 installs/30d) and the
   // FREE-memory branch specifically fires at RENDER time, after the job
@@ -225,6 +241,7 @@ const _imgStudioIsH3 = () => ((document.getElementById('imgStudioEngine') || {})
 // Restyle a picture on H3 (R&D L55): one picture in, the same scene back in the style the prompt names.
 // Exactly one slot (a second anchor makes the model copy one of them); the output keeps the picture's shape.
 const _imgStudioIsRestyle = () => ((document.getElementById('imgStudioEngine') || {}).value || '').startsWith('h3restyle');
+const _imgStudioIsMing = () => ((document.getElementById('imgStudioEngine') || {}).value || '').startsWith('ming_');
 const _imgStudioRefCount = () => IMG_STUDIO.refs.filter(r => r && r.path).length;
 function _imgStudioH3Cap() {
   const info = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
@@ -236,10 +253,11 @@ function imgStudioSyncSlots() {
   const grid = document.getElementById('imgStudioRefs');
   if (!grid) return;
   const cap = _imgStudioIsH3() ? _imgStudioH3Cap() : 0;
+  const mingOne = _imgStudioIsMing() && _imgStudioH3Cap() === 1;
   let lastFilled = -1;
   IMG_STUDIO.refs.forEach((r, i) => { if (r && r.path) lastFilled = i; });
-  const want = _imgStudioIsRestyle()
-    ? Math.max(1, lastFilled + 1)                      // Restyle: the one picture to restyle
+  const want = (_imgStudioIsRestyle() || mingOne)
+    ? Math.max(1, lastFilled + 1)                      // single-picture edit slot
     : Math.max(H3IMG_FIXED_SLOTS, Math.min(cap, lastFilled + 2), lastFilled + 1);
   while (IMG_STUDIO.refs.length < want) IMG_STUDIO.refs.push(null);
   let slots = grid.querySelectorAll('.studio-ref-slot');
@@ -254,16 +272,16 @@ function imgStudioSyncSlots() {
     if (!(IMG_STUDIO.refs[i] && IMG_STUDIO.refs[i].path)) { slots[i].remove(); IMG_STUDIO.refs.length = i; }
   }
   grid.classList.toggle('many', want > H3IMG_FIXED_SLOTS);
-  grid.classList.toggle('one', _imgStudioIsRestyle());
+  grid.classList.toggle('one', _imgStudioIsRestyle() || mingOne);
   const fresh = Array.from(grid.querySelectorAll('.studio-ref-slot')).filter(el => el.dataset.wired !== '1');
   if (fresh.length) imgStudioWireRefSlots();
 }
-// "Same as picture" is the shape of an H3-Image edit: offered only then, picked by default once.
+// "Same as picture" is the shape of an H3-Image or Ming-Image edit: offered only then, picked by default once.
 function imgStudioSyncAspect() {
   const sel = document.getElementById('imgStudioAspect');
   const opt = document.getElementById('imgStudioAspectMatch');
   if (!sel || !opt) return;
-  const offer = _imgStudioIsH3() && _imgStudioH3Cap() > 0 && _imgStudioRefCount() > 0;
+  const offer = (_imgStudioIsH3() || _imgStudioIsMing()) && _imgStudioH3Cap() > 0 && _imgStudioRefCount() > 0;
   opt.hidden = !offer;
   opt.disabled = !offer;
   // Restyle keeps the picture's shape: the size choice does not apply (the server ignores it), say so.
@@ -308,7 +326,7 @@ function imgStudioRenderSlotTag(idx) {
   const slot = document.querySelector(`.studio-ref-slot[data-slot="${idx}"]`);
   const tagEl = slot && slot.querySelector('.ref-tag');
   if (!tagEl) return;
-  const h3 = _imgStudioIsH3() && _imgStudioH3Cap() > 0;
+  const h3 = (_imgStudioIsH3() || _imgStudioIsMing()) && _imgStudioH3Cap() > 0;
   const want = _imgStudioIsRestyle() ? T('stage.picture_to_restyle', 'Picture to restyle')
     : h3 ? `Picture ${idx + 1}` : (_STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`);
   if (tagEl.textContent !== want) imgStudioRenderSlot(idx);
@@ -319,7 +337,7 @@ function imgStudioRenderSlot(idx) {
   if (!slot) return;
   const ref = IMG_STUDIO.refs[idx];
   const restyle = _imgStudioIsRestyle();
-  const h3 = restyle || (_imgStudioIsH3() && _imgStudioH3Cap() > 0);
+  const h3 = restyle || ((_imgStudioIsH3() || _imgStudioIsMing()) && _imgStudioH3Cap() > 0);
   const tag = restyle ? T('stage.picture_to_restyle', 'Picture to restyle')
     : h3 ? `Picture ${idx + 1}` : (_STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`);
   if (ref && ref.path) {
@@ -401,6 +419,25 @@ function imgStudioUpdateRefWarning() {
     box.classList.add('h3-edit-tip');
     box.innerHTML = `<strong>${T('stage.restyle_on_hailuo_h3', 'Restyle on Hailuo H3.')}</strong> ${T('stage.restyle_keeps_what_is_in', 'The picture you drop in keeps its content; the prompt names the style.')} `
       + T('stage.restyle_works_best_with', 'Works best with clay, flat vector, pixel art, felt and other bold styles; soft paintings (watercolour, oil) are hit and miss. One picture, about 2 minutes.');
+    return;
+  }
+  if (_imgStudioIsMing() && _imgStudioH3Cap() > 0) {
+    if (!_imgStudioSyncing) {
+      _imgStudioSyncing = true;
+      try {
+        imgStudioSyncSlots(); imgStudioSyncAspect();
+        IMG_STUDIO.refs.forEach((_, i) => imgStudioRenderSlotTag(i));
+      } finally { _imgStudioSyncing = false; }
+    }
+    if (prompt) {
+      prompt.placeholder = refsCount >= 1
+        ? T('stage.ming_edit_placeholder', 'Change the headline to "OPEN NOW" and replace the background with a misty pine forest. Keep the rest identical.')
+        : T('stage.ming_t2i_placeholder', 'Describe a poster, UI mockup, product photo, or isolated cutout. Put exact on-image text in quotes, or click Design layout.');
+    }
+    if (refsCount < 1) { box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    box.classList.add('h3-edit-tip');
+    box.innerHTML = `<strong>${T('stage.editing_with_ming_design', 'Editing with Ming-Image 0.2 Design.')}</strong> ${T('stage.ming_edit_tip_body', 'Say what to change and what to keep. Works best for text changes, adding objects, and portrait edits.')}`;
     return;
   }
   if (_imgStudioIsH3() && _imgStudioH3Cap() > 0) {
@@ -525,6 +562,7 @@ async function imgStudioRefreshEngineStatus() {
   // The family-install gate lives in imgStudioUpdateValidity; refresh
   // it as soon as engine status comes back so the Generate button can
   // refuse upfront on a missing add-on (issue #12).
+  if (typeof imgStudioUpdateRefWarning === 'function') imgStudioUpdateRefWarning();
   if (typeof imgStudioUpdateValidity === 'function') imgStudioUpdateValidity();
   // The top Model picker reads the same status (a model no version of which
   // fits this Mac is dimmed there), and the memory fit above may have moved
@@ -589,6 +627,10 @@ function imgStudioRenderEnginePill() {
     pill.dataset.h3r = '';
     if (_H3RESTYLE_POLL) { clearInterval(_H3RESTYLE_POLL); _H3RESTYLE_POLL = null; }
   }
+  if (!v.startsWith('ming_')) {
+    pill.dataset.ming = '';
+    if (_MING_POLL) { clearInterval(_MING_POLL); _MING_POLL = null; }
+  }
   // 'auto' resolves to whatever the user saved in Settings — we don't try
   // to second-guess that here, just show a neutral pill.
   if (v === 'auto') {
@@ -612,6 +654,9 @@ function imgStudioRenderEnginePill() {
   }
   if (v.startsWith('h3restyle') && info.h3restyle_reason) {
     if (h3restyleRenderPill(pill, info)) return;
+  }
+  if (v.startsWith('ming_') && info.ming_reason) {
+    if (mingRenderPill(pill, info)) return;
   }
   // Family-install gate (issue #12): the mflux family binary itself
   // needs to be installed BEFORE the user can submit. Distinct from
@@ -973,8 +1018,132 @@ async function h3restyleInstall() {
   imgStudioRefreshEngineStatus();
 }
 
+// ---- Ming-Image 0.2 Design (inclusionAI, MIT): pinned MLX weights one-time download ---
+let _MING_DESIGN_PREV_PROMPT = null;
+async function mingDesignEnhance() {
+  const promptEl = document.getElementById('imgStudioPrompt');
+  const btn = document.getElementById('mingDesignEnhanceBtn');
+  const undoBtn = document.getElementById('mingDesignUndoBtn');
+  const stEl = document.getElementById('mingDesignStatus');
+  if (!promptEl || !btn) return;
+  const original = (promptEl.value || '').trim();
+  if (!original) {
+    if (stEl) stEl.textContent = T('stage.ming_type_idea_first', 'Type a short idea first.');
+    promptEl.focus();
+    return;
+  }
+  const aspectEl = document.getElementById('imgStudioAspect');
+  const aspect = aspectEl ? (aspectEl.value || '16:9') : '16:9';
+  const origLabel = btn.innerHTML;
+  btn.disabled = true;
+  if (stEl) stEl.textContent = T('stage.ming_writing_design_layout', 'Writing structured layout locally…');
+  let res;
+  try {
+    const fd = new URLSearchParams({ prompt: original, mode: 'design_layout', aspect });
+    const r = await fetch('/prompt/enhance', { method: 'POST', body: fd });
+    res = await r.json();
+  } catch (e) {
+    if (stEl) stEl.textContent = T('stage.ming_design_layout_failed', 'Design layout failed: ') + (e.message || e);
+    btn.disabled = false;
+    btn.innerHTML = origLabel;
+    return;
+  }
+  btn.disabled = false;
+  btn.innerHTML = origLabel;
+  if (typeof packNeededToast === 'function' && packNeededToast(res)) {
+    if (stEl) stEl.textContent = '';
+    return;
+  }
+  if (!res || res.error || !res.enhanced) {
+    const msg = (res && res.error) || T('stage.ming_design_layout_empty', 'Could not rewrite the prompt.');
+    if (stEl) stEl.textContent = msg;
+    if (typeof phosToast === 'function') phosToast(msg, { kind: 'danger', duration: 8000 });
+    return;
+  }
+  _MING_DESIGN_PREV_PROMPT = original;
+  promptEl.value = res.enhanced;
+  if (undoBtn) undoBtn.hidden = false;
+  if (stEl) stEl.textContent = T('stage.ming_design_layout_ready', 'Design layout ready.') + (res.elapsed_sec ? ` (${res.elapsed_sec}s)` : '');
+}
+
+function mingDesignUndo() {
+  const promptEl = document.getElementById('imgStudioPrompt');
+  const undoBtn = document.getElementById('mingDesignUndoBtn');
+  const stEl = document.getElementById('mingDesignStatus');
+  if (promptEl && _MING_DESIGN_PREV_PROMPT !== null) {
+    promptEl.value = _MING_DESIGN_PREV_PROMPT;
+    _MING_DESIGN_PREV_PROMPT = null;
+  }
+  if (undoBtn) undoBtn.hidden = true;
+  if (stEl) stEl.textContent = '';
+}
+
+function mingNotReady(info) {
+  const r = info.ming_reason;
+  const gb = Math.round(info.download_gb || 34);
+  if (info.installing) return T('stage.ming_is_downloading', 'Ming-Image 0.2 Design is downloading (about ') + gb + T('stage.gb_once_generate_unlocks_when', ' GB, once). Generate unlocks when it is done.');
+  if (r === 'engine_missing') return T('stage.ming_needs_mlx_env', 'Ming-Image 0.2 Design needs the Phosphene MLX runtime. Finish setup first, then come back.');
+  if (r === 'not_downloaded') return T('stage.ming_needs_download', 'Ming-Image 0.2 Design needs its one-time download (about ') + gb + T('stage.ming_download_click_chip', ' GB from Hugging Face, MIT licence). Click the download chip next to Version.');
+  return '';
+}
+
+let _MING_POLL = null;
+function mingRenderPill(pill, info) {
+  const warn = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>';
+  const dl = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-download-simple"/></svg>';
+  const r = info.ming_reason;
+  pill.dataset.ming = '';
+  if (info.installing) {
+    pill.dataset.state = 'missing';
+    pill.dataset.ming = 'downloading';
+    const part = (info.install_file && info.install_files) ? ' ' + info.install_file + '/' + info.install_files : '';
+    pill.innerHTML = dl + 'downloading' + part + '…';
+    pill.title = (info.install_step ? T('stage.now', 'Now: ') + info.install_step + '\n' : '') + (info.credit || '');
+    if (!_MING_POLL) _MING_POLL = setInterval(() => { imgStudioRefreshEngineStatus(); }, 5000);
+    return true;
+  }
+  if (_MING_POLL) { clearInterval(_MING_POLL); _MING_POLL = null; }
+  if (r === 'engine_missing') {
+    pill.dataset.state = 'missing-engine';
+    pill.innerHTML = warn + T('stage.needs_mlx_runtime', 'needs MLX runtime');
+    pill.title = mingNotReady(info);
+    return true;
+  }
+  if (r === 'not_downloaded') {
+    pill.dataset.state = 'missing';
+    pill.dataset.ming = 'download';
+    pill.innerHTML = dl + (info.install_error ? T('stage.download_failed_try_again', 'download failed: try again') : T('stage.download', 'download ~') + Math.round(info.download_gb || 34) + ' GB');
+    pill.title = (info.install_error ? T('stage.last_try', 'Last try: ') + info.install_error + '\n' : '')
+      + T('stage.click_to_download_ming', 'Click to download Ming-Image 0.2 Design once from Hugging Face (pinned and checked, MIT licence).\n') + (info.credit || '');
+    return true;
+  }
+  return false;
+}
+
+async function mingInstall() {
+  const s = document.getElementById('imgStudioStatus');
+  try {
+    const r = await fetch('/image/ming/install', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) {
+      if (s) s.textContent = (j && (j.error || j.message)) || (T('stage.download_did_not_start_http', 'Download did not start (HTTP ') + r.status + ').');
+    } else if (s) {
+      s.textContent = j.already_installed ? T('stage.ming_is_already_downloaded', 'Ming-Image 0.2 Design is already downloaded.') : T('stage.downloading_ming', 'Downloading Ming-Image 0.2 Design (about ') + Math.round(j.download_gb || 34) + T('stage.gb_once', ' GB, once)…');
+    }
+  } catch (e) {
+    if (s) s.textContent = T('stage.download_did_not_start', 'Download did not start: ') + e.message;
+  }
+  imgStudioRefreshEngineStatus();
+}
+
 function imgStudioOnPillClick() {
   const pill = document.getElementById('imgStudioEnginePill');
+  if (pill && pill.dataset.ming === 'download') { mingInstall(); return; }
+  if (pill && pill.dataset.ming === 'downloading') {
+    const st = document.getElementById('imgStudioStatus');
+    if (st) st.textContent = T('stage.ming_is_still_downloading', 'Ming-Image 0.2 Design is still downloading (about 34 GB, once). Generate unlocks when it is done.');
+    return;
+  }
   if (pill && pill.dataset.h3r === 'h3-setup') { openH3InstallCard('image'); return; }
   if (pill && pill.dataset.h3r === 'ph3-download') { ph3imageInstall(); return; }
   if (pill && pill.dataset.h3r === 'download') { h3restyleInstall(); return; }
@@ -2269,6 +2438,10 @@ async function imgStudioGenerate() {
     // Reference bridge flag — _build_image_engine_config reads it into
     // ImageEngineConfig.ideogram_reference_bridge (ideogram branch).
     if (body.ideo_reference_bridge) fd.set('ideo_reference_bridge', '1');
+    const mingTransEl = document.getElementById('imgStudioMingTransparent');
+    if (engineVal.startsWith('ming_') && mingTransEl && mingTransEl.checked && !(body.refs && body.refs.length)) {
+      fd.set('ming_transparent', '1');
+    }
     fd.set('aspect', body.aspect || '16:9');
     fd.set('n', String(body.n || 1));
     fd.set('seed', String(body.seed != null ? body.seed : -1));
@@ -2392,4 +2565,5 @@ Object.assign(globalThis, {
   // global scope (the v4.9.0 regression, PR #69)
   imgStudioClearRef, openExternal,
   imgStudioEditPicture, imgStudioSyncAspect,
+  mingDesignEnhance, mingDesignUndo,
 });

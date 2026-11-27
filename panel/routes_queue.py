@@ -857,10 +857,12 @@ def post_prompt_enhance(h, path, qs, ctype) -> None:
     # and then runs the result through the same stillness-cleanup + word-cap
     # every other a2v prompt gets before it reaches the engine.
     a2v_mode = (mode == "a2v")
+    design_layout_mode = (mode == "design_layout")
     if a2v_mode:
         mode = "i2v"
-    elif mode not in ("t2v", "i2v"):
+    elif mode not in ("t2v", "i2v", "design_layout"):
         mode = "t2v"
+    aspect = (form.get("aspect", [""])[0] or "").strip()
     if not user_prompt:
         h._json({"error": "no prompt provided"}, 400); return
     # 4.20: Gemma 3 is downloaded in the background after the first boot, so
@@ -932,6 +934,7 @@ def post_prompt_enhance(h, path, qs, ctype) -> None:
             "action": "enhance_prompt",
             "id": f"enh-{int(P.time.time()*1000)}",
             "params": {"prompt": user_prompt, "mode": mode, "seed": 10,
+                       "aspect": aspect,
                        "preserve_tokens": preserve_tokens, "translate": translate,
                        "lora_notes": lora_ctx},
         }, timeout=P.PROMPT_ENHANCE_TIMEOUT)
@@ -960,8 +963,11 @@ def post_prompt_enhance(h, path, qs, ctype) -> None:
         h._json({"error": "Gemma returned empty result"}, 500); return
     # A LoRA whose trigger word the result never names would not fire — put
     # its first trigger back at the front (after the a2v law above, so the
-    # word cap there cannot cut it off again).
-    enhanced, triggers_added = P.ensure_lora_triggers(enhanced, lora_ctx)
+    # word cap there cannot cut it off again). Skip for JSON design layouts.
+    if design_layout_mode:
+        triggers_added = []
+    else:
+        enhanced, triggers_added = P.ensure_lora_triggers(enhanced, lora_ctx)
     if triggers_added:
         P.push(f"[enhance] added trigger word(s): {', '.join(triggers_added)}")
     P.push(f"[enhance] → {enhanced[:120]}… ({result.get('elapsed_sec','?')}s)")

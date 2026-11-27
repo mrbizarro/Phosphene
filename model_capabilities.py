@@ -261,6 +261,25 @@ VARIANTS: dict[str, dict] = {
             "inputs": "Restyle takes exactly one picture: the one to restyle.",
         },
     },
+    "images.ming_design": {
+        # Ming-Image-0.2-Design (inclusionAI, R&D L92): 6B single-stream DiT + 16B MoE text encoder +
+        # Qwen2.5-ViT vision tower + Qwen-Image RGBA VAE (encoder + decoder), 12 steps, CFG 1.0, MIT licence.
+        # Text to image (Standard ~1 MP, High ~4 MP, native transparent RGBA) and single-picture editing
+        # (Standard ~1 MP), plus optional local Design layout prompt helper. Multi-reference stacking was
+        # tested and left off (superimposes Ref 2 over Ref 1); transparent cutouts from opaque photos await
+        # the separate Layer checkpoint. Free at normal speed per owner decision #1244 (27 Nov 2026).
+        "engine": "images", "label": "Ming-Image 0.2 Design", "pick": {},
+        "status": "preview",
+        "modes": ["t2i", "edit"],
+        "qualities": ["standard", "high"],
+        "inputs": ["reference_image"],
+        "outputs": ["image"],
+        "options": [],
+        "steps": 12,
+        "reasons": {
+            "inputs": "Ming-Image 0.2 Design takes one reference picture to edit.",
+        },
+    },
     "images.flux2": {
         # FLUX.2 [klein] 4B, the Images default ("auto"): text to image, and edits from references.
         "engine": "images", "label": "FLUX.2 [klein]", "pick": {"image_engine": "auto"}, "status": "ready",

@@ -4057,5 +4057,170 @@
   "5.0.88": {
     "silent": true,
     "date": "2026-11-27"
+  },
+  "5.0.89": {
+    "date": "2026-11-27",
+    "headline": "Ming-Image 0.2 Design for everyone, plus characters in Hailuo H3 with 3 pictures and a voice.",
+    "section": "New for everyone: Ming-Image 0.2 Design",
+    "free": [
+      "New in Images (Free, preview): Ming-Image 0.2 Design makes posters, web layouts and sharp on-image text at Standard (1 MP) or High (4 MP).",
+      "Turn on Transparent background to save clean RGBA PNG cutouts with no backdrop, ready to place over any design.",
+      "Drop a photo or poster into Picture 1 to edit headlines, add objects or touch up portraits, or click Design layout to expand a short idea locally.",
+      "Download it once from Images (about 34 GB, MIT licence): Standard runs on 16 GB Macs and up (about 70 seconds on M4 Max 64 GB); High fits 24 GB and up."
+    ],
+    "pro": [
+      "Characters in Hailuo H3: up to 3 pictures of a person and their saved voice. They keep their look and speak in their own voice, with no training.",
+      "Re-voice: change who says a line in a finished clip. The picture and the rest of the sound stay as they are. Find it under More on any clip."
+    ],
+    "how": [
+      {
+        "id": "characters-voice",
+        "title": "How characters with voices work",
+        "pro": {
+          "video": "/assets/whats_new/how_characters_voice.mp4",
+          "poster": "/assets/whats_new/how_characters_voice.jpg",
+          "label": "Pro",
+          "caption": "New character: add pictures and pick a voice. In Hailuo H3, start each line with the character's name."
+        }
+      },
+      {
+        "id": "revoice",
+        "title": "How Re-voice works",
+        "pro": {
+          "video": "/assets/whats_new/how_revoice.mp4",
+          "poster": "/assets/whats_new/how_revoice.jpg",
+          "label": "Pro",
+          "caption": "Phosphene finds every line. Pick a voice for the lines you want to change. Before, then after."
+        }
+      }
+    ],
+    "i18n": {
+      "de": {
+        "headline": "Ming-Image 0.2 Design für alle, dazu Figuren in Hailuo H3 mit 3 Bildern und eigener Stimme.",
+        "section": "Neu für alle: Ming-Image 0.2 Design",
+        "free": [
+          "Neu unter Bilder (kostenlos, Vorschau): Ming-Image 0.2 Design erstellt Poster, Web-Layouts und scharfen Bildtext in Standard (1 MP) oder Hoch (4 MP).",
+          "Aktiviere Transparenter Hintergrund für saubere RGBA-PNG-Ausschnitte ohne Hintergrund, bereit für jedes Design.",
+          "Ziehe ein Foto oder Poster in Bild 1, um Überschriften zu ändern, Objekte hinzuzufügen oder Porträts zu bearbeiten, oder klicke auf Design-Layout für eine lokale Vorlage.",
+          "Einmalig unter Bilder herunterladen (ca. 34 GB, MIT-Lizenz): Standard läuft ab 16 GB Macs (ca. 70 Sekunden auf M4 Max 64 GB); Hoch passt ab 24 GB."
+        ],
+        "pro": [
+          "Charaktere in Hailuo H3: bis zu 3 Bilder einer Person und ihre gespeicherte Stimme. Sie behalten ihr Aussehen und sprechen mit ihrer eigenen Stimme, ganz ohne Training.",
+          "Neu vertonen: Ändere, wer eine Zeile in einem fertigen Clip spricht. Bild und restlicher Ton bleiben, wie sie sind. Zu finden unter Mehr bei jedem Clip."
+        ]
+      },
+      "es": {
+        "headline": "Ming-Image 0.2 Design gratis para todos, además de personajes en Hailuo H3 con 3 fotos y voz.",
+        "section": "Nuevo para todos: Ming-Image 0.2 Design",
+        "free": [
+          "Nuevo en Imágenes (gratis, vista previa): Ming-Image 0.2 Design crea pósteres, maquetas web y texto nítido en Estándar (1 MP) o Alta (4 MP).",
+          "Activa Fondo transparente para guardar recortes PNG RGBA limpios sin fondo, listos para colocar sobre cualquier diseño.",
+          "Arrastra una foto o póster a Imagen 1 para editar titulares, añadir objetos o retocar retratos, o pulsa Diseño de maquetación para desarrollar una idea en local.",
+          "Descárgalo una vez desde Imágenes (unos 34 GB, licencia MIT): Estándar funciona desde Macs de 16 GB (unos 70 segundos en M4 Max 64 GB); Alta desde 24 GB."
+        ],
+        "pro": [
+          "Personajes en Hailuo H3: hasta 3 imágenes de una persona y su voz guardada. Mantienen su aspecto y hablan con su propia voz, sin entrenamiento.",
+          "Cambiar voz: cambia quién dice una frase en un clip terminado. La imagen y el resto del sonido no cambian. Está en Más, en cualquier clip."
+        ]
+      },
+      "fr": {
+        "headline": "Ming-Image 0.2 Design gratuit pour tous, et vos personnages dans Hailuo H3 avec 3 photos et voix.",
+        "section": "Nouveau pour tous : Ming-Image 0.2 Design",
+        "free": [
+          "Nouveau dans Images (gratuit, aperçu) : Ming-Image 0.2 Design crée des affiches, des maquettes web et du texte net en Standard (1 MP) ou Haute (4 MP).",
+          "Activez Fond transparent pour enregistrer des détourages PNG RGBA propres sans arrière-plan, prêts à superposer sur n'importe quel visuel.",
+          "Déposez une photo ou une affiche dans Image 1 pour modifier un titre, ajouter un objet ou retoucher un portrait, ou cliquez sur Mise en page pour structurer une idée en local.",
+          "Téléchargez-le une fois depuis Images (environ 34 Go, licence MIT) : Standard tourne dès 16 Go (environ 70 secondes sur M4 Max 64 Go) ; Haute dès 24 Go."
+        ],
+        "pro": [
+          "Personnages dans Hailuo H3 : jusqu’à 3 images d’une personne et sa voix sauvegardée. Ils gardent leur apparence et parlent avec leur propre voix, sans entraînement.",
+          "Changer la voix : changez qui dit une réplique dans un clip terminé. L’image et le reste du son ne bougent pas. C’est dans Plus, sur n’importe quel clip."
+        ]
+      },
+      "it": {
+        "headline": "Ming-Image 0.2 Design gratis per tutti, più i personaggi in Hailuo H3 con 3 foto e una voce.",
+        "section": "Novità per tutti: Ming-Image 0.2 Design",
+        "free": [
+          "Novità in Immagini (gratis, anteprima): Ming-Image 0.2 Design crea poster, layout web e testo nitido in formato Standard (1 MP) o Alta (4 MP).",
+          "Attiva Sfondo trasparente per salvare scontorni PNG RGBA puliti senza sfondo, pronti da sovrapporre a qualsiasi grafica.",
+          "Trascina una foto o un poster in Immagine 1 per modificare titoli, aggiungere oggetti o ritoccare ritratti, oppure clicca su Layout di design per espandere un'idea in locale.",
+          "Scaricalo una volta da Immagini (circa 34 GB, licenza MIT): Standard gira da 16 GB in su (circa 70 secondi su M4 Max 64 GB); Alta da 24 GB in su."
+        ],
+        "pro": [
+          "Personaggi in Hailuo H3: fino a 3 immagini di una persona e la sua voce salvata. Mantengono il loro aspetto e parlano con la propria voce, senza addestramento.",
+          "Cambia voce: cambia chi dice una battuta in una clip finita. L’immagine e il resto del suono restano come sono. Si trova in Altro, su qualsiasi clip."
+        ]
+      },
+      "ja": {
+        "headline": "Ming-Image 0.2 Design を全員に無料提供、さらに Hailuo H3 のキャラクターと声も。",
+        "section": "全員向けの新機能: Ming-Image 0.2 Design",
+        "free": [
+          "画像タブに新登場（無料・プレビュー）: Ming-Image 0.2 Design でポスター、Web レイアウト、くっきりした文字入り画像を標準 (1 MP) または高画質 (4 MP) で作成できます。",
+          "透過背景をオンにすると背景なしのきれいな RGBA PNG 切り抜きをそのまま保存でき、あらゆるデザインに重ねられます。",
+          "写真やポスターを画像 1 にドロップして見出し変更・オブジェクト追加・ポートレート編集ができ、デザインレイアウトで短いアイデアをローカル展開できます。",
+          "画像タブから初回のみダウンロード（約 34 GB、MIT ライセンス）: 標準は 16 GB 以上の Mac に対応（M4 Max 64 GB で約 70 秒）、高画質は 24 GB 以上に対応します。"
+        ],
+        "pro": [
+          "Hailuo H3 のキャラクター：人物の画像を最大3枚と、保存した声。見た目を保ったまま、自分の声で話します。学習は不要です。",
+          "声を差し替え：完成したクリップのセリフを、別の声で話させることができます。映像とほかの音はそのままです。どのクリップでも「その他」から使えます。"
+        ]
+      },
+      "ko": {
+        "headline": "모두에게 무료로 제공되는 Ming-Image 0.2 Design, 그리고 Hailuo H3 캐릭터와 목소리.",
+        "section": "모두를 위한 새 기능: Ming-Image 0.2 Design",
+        "free": [
+          "이미지 탭 새 기능(무료, 미리보기): Ming-Image 0.2 Design으로 포스터, 웹 레이아웃, 선명한 이미지 내 텍스트를 표준(1 MP) 또는 고화질(4 MP)로 만들 수 있습니다.",
+          "투명 배경을 켜면 배경 없는 깔끔한 RGBA PNG 누끼 이미지를 저장해 어떤 디자인 위에도 바로 올릴 수 있습니다.",
+          "사진이나 포스터를 사진 1에 올려 제목을 바꾸거나 물체를 추가하고 인물을 편집할 수 있으며, 디자인 레이아웃으로 짧은 아이디어를 로컬에서 구조화할 수 있습니다.",
+          "이미지 탭에서 한 번만 다운로드(약 34 GB, MIT 라이선스): 표준은 16 GB Mac부터 실행되며(M4 Max 64 GB에서 약 70초), 고화질은 24 GB부터 지원합니다."
+        ],
+        "pro": [
+          "Hailuo H3의 캐릭터: 한 사람의 사진 최대 3장과 저장한 목소리. 모습은 그대로, 자기 목소리로 말해요. 학습은 필요 없어요.",
+          "목소리 바꾸기: 완성된 클립에서 대사를 누가 말할지 바꿀 수 있어요. 화면과 나머지 소리는 그대로예요. 어느 클립에서든 더 보기에서 찾을 수 있어요."
+        ]
+      },
+      "pt": {
+        "headline": "Ming-Image 0.2 Design grátis para todos, mais personagens no Hailuo H3 com 3 fotos e voz.",
+        "section": "Novidade para todos: Ming-Image 0.2 Design",
+        "free": [
+          "Novidade em Imagens (grátis, prévia): o Ming-Image 0.2 Design cria pôsteres, layouts web e texto nítido em Padrão (1 MP) ou Alta (4 MP).",
+          "Ative Fundo transparente para salvar recortes PNG RGBA limpos sem fundo, prontos para usar sobre qualquer arte.",
+          "Solte uma foto ou pôster em Imagem 1 para editar títulos, adicionar objetos ou retocar retratos, ou clique em Layout de design para expandir uma ideia localmente.",
+          "Baixe uma vez em Imagens (cerca de 34 GB, licença MIT): Padrão roda em Macs de 16 GB ou mais (cerca de 70 segundos no M4 Max 64 GB); Alta a partir de 24 GB."
+        ],
+        "pro": [
+          "Personagens no Hailuo H3: até 3 imagens de uma pessoa e a voz salva dela. Eles mantêm a aparência e falam com a própria voz, sem treinamento.",
+          "Trocar voz: mude quem diz uma fala em um clipe pronto. A imagem e o resto do som ficam como estão. Fica em Mais, em qualquer clipe."
+        ]
+      },
+      "ru": {
+        "headline": "Ming-Image 0.2 Design бесплатно для всех, плюс персонажи в Hailuo H3 с 3 фото и голосом.",
+        "section": "Новое для всех: Ming-Image 0.2 Design",
+        "free": [
+          "Новое во вкладке «Изображения» (бесплатно, превью): Ming-Image 0.2 Design создаёт постеры, веб-макеты и чёткий текст в размере Стандарт (1 Мп) или Высокое (4 Мп).",
+          "Включите «Прозрачный фон», чтобы сохранять чистые RGBA PNG без фона, готовые для наложения на любой дизайн.",
+          "Перетащите фото или постер в «Изображение 1», чтобы поменять заголовки, добавить объекты или поправить портрет, или нажмите «Макет дизайна» для локальной проработки идеи.",
+          "Разовая загрузка из «Изображений» (около 34 ГБ, лицензия MIT): Стандарт работает на Mac от 16 ГБ (около 70 секунд на M4 Max 64 ГБ); Высокое от 24 ГБ."
+        ],
+        "pro": [
+          "Персонажи в Hailuo H3: до 3 изображений человека и его сохранённый голос. Они сохраняют свой облик и говорят своим голосом, без обучения.",
+          "Заменить голос: поменяйте, кто произносит реплику в готовом клипе. Картинка и остальной звук не меняются. Ищите в меню «Ещё» у любого клипа."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "所有用户免费体验 Ming-Image 0.2 Design，另有 Hailuo H3 角色（3 张照片和专属声音）。",
+        "section": "面向所有人的新功能：Ming-Image 0.2 Design",
+        "free": [
+          "“图片”标签新增（免费预览）：Ming-Image 0.2 Design 可生成海报、网页版式和清晰文字，支持标准 (100 万像素) 与高清 (400 万像素)。",
+          "开启“透明背景”即可直接保存边缘干净的 RGBA PNG 透明抠图，方便叠加到任意设计中。",
+          "将照片或海报拖入“图片 1”即可修改标题、添加物体或编辑人像，或点击“设计版式”在本地将简短想法扩展为结构化提示词。",
+          "在“图片”中一次性下载（约 34 GB，MIT 许可）：标准模式支持 16 GB 及以上 Mac（M4 Max 64 GB 约 70 秒）；高清模式支持 24 GB 及以上。"
+        ],
+        "pro": [
+          "Hailuo H3 中的角色：一个人的最多 3 张图片和已保存的声音。角色保持原有样貌，用自己的声音说话，无需训练。",
+          "替换声音：更换已完成片段中某句台词的说话人。画面和其他声音保持不变。在任意片段的“更多”里可以找到。"
+        ]
+      }
+    }
   }
 }

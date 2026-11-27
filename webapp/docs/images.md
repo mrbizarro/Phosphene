@@ -1,6 +1,6 @@
 # Images
 
-The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **P-H3-Image**, which makes large photographs and posters from words alone, **MiniMax-H3-Image**, MiniMax's own image model for detailed scenes from words, which also edits your pictures, and **Restyle a picture**, which redraws a picture of yours in a style you name.
+The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **P-H3-Image**, which makes large photographs and posters from words alone, **MiniMax-H3-Image**, MiniMax's own image model for detailed scenes from words, which also edits your pictures, **Restyle a picture**, which redraws a picture of yours in a style you name, and **Ming-Image 0.2 Design**, for posters, web UI mockups, clean text and transparent-background RGBA graphics.
 
 ## Choosing the model {#engines}
 
@@ -12,6 +12,7 @@ The Images tab makes stills. Pick the model first: **Model**, at the top of the 
 | **Ideogram 4** | text in the image, placed where you want it, with an optional reference | one |
 | **P-H3-Image** | big photographs, film frames and posters from text, words spelled right; about 2.5 min at 4 MP | Draft, Standard, High |
 | **MiniMax-H3-Image** | detailed pictures from a long, descriptive prompt, 4 to 16 megapixels, and edits of your pictures; preview | Draft (4 MP), Standard (8 MP), High (16 MP) |
+| **Ming-Image 0.2 Design** | web UI layouts, posters, sharp typography, picture editing and transparent RGBA PNGs; MIT licence; preview | Standard (1 MP), High (4 MP) |
 
 The model's versions sit in **Version**, under the prompt; a model with one version just names it there. Phosphene remembers the version you last used for each model.
 
@@ -111,3 +112,22 @@ Restyle keeps what is in your picture and changes how it is drawn. Choose **Rest
 **First use.** It runs on the Hailuo H3 video pack and decodes its pictures with P-H3-Image, so install Hailuo H3 and P-H3-Image first (the chip offers that download). Then the chip next to **Version** reads *download ~300 MB*: click it. Phosphene shows the MiniMax H3 licence, then fetches the Restyle adapter once from Hugging Face at a pinned version and checks it. If it reads *update the H3 runner*, update Hailuo H3 first (your weights stay).
 
 *The Restyle adapter is a community add-on for MiniMax H3 (Apache-2.0), fetched from its Hugging Face repository at a pinned revision, never re-hosted; the only change made on your Mac is re-arranging its tensors for the MLX runner. Powered by MiniMax H3. MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.*
+
+## Ming-Image 0.2 Design — posters, UI layouts, editing & transparent RGBA {#ming-design}
+
+Ming-Image 0.2 Design is inclusionAI's open-weight (MIT License) visual-design generation and editing model. It excels at text-heavy layouts, web UI mockups, posters, e-commerce hero visuals, picture editing and isolated subjects with native transparent RGBA PNG output. It renders in 12 steps with nothing to tune (no guidance slider or negative prompt).
+
+- **Text to image:** Choose **Standard** (1 MP) or **High** (4 MP), pick any **Aspect**, and optionally click **Design layout** under the prompt to turn a short idea into a structured layout prompt using Phosphene's local Gemma 3 writer (no external service).
+- **Edit a picture:** Drop one photo, poster or graphic into **Picture 1** and describe what to change (change text, add an object, edit a face, restyle, or adjust a scene). **Aspect** defaults to **Same as picture 1** (snapped to the 1 MP edit canvas). Multi-reference stacking is intentionally off for this checkpoint; it takes one picture at a time.
+- **Transparent background (RGBA PNG):** Works for text-to-image generation, saving a true 4-channel PNG ready to layer over any background. Turning an existing opaque photo into a transparent cutout does not work reliably on this checkpoint (it awaits the separate Layer checkpoint).
+
+Choose **Ming-Image 0.2 Design** under **Model**, then a size in **Version**:
+
+| Choice | Size (1:1 / 16:9 / 2:3) | Measured time (M4 Max, 64 GB) | Memory |
+|---|---|---|---|
+| **Standard** | 1 megapixel (1024×1024, 1280×720, 832×1248, 1536×640) | about 70 s text / 2 min edit | 16 GB+ (streams layers automatically on 16 GB Macs) |
+| **High** | 4 megapixels (2048×2048, 2560×1440, 1664×2496, 3072×1280) | about 5 minutes (text) | 24 GB+ |
+
+**First use.** Click the download chip next to **Version** (*download ~34 GB*). Phosphene fetches the 18 pinned MLX files plus the vision encoder and VAE encoder slices (verified by SHA-256) directly from Hugging Face (or the China mirror when Hugging Face is unreachable), keeping about 33.9 GB on disk.
+
+*Ming-Image-0.2-Design by inclusionAI (Ant Group), MLX weight conversion by amarck (MIT License; vision tower, connector and VAE derived from Qwen2.5-ViT, Qwen2-1.5B and Qwen-Image VAE, Apache-2.0). Downloaded directly from Hugging Face at pinned revisions, never re-hosted.*

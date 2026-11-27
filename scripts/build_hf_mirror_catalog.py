@@ -65,6 +65,14 @@ def specs() -> list[tuple[str, str, "list[str] | None", str]]:
                 "20a580c8606c06a0988d40375a61309e0fe5893d",
                 ["ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"],
                 "Video: Control (Union IC-LoRA)"))
+    # Ming-Image-0.2-Design MLX weights + upstream edit range slices (MIT, ungated, port L92).
+    from scripts.ming_image import pins as ming_pins
+    out.append((ming_pins.WEIGHTS_REPO, ming_pins.WEIGHTS_REVISION,
+                sorted(str(f["path"]) for f in ming_pins.PINNED_FILES),
+                "Pictures: Ming-Image 0.2 Design (MLX weights)"))
+    out.append((ming_pins.UPSTREAM_REPO, ming_pins.UPSTREAM_REVISION,
+                sorted({str(s["remote_path"]) for s in ming_pins.UPSTREAM_EDIT_SLICES}),
+                "Pictures: Ming-Image 0.2 Design (edit vision + RGBA VAE encoder slices)"))
     return out
 
 

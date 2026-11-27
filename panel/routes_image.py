@@ -398,6 +398,7 @@ def get_image_engine_status(h, parsed) -> None:
         out.extend(P.ph3image_engine_rows())
         out.extend(P.h3image_engine_rows())
         out.extend(P.h3restyle_engine_rows())
+        out.extend(P.ming_engine_rows())
         h._json({"engines": out,
                  "host_ram_gb": int(round(float(P.SYSTEM_RAM_GB or 0)))})
     except Exception as exc:                                # noqa: BLE001
@@ -570,6 +571,17 @@ def post_image_h3restyle_install(h, path, qs, ctype) -> None:
         h._json(result, 409 if "active" in result.get("error", "") else 400)
         return
     h._json(result, 202)
+
+
+# ====== Images lane · Ming-Image-0.2-Design (inclusionAI, MIT) - fetch the 18 pinned MLX weight
+# files directly from Hugging Face (with China mirror fallback, verified by exact size + SHA-256).
+@post("/image/ming/install")
+def post_image_ming_install(h, path, qs, ctype) -> None:
+    result = P._ming_install(P.push)
+    if not result.get("ok"):
+        h._json(result, 409 if "active" in result.get("error", "") else 400)
+        return
+    h._json(result, 202 if result.get("started") else 200)
 
 
 # Image-engine config (pluggable: mock | bfl).

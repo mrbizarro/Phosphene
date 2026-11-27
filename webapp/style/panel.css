@@ -17348,3 +17348,6 @@ html[data-theme="light"] .tool-rail #settingsBtn > svg { background: url("../ico
 .tool-rail .workflow-tabs button > svg > *, .tool-rail .rail-foot button > svg > * { visibility: hidden; }
 /* 5.0.81's expired China yearly licence link stays a readable link, not the small Pro badge the layout's global .pro-tag rule draws (5.0.82 review). */
 body .pro-tag.pro-renew-tag { height: auto; font: 600 var(--fs-2xs)/1.2 var(--sans); text-transform: none; padding: 2px 7px; }
+/* Ming-Image 0.2 Design: optional local Design layout prompt helper bar inside the Image Studio composer. */
+.ming-prompt-tools { display: flex; align-items: center; gap: 8px; padding: 6px 10px 8px; border-top: 1px solid var(--border); }
+.ming-prompt-tools[hidden] { display: none !important; }
