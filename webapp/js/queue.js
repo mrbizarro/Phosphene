@@ -6652,7 +6652,14 @@ function displayTitle(prompt, label, limit) {
     .replace(/\(\s*S\d+\s*\)/g, ' ')
     .replace(/<\s*(?:Picture|Image|Audio|Video)\s*\d+\s*>(?:\s*\(from[^)]*\))?/gi, ' ')
     .replace(/\s+/g, ' ').trim().replace(/^[ :;-]+|[ :;-]+$/g, '');
-  let t = clean(orig.replace(/<d>[\s\S]*?<\/d>/gi, ' '));
+  // A <d> line that ends its sentence, with a capital letter after it, leaves a
+  // sentence break (clip_title._drop_dialogue); any other line leaves a space.
+  let t = clean(orig.replace(/([\s:,;]*)<d>([\s\S]*?)<\/d>/gi, (m, lead, line, off, s) => {
+    const before = clean(s.slice(0, off).replace(/<d>[\s\S]*?<\/d>/gi, ' '));
+    const next = s.slice(off + m.length).trimStart().charAt(0);
+    const upper = next && next === next.toUpperCase() && next !== next.toLowerCase();
+    return (before && /[.!?。！？]["'”’」』]*\s*$/.test(line) && upper) ? '. ' : lead + ' ';
+  }));
   if (!t) {
     const inner = [...orig.matchAll(/<d>([\s\S]*?)<\/d>/gi)].map(m => m[1]).join(' ')
       .replace(/^\s*\[[A-Za-z ]+\]\s*/, '');
