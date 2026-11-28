@@ -278,14 +278,20 @@ class Phosphene:
               quality: str | None = None, seconds: float | None = None, length: str | None = None,
               seed: int | None = None, label: str | None = None, extra: dict | None = None) -> dict:
         form: dict = {"prompt": prompt, "engine": engine}
+        if engine == "h3":
+            # The studio builds the H3 shape from BOTH axes and, when either is
+            # missing or is not one it offers, renders its 3 s draft without a word
+            # (h3_compose_tier and make_job in mlx_ltx_panel.py). So the length was
+            # dropped whenever no quality was given. Send both, the quality
+            # defaulting to the studio's own (draft), and refuse a shape the studio
+            # does not list in /agents/info rather than queue a different clip.
+            form["h3_quality"] = (quality or "draft").strip().lower()
+            form["h3_length"] = (length or (f"{int(seconds)}s" if seconds else "5s")).strip().lower()
+            self._check_h3(form["h3_quality"], form["h3_length"])
         if image:
             form["image"] = image if Path(image).is_absolute() and _under_studio(image) else self.upload(image)
         form["mode"] = mode or ("i2v" if image else "t2v")
-        if engine == "h3":
-            if quality:
-                form["h3_quality"] = quality
-            form["h3_length"] = length or (f"{int(seconds)}s" if seconds else "5s")
-        else:
+        if engine != "h3":
             if quality:
                 form["quality"] = quality
             if seconds:
@@ -297,6 +303,15 @@ class Phosphene:
         form["open_when_done"] = "off"
         form.update(extra or {})
         return self.post("/queue/add", form=form)
+
+    def _check_h3(self, quality: str, length: str) -> None:
+        h3 = (self.info().get("engines") or {}).get("h3") or {}
+        # A studio from before /agents/info lists neither; it gets the form as is.
+        qualities, lengths = h3.get("qualities") or [], h3.get("lengths") or []
+        if qualities and quality not in qualities:
+            raise PhospheneError(f"H3 has no quality {quality!r}. This Phosphene offers: {', '.join(qualities)}.")
+        if lengths and length not in lengths:
+            raise PhospheneError(f"H3 has no {length} length. This Phosphene makes: {', '.join(lengths)}.")
 
     def image(self, prompt: str, *, n: int = 1, aspect: str = "16:9", engine: str = "auto",
               seed: int | None = None, label: str | None = None) -> dict:

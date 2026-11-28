@@ -55,6 +55,10 @@ phosphene jobs ; phosphene wait JOB --out DIR ; phosphene fetch JOB --out DIR ; 
 phosphene servers                                    # every studio answering on this Mac
 ```
 
+On `--engine h3`, `--quality` defaults to `draft` and `--seconds` to 5. A quality or length this studio
+does not list in `/agents/info` is refused (exit `1`, with the ones it offers) rather than rendered as
+some other clip; the MCP `phosphene_make_video` tool does the same.
+
 `--json` on any command gives machine-readable output. Exit codes: `0` ok, `1` the studio refused
 or the job failed (its sentence is printed), `2` bad arguments, `3` Phosphene is not running.
 (`phosphene` here is `python3 agents/phosphene_cli.py`; alias it as you like.)
