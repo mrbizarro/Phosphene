@@ -396,7 +396,13 @@ class Phosphene:
         for src in self.outputs_of(row):
             target = out_dir / Path(src).name
             if Path(src).is_file():
-                shutil.copy2(src, target)
+                # Fetching into the folder the file already lives in (the studio's
+                # outputs folder, by any spelling or symlink) leaves it where it is:
+                # copying a file onto itself raises shutil.SameFileError, which is
+                # no PhospheneError, so the CLI printed a traceback and MCP answered
+                # with a protocol error instead of the path.
+                if not (target.exists() and os.path.samefile(src, target)):
+                    shutil.copy2(src, target)
             else:
                 target.write_bytes(self.get("/file?path=" + urllib.parse.quote(src), raw=True, timeout=600))
             saved.append(str(target))
