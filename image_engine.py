@@ -640,8 +640,8 @@ class ImageEngineConfig:
     ph3image_warm_batch: bool = False  # experimental until real-weight speed/parity validation
 
     # MiniMax-H3-Image, run by the H3 engine's scripts/generate_h3_image.py as a subprocess
-    # (staged only, no warm worker). The panel fills the paths; `h3image_mp` is the quality
-    # tier in megapixels: Draft 4 / Standard 8 / High 16.
+    # (staged). The panel fills the paths; `h3image_mp` is the quality tier in megapixels:
+    # Draft 4 / Standard 8 / High 16.
     h3image_python_path: str = ""
     h3image_script_path: str = ""
     h3image_root: str = ""           # folder made by fetch_h3_image.py (dit/, vae/, pdd_*)
@@ -655,6 +655,18 @@ class ImageEngineConfig:
     h3image_budget_gb: float = 0.0
     # What the runner chose, from its "memory setting: <name>" line (analytics mem_mode).
     h3image_memory_setting: str = ""
+    # Several pictures of one job are ONE engine process: the Studio's own scripts/h3_image_batch.py
+    # (the engine's staged flow with each model loaded once per job, same peak as one picture) run in
+    # the H3 pack's interpreter against the installed engine checkout. Empty = one process per picture.
+    h3image_batch_script: str = ""
+    h3image_engine_root: str = ""
+    # A resident worker that keeps weights loaded between pictures. The panel fills these only when the
+    # signed Pro pack answers with a worker: its launcher, what it keeps (an opaque word the pack chose
+    # for this Mac, passed through) and the free memory a FRESH worker needs for its first picture.
+    h3image_warm_service: bool = False
+    h3image_warm_script: str = ""
+    h3image_retain: str = ""
+    h3image_warm_cold_gb: float = 0.0
 
     # Restyle a picture on Hailuo H3 (R&D L55): the Studio's own scripts/h3_restyle.py in the H3 pack's
     # interpreter against the installed engine checkout. One content picture in, the same scene back in
@@ -757,9 +769,8 @@ def generate(*, prompt: str, n: int, output_dir: Path,
     Returns a list of `{png_path, seed, engine, width, height, ...}`
     dicts in submission order.
     """
-    if config.kind != "ph3image":
-        import ph3_image_service
-        ph3_image_service.evict()
+    import ph3_image_service
+    ph3_image_service.evict(keep=config.kind)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     width, height = ASPECT_DIMS.get(aspect, ASPECT_DIMS["16:9"])
@@ -3018,13 +3029,83 @@ def _h3image_aspect(aspect: str) -> str:
     return H3IMAGE_RATIOS.get(aspect, "16:9")
 
 
+H3IMAGE_ENGINE_TOO_OLD_RC = 4   # scripts/h3_image_batch.py: the engine checkout lacks what it stages
+
+
+def h3image_batch_supported(config: ImageEngineConfig) -> bool:
+    """The Studio's one-process-per-job runner is here and knows the engine checkout."""
+    return bool(config.h3image_batch_script) and Path(config.h3image_batch_script).is_file() \
+        and bool(config.h3image_engine_root)
+
+
+def h3image_warm_ready(config: ImageEngineConfig) -> bool:
+    """The resident worker was offered for this Mac and its launcher is really here."""
+    return bool(config.h3image_warm_service and config.h3image_warm_script
+                and Path(config.h3image_warm_script).is_file() and h3image_batch_supported(config)
+                and config.h3image_retain and config.h3image_warm_cold_gb > 0)
+
+
+def h3image_resident_headroom_gb(config: ImageEngineConfig) -> float:
+    """Weights already resident: working space for one picture's forwards and decode, by canvas."""
+    return max(8.0, min(16.0, 6.0 + float(config.h3image_mp or 8.0) * 0.5))
+
+
+def _run_h3image_cli(cmd: list, on_log, allow_rc=(), config=None) -> int:
+    """One engine process, its log streamed, killed at the deadline; raises on any failure except
+    an exit code in ``allow_rc``, which is returned."""
+    import os
+    import subprocess
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            errors="replace", env=_clean_subprocess_env(), start_new_session=True)
+    _register_active_proc(proc)
+    deadline = float(os.environ.get("PHOSPHENE_H3IMAGE_TIMEOUT_S", "3600"))
+    timed_out = {"v": False}
+
+    def _kill():
+        timed_out["v"] = True
+        # The image CLI creates no children; stop only the process we started.
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+    wd = threading.Timer(deadline, _kill)
+    wd.daemon = True
+    wd.start()
+    try:
+        if proc.stdout is not None:
+            for line in proc.stdout:
+                line = line.rstrip()
+                if config is not None and line.startswith("memory setting: "):
+                    config.h3image_memory_setting = line[len("memory setting: "):].strip()[:40]
+                if line and on_log:
+                    on_log(f"[h3-image] {line}")
+        rc = proc.wait()
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        raise
+    finally:
+        wd.cancel()
+        _unregister_active_proc(proc)
+        if proc.stdout is not None:
+            proc.stdout.close()
+    if timed_out["v"]:
+        raise RuntimeError(f"MiniMax-H3-Image exceeded its {deadline:.0f}s deadline and was stopped")
+    if rc in (-15, 143, -9, 137):
+        raise ImageJobCancelled(f"MiniMax-H3-Image cancelled by /stop (rc={rc})")
+    if rc != 0 and rc not in allow_rc:
+        raise RuntimeError(f"MiniMax-H3-Image failed with rc={rc}")
+    return rc
+
+
 def _generate_h3image(prompt: str, n: int, aspect: str, output_dir: Path, base_seed: int | None,
                       config: ImageEngineConfig, refs: list[str] | None = None,
                       on_log: "callable | None" = None) -> list[dict]:
     import json as _json
     import os
     import random
-    import subprocess
 
     missing = h3image_missing(config)
     if missing:
@@ -3036,78 +3117,131 @@ def _generate_h3image(prompt: str, n: int, aspect: str, output_dir: Path, base_s
     if refs and on_log:
         on_log(f"[h3-image] editing with {len(refs)} reference picture{'s' if len(refs) != 1 else ''}"
                + (", in the shape of Picture 1" if match else f", output {ratio}"))
-    results: list[dict] = []
     ts = int(time.time() * 1000)
+    jobs = []
     for i in range(n):
         seed = (base_seed + i) if base_seed is not None else random.randint(0, 2**31 - 1)
-        png = output_dir / f"cand_{i:02d}_h3image_{ts}.png"
-        metrics = output_dir / f"cand_{i:02d}_h3image_{ts}.json"
-        cmd = [config.h3image_python_path, config.h3image_script_path, prompt, "-o", str(png),
+        jobs.append({"i": i, "seed": seed, "png": output_dir / f"cand_{i:02d}_h3image_{ts}.png",
+                     "metrics": output_dir / f"cand_{i:02d}_h3image_{ts}.json"})
+    shape = "Picture 1 shape" if match else ratio
+    results: list[dict] = []
+
+    def _row(job, info):
+        return {"png_path": str(job["png"]), "seed": job["seed"], "engine": "h3-image",
+                "references": len(refs), "refs_ignored": False,
+                "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
+                "seconds": float(info.get("request_seconds") or info.get("total_seconds") or 0.0)}
+
+    # The batch runner loads whole stages and does not implement the engine's
+    # streamed memory policy. Preserve that policy via the engine's own CLI.
+    batch = h3image_batch_supported(config) and not config.h3image_memory
+    if h3image_warm_ready(config):
+        import hostinfo
+        import ph3_image_service
+
+        command = [config.h3image_python_path, config.h3image_warm_script,
+                   "--engine-root", config.h3image_engine_root,
+                   "--root", config.h3image_root, "--text-dir", config.h3image_text_dir,
+                   "--text-config", config.h3image_text_config, "--retain", config.h3image_retain]
+
+        def memory_preflight(reusing):
+            # Chosen under the worker's lock, so an idle eviction cannot turn a warm check into an
+            # unchecked cold load.
+            need = h3image_resident_headroom_gb(config) if reusing else float(config.h3image_warm_cold_gb)
+            if hostinfo.available_bytes() < need * 1024**3:
+                raise ph3_image_service.ResidencyUnavailable("Not enough free memory to keep MiniMax-H3-Image loaded")
+
+        for index, job in enumerate(jobs):
+            if on_log:
+                on_log(f"[h3-image] image {job['i'] + 1}/{n}: {shape} at {mp:g} MP, seed {job['seed']} (models kept loaded)")
+            request = {"prompt": prompt, "output": str(job["png"]), "metrics": str(job["metrics"]),
+                       "seed": job["seed"], "aspect": ratio, "mp": mp,
+                       "references": [str(r) for r in refs], "match_reference": match}
+            try:
+                info = ph3_image_service.H3I_WORKER.request(
+                    command, request, _clean_subprocess_env(),
+                    timeout=float(os.environ.get("PHOSPHENE_H3IMAGE_TIMEOUT_S", "3600")),
+                    on_log=(lambda line: on_log(f"[h3-image] {line}")) if on_log else None,
+                    register=_register_active_proc, unregister=_unregister_active_proc,
+                    preflight=memory_preflight)
+            except ph3_image_service.ResidencyUnavailable:
+                # request() has already closed the worker. The staged path has the smaller budget.
+                if on_log:
+                    on_log("[h3-image] not enough free memory to keep the model loaded; rendering staged")
+                jobs = jobs[index:]
+                break
+            results.append(_row(job, info))
+        else:
+            return results
+        ph3_image_service.evict()
+
+    if batch and len(jobs) > 1:
+        # One engine process for every picture (the Studio's own runner against the installed engine):
+        # the prompt is read once, the DiT and the decoder load once, and the peak stays that of one
+        # picture. An engine checkout the runner cannot stage falls back to one process per picture.
+        stem = output_dir / f"batch_h3image_{ts}.png"
+        metrics = output_dir / f"batch_h3image_{ts}.json"
+        seeds = [j["seed"] for j in jobs]
+        if on_log:
+            on_log(f"[h3-image] {len(jobs)} images in one run: {shape} at {mp:g} MP, seeds {', '.join(map(str, seeds))}")
+        cmd = [config.h3image_python_path, config.h3image_batch_script, prompt, "-o", str(stem),
+               "--engine-root", config.h3image_engine_root,
                "--root", config.h3image_root, "--text-dir", config.h3image_text_dir,
                "--text-config", config.h3image_text_config,
-               "--aspect", ratio, "--mp", f"{mp:g}", "--seed", str(seed), "--metrics", str(metrics)]
+               "--aspect", ratio, "--mp", f"{mp:g}", "--seeds", ",".join(map(str, seeds)), "--metrics", str(metrics)]
         for ref in refs:
             cmd += ["--reference", str(ref)]
         if match:
             cmd.append("--match-reference")
-        if config.h3image_memory:
-            cmd += ["--memory", config.h3image_memory]
-            if config.h3image_budget_gb > 0:
-                cmd += ["--budget-gb", f"{config.h3image_budget_gb:.1f}"]
-        if on_log:
-            on_log(f"[h3-image] image {i + 1}/{n}: {'Picture 1 shape' if match else ratio} at {mp:g} MP, seed {seed}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                errors="replace", env=_clean_subprocess_env(), start_new_session=True)
-        _register_active_proc(proc)
-        deadline = float(os.environ.get("PHOSPHENE_H3IMAGE_TIMEOUT_S", "3600"))
-        timed_out = {"v": False}
-
-        def _kill():
-            timed_out["v"] = True
-            # The image CLI creates no children; stop only the process we started.
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
-
-        wd = threading.Timer(deadline, _kill)
-        wd.daemon = True
-        wd.start()
-        try:
-            if proc.stdout is not None:
-                for line in proc.stdout:
-                    line = line.rstrip()
-                    if line.startswith("memory setting: "):
-                        config.h3image_memory_setting = line[len("memory setting: "):].strip()[:40]
-                    if line and on_log:
-                        on_log(f"[h3-image] {line}")
-            rc = proc.wait()
-        except BaseException:
-            proc.kill()
-            proc.wait()
-            raise
-        finally:
-            wd.cancel()
-            _unregister_active_proc(proc)
-            if proc.stdout is not None:
-                proc.stdout.close()
-        if timed_out["v"]:
-            raise RuntimeError(f"MiniMax-H3-Image exceeded its {deadline:.0f}s deadline and was stopped")
-        if rc in (-15, 143, -9, 137):
-            raise ImageJobCancelled(f"MiniMax-H3-Image cancelled by /stop (rc={rc})")
-        if rc != 0:
-            raise RuntimeError(f"MiniMax-H3-Image failed with rc={rc}")
-        if not png.exists():
-            raise RuntimeError(f"MiniMax-H3-Image finished but no PNG at {png}")
+        rc = _run_h3image_cli(cmd, on_log, allow_rc=(H3IMAGE_ENGINE_TOO_OLD_RC,))
+        batch = rc == 0
+        if not batch and on_log:
+            on_log("[h3-image] the installed engine cannot draw several pictures in one process; one process per picture")
+    if batch and len(jobs) > 1:
         info: dict = {}
         try:
             info = _json.loads(metrics.read_text())
         except Exception:
             pass
-        results.append({"png_path": str(png), "seed": seed, "engine": "h3-image",
-                        "references": len(refs), "refs_ignored": False,
-                        "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
-                        "seconds": float(info.get("request_seconds") or info.get("total_seconds") or 0.0)})
+        pics = {int(p.get("seed")): p for p in info.get("pictures") or [] if p.get("seed") is not None}
+        prev = 0.0
+        for job in jobs:
+            made = stem.with_name(f"{stem.stem}_s{job['seed']}.png")
+            if not made.exists():
+                raise RuntimeError(f"MiniMax-H3-Image finished but no PNG for seed {job['seed']}")
+            made.replace(job["png"])
+            pic = pics.get(job["seed"], {})
+            at = float(pic.get("saved_at_seconds") or 0.0)
+            row = _row(job, info)
+            row["seconds"] = max(0.0, at - prev) if at else row["seconds"] / len(jobs)
+            prev = at or prev
+            results.append(row)
+        return results
+
+    for job in jobs:
+        cmd = [config.h3image_python_path, config.h3image_script_path, prompt, "-o", str(job["png"]),
+               "--root", config.h3image_root, "--text-dir", config.h3image_text_dir,
+               "--text-config", config.h3image_text_config,
+               "--aspect", ratio, "--mp", f"{mp:g}", "--seed", str(job["seed"]), "--metrics", str(job["metrics"])]
+        for ref in refs:
+            cmd += ["--reference", str(ref)]
+        if match:
+            cmd.append("--match-reference")
+        if on_log:
+            on_log(f"[h3-image] image {job['i'] + 1}/{n}: {shape} at {mp:g} MP, seed {job['seed']}")
+        if config.h3image_memory:
+            cmd += ["--memory", config.h3image_memory]
+            if config.h3image_budget_gb > 0:
+                cmd += ["--budget-gb", f"{config.h3image_budget_gb:.1f}"]
+        _run_h3image_cli(cmd, on_log, config=config)
+        if not job["png"].exists():
+            raise RuntimeError(f"MiniMax-H3-Image finished but no PNG at {job['png']}")
+        info = {}
+        try:
+            info = _json.loads(job["metrics"].read_text())
+        except Exception:
+            pass
+        results.append(_row(job, info))
     return results
 
 

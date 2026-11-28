@@ -122,11 +122,15 @@ class _UseOnce:
         _materialize(module.parameters())        # a no-op when read ahead
         # Read the NEXT layer's weights while this one computes: Load nodes
         # run on the CPU stream, and no GPU work waits on them, so the disk
-        # read overlaps the compute (two layers resident, not one).
+        # read overlaps the compute (two layers resident, not one). On short
+        # GPU steps (MLX_MAX_OPS_PER_BUFFER=1, after a watchdog kill), skip
+        # read-ahead so only one block is resident and no background disk I/O
+        # competes with the GPU.
         nxt = object.__getattribute__(self, "_next")
         if nxt is not None:
             object.__setattr__(self, "_next", None)
-            _read_ahead(nxt)
+            if _read_ahead_wanted():
+                _read_ahead(nxt)
         out = module(*args, **kwargs)
         _materialize(out)
         object.__setattr__(self, "_m", None)
@@ -140,6 +144,12 @@ class _UseOnce:
         if module is None:
             raise AttributeError(name)
         return getattr(module, name)
+
+
+def _read_ahead_wanted() -> bool:
+    """Overlap the next layer's disk read with compute unless short GPU steps
+    are active (MLX_MAX_OPS_PER_BUFFER=1, after a macOS GPU watchdog stop)."""
+    return (os.environ.get("MLX_MAX_OPS_PER_BUFFER") or "").strip() != "1"
 
 
 def _read_ahead(module) -> None:
@@ -209,12 +219,21 @@ def _lazy_gemma4_language_model(gemma_path: str):
 
 
 def _stream_tower_layers(tower) -> None:
+    # H74 (fleet, 5.0.84 after H72): embed_tokens (~504 MB) and optional
+    # per-layer input modules stayed lazy while layer 0 queued layer 1's
+    # read-ahead and a Metal command buffer behind them, causing gpu_timeout
+    # even on short GPU steps and 256-token fallback. Wrapping them in
+    # _UseOnce reads each weight set on the CPU stream alone before GPU use
+    # and drops the embedding table before layer 0 loads.
+    for attr in ("embed_tokens", "embed_tokens_per_layer",
+                 "per_layer_model_projection", "per_layer_projection_norm"):
+        if attr in tower and not isinstance(tower[attr], _UseOnce):
+            tower[attr] = _UseOnce(tower[attr], attr, _free)
     layers = tower.layers
     released = {"embed": False}
 
     def drop_embedding():
-        # The first layer's output is materialized, so the token embeddings
-        # (states[0]) are too: the ~0.5 GB embedding table is no longer used.
+        # Drop the now-empty embed_tokens stand-in once layer 0 finishes.
         if not released["embed"]:
             released["embed"] = True
             try:
@@ -273,6 +292,9 @@ def _lazy_connector(model_dir):
     # (which look in the dict first) find them.
     c["text_embedding_projection"] = _OneSideAtATime(c["text_embedding_projection"])
     for side in ("video_embeddings_connector", "audio_embeddings_connector"):
+        # H74: learnable_registers (~1 MB) stayed lazy until block 0 ran,
+        # behind block 1's ~402 MB read-ahead on MLX's CPU stream.
+        _materialize(c[side].learnable_registers)
         _stream_list(c[side].transformer_1d_blocks, f"{side} block")
     return fx
 

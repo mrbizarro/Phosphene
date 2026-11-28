@@ -137,6 +137,7 @@ import storyboard_planner
 # Hailuo H3 prompt guards — short in-prompt sentences against reported H3
 # failures (lines sung, invented rings, dialogue nouns on screen, ellipses).
 # Pure stdlib; applied in run_h3_job_inner right before the runner argv.
+import m5_receipts
 import h3_prompt_guards
 import h3_refs
 # H3 "Write it for me": a local 9B prompt writer (R&D L48), run in a
@@ -11013,12 +11014,17 @@ def fleet_estimate_range(engine: str, mode: str, tier: str, frames,
                      if _ram_tier_for_gb(r) == ram_tier]
     exact2 = [(c, v) for f, c, v in any_chip_tier if f == frames_f]
     if exact2:
-        adjusted = [{**v, "p25_sec": v["p25_sec"] * _fleet_chip_adjust_ratio(engine, c, chip),
-                    "p50_sec": v["p50_sec"] * _fleet_chip_adjust_ratio(engine, c, chip),
-                    "p75_sec": v["p75_sec"] * _fleet_chip_adjust_ratio(engine, c, chip)}
-                   for c, v in exact2]
+        adjusted = []
+        for c, v in exact2:
+            p25, p50, p75 = _fleet_cell_seconds(v)
+            ratio = _fleet_chip_adjust_ratio(engine, c, chip)
+            adjusted.append({"p25_sec": p25 * ratio, "p50_sec": p50 * ratio,
+                             "p75_sec": p75 * ratio, "n": int(v["n"])})
         combined = _combine_fleet_cells(adjusted)
-        return {**_minutes(combined), "source": "ram_tier",
+        return {"p25_min": round(combined["p25_sec"] / 60.0, 2),
+                "p50_min": round(combined["p50_sec"] / 60.0, 2),
+                "p75_min": round(combined["p75_sec"] / 60.0, 2),
+                "n": int(combined["n"]), "source": "ram_tier",
                 "basis": f"based on {combined['n']} renders on Macs with similar memory"}
     if any_chip_tier:
         found_frames, found_chip, hit = min(any_chip_tier, key=lambda t: abs(t[0] - frames_f))
@@ -12466,7 +12472,65 @@ def _build_h3_tiers() -> dict[str, dict]:
                 fleet_fast = fleet_calibrated_range("h3", "t2v", key, frames, speed="fast")
                 if fleet_fast:
                     tiers[key]["fleet_range_fast"] = fleet_fast
+            _reconcile_h3_fleet_ranges(tiers[key])
     return tiers
+
+
+_FLEET_SOURCE_RANK = {"cell": 0, "cell_scaled": 1, "chip_ram_tier": 2,
+                      "chip_ram_tier_scaled": 3, "chip": 4, "ram_tier": 5,
+                      "ram_tier_scaled": 6, "model": 7}
+
+
+def _reconcile_h3_fleet_ranges(cell: dict) -> None:
+    """Keep H3 Fast / v1.3 / Best fleet estimates consistent on this Mac."""
+    if cell.get("fast_hd") or cell.get("tristep_min") is None:
+        return
+    hw = _h3_speed_factor(int(cell.get("chain_windows") or 1))
+    if hw < 0.75 or hw > 1.35:
+        for k in ("fleet_range", "fleet_range_fast", "fleet_range_v13"):
+            if (cell.get(k) or {}).get("source") == "model":
+                cell.pop(k, None)
+    elif cell.get("fleet_range") and cell.get("fleet_range_fast"):
+        for k, other in (("fleet_range", "fleet_range_fast"), ("fleet_range_fast", "fleet_range")):
+            if cell[k].get("source") == "model" and cell[other].get("source") != "model":
+                cell.pop(k, None)
+                break
+
+    def _bad(fk, f_min, f_eta, bk, b_min, b_eta, distinct):
+        ff, fb = cell.get(fk), cell.get(bk)
+        if not ff and not fb:
+            return False
+        f_mid, b_mid = (ff["p50_min"] if ff else f_min), (fb["p50_min"] if fb else b_min)
+        f_str = (ff["eta_range"] if ff else str(f_eta or "")).lstrip("~")
+        b_str = (fb["eta_range"] if fb else str(b_eta or "")).lstrip("~")
+        return f_mid >= b_mid or bool(ff and fb and ff["p75_min"] > fb["p75_min"]) or bool(distinct and f_str == b_str)
+
+    def _fix(fk, f_min, f_eta, bk, b_min, b_eta):
+        distinct = f_min < b_min and f_eta != b_eta
+        if not _bad(fk, f_min, f_eta, bk, b_min, b_eta, distinct):
+            return
+        ff, fb = cell.get(fk), cell.get(bk)
+        if not (ff and fb):
+            cell.pop(fk, None); cell.pop(bk, None); return
+        rf, rb = _FLEET_SOURCE_RANK.get(ff.get("source"), 9), _FLEET_SOURCE_RANK.get(fb.get("source"), 9)
+        if rf != rb:
+            first, second = (fk, bk) if rf > rb else (bk, fk)
+        else:
+            ef = abs(math.log(max(0.01, ff["p50_min"]) / max(0.01, f_min)))
+            eb = abs(math.log(max(0.01, fb["p50_min"]) / max(0.01, b_min)))
+            first, second = (fk, bk) if ef >= eb else (bk, fk)
+        cell.pop(first, None)
+        if _bad(fk, f_min, f_eta, bk, b_min, b_eta, distinct):
+            cell.pop(second, None)
+
+    tri_min, best_min = float(cell["tristep_min"]), float(cell["eta_min"])
+    pairs = [("fleet_range_fast", tri_min, cell.get("tristep_eta"), "fleet_range", best_min, cell.get("eta"))]
+    if cell.get("v13_min") is not None:
+        v13 = (float(cell["v13_min"]), cell.get("v13_eta"))
+        pairs += [("fleet_range_fast", tri_min, cell.get("tristep_eta"), "fleet_range_v13", *v13),
+                  ("fleet_range_v13", *v13, "fleet_range", best_min, cell.get("eta"))]
+    for p in pairs:
+        _fix(*p)
 
 
 H3_TIERS: dict[str, dict] = _build_h3_tiers()
@@ -17377,7 +17441,52 @@ def h3image_engine_config(tier: str = "standard"):
         h3image_mp=float(mp),
         # Low-memory mode when the runner has it; the pre-flight fills h3image_budget_gb.
         h3image_memory="auto" if h3image_lowmem_active() else "",
+        h3image_batch_script=str(_h3image_batch_script()),
+        h3image_engine_root=str(H3_ROOT),
+        **h3image_keep_loaded_fields(),
     )
+
+
+def _h3image_batch_script() -> Path:
+    """The Studio's own runner that draws every picture of a job in one engine process."""
+    return ROOT / "scripts" / "h3_image_batch.py"
+
+
+def h3image_keep_loaded_spec() -> dict | None:
+    """Pro ledger row h3-image-keep: the signed Pro pack's answer for keeping the picture model loaded
+    between pictures on this Mac, or None (Free, no pack, the pack declined this Mac, or turned off with
+    PHOSPHENE_H3IMAGE_KEEP_LOADED=0). The answer names the worker file the pack installed beside the
+    Studio and, per memory tier, what it keeps and the free memory a fresh worker needs; the Studio
+    holds none of those values."""
+    if (os.environ.get("PHOSPHENE_H3IMAGE_KEEP_LOADED") or "").strip() in ("0", "false", "no"):
+        return None
+    if not bool(pro_status().get("active")):
+        return None
+    doc = _h3_pro_addon("h3_image_keep")
+    if not doc or not doc.get("worker") or not isinstance(doc.get("tiers"), list):
+        return None
+    import hostinfo
+    ram_gb = hostinfo.total_ram_bytes() / 1024**3
+    tier = None
+    for row in sorted(doc["tiers"], key=lambda r: float(r.get("min_gb") or 0), reverse=True):
+        if ram_gb >= float(row.get("min_gb") or 0):
+            tier = row
+            break
+    if not tier or not tier.get("retain") or not tier.get("cold_gb"):
+        return None
+    script = ROOT / str(doc["worker"])
+    if not script.is_file():
+        return None
+    return {"script": str(script), "retain": str(tier["retain"]), "cold_gb": float(tier["cold_gb"])}
+
+
+def h3image_keep_loaded_fields() -> dict:
+    """The ImageEngineConfig fields for the resident worker: empty on Free."""
+    spec = h3image_keep_loaded_spec()
+    if not spec:
+        return {}
+    return {"h3image_warm_service": True, "h3image_warm_script": spec["script"],
+            "h3image_retain": spec["retain"], "h3image_warm_cold_gb": spec["cold_gb"]}
 
 
 def h3image_engine_rows() -> list[dict]:
@@ -19672,6 +19781,35 @@ def _h3_lowmem_small_mac(cmd: list[str], ram_gb: float | None = None) -> bool:
     what `memory_plan` priced and drove 16 GB `draft_5s` into Metal OOM."""
     ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
     return "--low-memory" in cmd and 0 < ram < H3_MIN_RAM_GB_Q8
+
+
+def _h3_cmd_lowmem_retry(cmd: list[str]) -> list[str]:
+    """Rewrite an H3 runner argv for a one-shot streamed retry after a resident
+    Metal out-of-memory failure (H75): force `--low-memory on` while keeping
+    the requested decoder and all picture-generation settings unchanged."""
+    out = list(cmd)
+    if "--low-memory" in out:
+        i = out.index("--low-memory")
+        if i + 1 < len(out):
+            out[i + 1] = "on"
+        else:
+            out.append("on")
+    else:
+        out += ["--low-memory", "on"]
+    return out
+
+
+def _h3_oom_can_retry_lowmem(cmd: list[str], job: dict, streamable: bool) -> bool:
+    """Whether a Metal OOM on attempt 0 should retry once in `--low-memory on`."""
+    if not streamable or not _h3_runner_has_flag("--low-memory"):
+        return False
+    if job.get("cancel_requested") or job.get("mem_mode") == "lowmem":
+        return False
+    if "--low-memory" in cmd:
+        i = cmd.index("--low-memory")
+        if i + 1 < len(cmd) and cmd[i + 1] == "on":
+            return False
+    return True
 
 
 def h3_supports_tae_draft() -> bool:
@@ -22823,6 +22961,9 @@ def _analytics_clean_props(props: dict) -> dict:
                        # would spoof the address the GeoIP step reads and a
                        # stray "$geoip_city_name" would invent a location.
                        # Ours are spread in _analytics_post, after this pass.
+        if k in m5_receipts.PREFIXES.values():
+            out[k] = m5_receipts.clean(val)
+            continue
         if isinstance(val, bool) or isinstance(val, int) or isinstance(val, float):
             out[k] = val
         elif isinstance(val, str):
@@ -25566,6 +25707,8 @@ def _analytics_render_event(job: dict) -> None:
             "source": _analytics_source(p, job),
             "audio_mode": _analytics_audio_mode(p, engine, mode),
         }
+        props.update(m5_receipts.properties(job))
+        props.update(m5_receipts.timing_properties(job, props["chip_family"], engine))
         if mode == "image" and job.get("image_partial"):
             partial = job["image_partial"]
             import image_diagnostics
@@ -42612,10 +42755,11 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto", refs: int = 0) -
     (pass or skip) so post-mortems can tell the difference between "preflight
     rejected this" and "preflight passed and the render still died".
     """
-    if getattr(cfg, "kind", None) != "ph3image":
-        import ph3_image_service
-        ph3_image_service.evict()
-    if getattr(cfg, "kind", None) == "ph3image" and getattr(cfg, "ph3image_warm_service", False) and HELPER.is_alive():
+    import ph3_image_service
+    ph3_image_service.evict(keep=getattr(cfg, "kind", None))
+    if (getattr(cfg, "kind", None) == "ph3image" and getattr(cfg, "ph3image_warm_service", False)
+            or getattr(cfg, "kind", None) == "h3image" and getattr(cfg, "h3image_warm_service", False)) \
+            and HELPER.is_alive():
         # The resident image stack and the video helper cannot both keep their
         # full weights on the reference Mac. The GPU gate makes the helper idle.
         HELPER.kill()
@@ -42701,6 +42845,11 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto", refs: int = 0) -
         # atomically with choosing its process. Counting all resident weights
         # again here would refuse the second image on a 64 GB Mac.
         need_gb = agent_image_engine.ph3image_resident_headroom_gb(cfg)
+    if cfg.kind == "h3image" and agent_image_engine.h3image_warm_ready(cfg):
+        # Same as above: the resident worker checks its own cold or warm budget when it picks its
+        # process, and falls back to staged when it does not fit. Counting the kept DiT again here
+        # would refuse the second picture.
+        need_gb = min(need_gb, agent_image_engine.h3image_resident_headroom_gb(cfg))
     if free_gb < need_gb and HELPER.is_alive():
         # The video helper keeps its pipelines warm between jobs; on a 32 GB
         # Mac that is most of the memory an image engine needs, and the fleet
@@ -45814,10 +45963,16 @@ def run_h3_job_inner(job: dict) -> None:
         _mem_gb, _wired_gb = h3_memory_budget()
         if _mem_gb > 0:
             cmd += ["--memory-gb", str(_mem_gb), "--wired-gb", str(_wired_gb)]
-    # Low-memory plan (8 Nov 2026): "auto" keeps today's all-in-memory path whenever the
-    # Mac has the room (byte-identical output) and streams instead of swapping when it
-    # does not. Older runners without the flag are left alone.
-    if SYSTEM_RAM_GB < H3_MIN_RAM_GB and _h3_runner_has_flag("--low-memory"):
+    # Low-memory plan (8 Nov 2026; H75, 23 Nov 2026: extended to 64 GB+ Macs on
+    # sharded Q8/References packs): "auto" keeps today's all-in-memory path
+    # whenever the Mac has the room (byte-identical output, zero overhead),
+    # streams instead of OOMing when other apps hold RAM, runs h3_memory_hold
+    # admission, and enables the runner's 1-tile VAE decode OOM retry.
+    # Single-file bf16 checkpoints stay off --low-memory because
+    # memory_plan.checkpoint_sizes only reads sharded directories.
+    _h3_lowmem_streamable = bool(_dit_kind == "q8" or refs_pictures)
+    if ((SYSTEM_RAM_GB < H3_MIN_RAM_GB or _h3_lowmem_streamable)
+            and _h3_runner_has_flag("--low-memory")):
         cmd += ["--low-memory", "auto"]
     # The runner checks a cache entry against the prompt IT encodes: the
     # positional prompt, or window 1's prompt on the shot-list path (it turns
@@ -46171,252 +46326,277 @@ def run_h3_job_inner(job: dict) -> None:
     if h3_gpu_steps_env(env):
         _gpu_steps_note(job)
         push(f"[gpu] {GPU_STEPS_NOTE[0].upper()}{GPU_STEPS_NOTE[1:]}.")
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(H3_ROOT),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True, errors="replace",
-            bufsize=1,
-            # Own process group so /stop can take down caffeinate + python +
-            # the ffmpeg it pipes into with one killpg.
-            start_new_session=True,
-        )
-        with LOCK:
-            STATE["pid"] = proc.pid
-        # Registered and checked against Stop in ONE lock section, so a Stop
-        # racing this spawn either finds the pgid or is found by it.
-        _register_job_pgid("h3_pgid", proc.pid, job)
-        # Crash guard — see reap_orphan_subprocesses(). start_new_session means
-        # a SIGKILLed panel leaves this 40 GiB render running; the next boot
-        # reaps it from this file before the queue resumes the same job.
-        _proc_guard_write("h3", proc.pid, os.getpgid(proc.pid),
-                          note=f"job {job['id']}")
-        assert proc.stdout is not None
-        # IDLE DEADLINE. A child that is alive but silent — SIGSTOP, or a
-        # machine so deep in swap that no denoise step ever completes — used
-        # to block this read forever: the job showed its last progress line
-        # for the rest of the session and no analytics event was ever
-        # emitted. Denoise steps print continuously (the slowest measured
-        # step is ~2 min on a chained window), so 20 minutes of total
-        # silence is not patience, it is a hang. select() on the raw fd
-        # costs nothing when output is flowing.
-        import selectors as _selectors
-        _sel = _selectors.DefaultSelector()
-        _sel.register(proc.stdout, _selectors.EVENT_READ)
-        _h3_lowmem = "--low-memory" in cmd
-        _h3_idle_limit = h3_idle_limit_sec(
-            _modeled_per_step, _decode_est, low_memory=_h3_lowmem)
+    for _h3_attempt in range(2):
+        proc = None
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(H3_ROOT),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True, errors="replace",
+                bufsize=1,
+                # Own process group so /stop can take down caffeinate + python +
+                # the ffmpeg it pipes into with one killpg.
+                start_new_session=True,
+            )
+            with LOCK:
+                STATE["pid"] = proc.pid
+            # Registered and checked against Stop in ONE lock section, so a Stop
+            # racing this spawn either finds the pgid or is found by it.
+            _register_job_pgid("h3_pgid", proc.pid, job)
+            # Crash guard — see reap_orphan_subprocesses(). start_new_session means
+            # a SIGKILLed panel leaves this 40 GiB render running; the next boot
+            # reaps it from this file before the queue resumes the same job.
+            _proc_guard_write("h3", proc.pid, os.getpgid(proc.pid),
+                              note=f"job {job['id']}")
+            assert proc.stdout is not None
+            # IDLE DEADLINE. A child that is alive but silent — SIGSTOP, or a
+            # machine so deep in swap that no denoise step ever completes — used
+            # to block this read forever: the job showed its last progress line
+            # for the rest of the session and no analytics event was ever
+            # emitted. Denoise steps print continuously (the slowest measured
+            # step is ~2 min on a chained window), so 20 minutes of total
+            # silence is not patience, it is a hang. select() on the raw fd
+            # costs nothing when output is flowing.
+            import selectors as _selectors
+            _sel = _selectors.DefaultSelector()
+            _sel.register(proc.stdout, _selectors.EVENT_READ)
+            _h3_lowmem = "--low-memory" in cmd
+            _h3_idle_limit = h3_idle_limit_sec(
+                _modeled_per_step, _decode_est, low_memory=_h3_lowmem)
 
-        def _h3_lines():
-            buf = b""
-            try:
-                while True:
-                    if not _sel.select(timeout=_h3_idle_limit):
+            def _h3_lines():
+                buf = b""
+                try:
+                    while True:
+                        if not _sel.select(timeout=_h3_idle_limit):
+                            try:
+                                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                            except (ProcessLookupError, PermissionError, OSError):
+                                pass
+                            _mins = max(1, int(round(_h3_idle_limit / 60.0)))
+                            _where = f" during {phase_label}" if phase_label else ""
+                            raise RuntimeError(
+                                f"H3 render timed out — no output for {_mins} minutes{_where}, so "
+                                "the process was stopped. The cause is unknown. "
+                                "Try again. If it happens again, try a shorter clip "
+                                "or smaller size and use Report a bug.")
+                        chunk = os.read(proc.stdout.fileno(), 65536)
+                        if not chunk:
+                            if buf:
+                                yield buf.decode("utf-8", "replace")
+                            return
+                        buf += chunk
+                        while b"\n" in buf:
+                            line, buf = buf.split(b"\n", 1)
+                            yield line.decode("utf-8", "replace") + "\n"
+                finally:
+                    try:
+                        _sel.close()
+                    except Exception:                                    # noqa: BLE001
+                        pass
+
+            # The last few lines the engine printed ride on the failure message
+            # (fleet 2026-09-03: 20 H3 failures on one release all read
+            # "exited with code 1 — see the log above", which analytics cannot
+            # see and users rarely paste). Traceback tails are what we want.
+            # Deep enough to hold a whole Python traceback's tail: the line that
+            # names the exception can sit several lines above the last one.
+            # 40, not 14: nanobind prints its whole accepted-signature block
+            # under the exception, which pushed every `File "...", line N`
+            # frame out of the window — so the fleet got an exception with no
+            # line of code behind it (4.14.3 `repeat()` I2V crashes).
+            _h3_tail: collections.deque = collections.deque(maxlen=40)
+            for raw in _h3_lines():
+                line = raw.rstrip("\n")
+                if not line.strip():
+                    continue
+                if m5_receipts.consume(job, line):
+                    continue
+                push(f"[h3] {line}")
+                _h3_tail.append(line.strip())
+                m_window = window_rx.match(line.strip())
+                if m_window:
+                    _prev_window = cur_window
+                    try:
+                        cur_window = max(1, int(m_window.group(1)))
+                        tot_windows = max(cur_window, int(m_window.group(2)))
+                    except (TypeError, ValueError):
+                        pass
+                    # Reset the per-window clocks: the step counter restarts at 1
+                    # for every window, and the denoise clock has to restart with
+                    # it or the ETA prices this window off the previous one's load.
+                    denoise_t0 = None
+                    last_step = 0
+                    # H3-11 (plain chained windows, not a One Shot): the runner
+                    # writes ONE file for the whole chain and has no per-window
+                    # checkpoint API, so the only boundary this panel can act on
+                    # is "a new window just started in the log" — the window
+                    # before it is as done as this engine is ever going to report.
+                    # /stop/after_part sets `stop_after_part` on the live job;
+                    # honour it here, at the FIRST window transition seen after
+                    # it was set, by asking the whole process group to stop.
+                    # SIGTERM, not the hard-stop's immediate kill — ffmpeg is
+                    # piped raw frames and needs the signal to flush and close
+                    # the moov atom on whatever windows it already muxed. What
+                    # lands at out_path afterward is checked below and, if
+                    # playable, published instead of thrown away.
+                    if (cur_window > _prev_window and cur_window > 1
+                            and job.get("stop_after_part") and not _stop_after_window_sent):
+                        _stop_after_window_sent = True
+                        push(f"[h3] stop-after-window requested — asking the engine to stop "
+                             f"before window {cur_window} of {tot_windows} (window "
+                             f"{_prev_window} already rendered)")
                         try:
-                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                         except (ProcessLookupError, PermissionError, OSError):
                             pass
-                        _mins = max(1, int(round(_h3_idle_limit / 60.0)))
-                        _where = f" during {phase_label}" if phase_label else ""
-                        raise RuntimeError(
-                            f"H3 render timed out — no output for {_mins} minutes{_where}, so "
-                            "the process was stopped. The cause is unknown. "
-                            "Try again. If it happens again, try a shorter clip "
-                            "or smaller size and use Report a bug.")
-                    chunk = os.read(proc.stdout.fileno(), 65536)
-                    if not chunk:
-                        if buf:
-                            yield buf.decode("utf-8", "replace")
-                        return
-                    buf += chunk
-                    while b"\n" in buf:
-                        line, buf = buf.split(b"\n", 1)
-                        yield line.decode("utf-8", "replace") + "\n"
-            finally:
-                try:
-                    _sel.close()
-                except Exception:                                    # noqa: BLE001
-                    pass
-
-        # The last few lines the engine printed ride on the failure message
-        # (fleet 2026-09-03: 20 H3 failures on one release all read
-        # "exited with code 1 — see the log above", which analytics cannot
-        # see and users rarely paste). Traceback tails are what we want.
-        # Deep enough to hold a whole Python traceback's tail: the line that
-        # names the exception can sit several lines above the last one.
-        # 40, not 14: nanobind prints its whole accepted-signature block
-        # under the exception, which pushed every `File "...", line N`
-        # frame out of the window — so the fleet got an exception with no
-        # line of code behind it (4.14.3 `repeat()` I2V crashes).
-        _h3_tail: collections.deque = collections.deque(maxlen=40)
-        for raw in _h3_lines():
-            line = raw.rstrip("\n")
-            if not line.strip():
-                continue
-            push(f"[h3] {line}")
-            _h3_tail.append(line.strip())
-            m_window = window_rx.match(line.strip())
-            if m_window:
-                _prev_window = cur_window
-                try:
-                    cur_window = max(1, int(m_window.group(1)))
-                    tot_windows = max(cur_window, int(m_window.group(2)))
-                except (TypeError, ValueError):
-                    pass
-                # Reset the per-window clocks: the step counter restarts at 1
-                # for every window, and the denoise clock has to restart with
-                # it or the ETA prices this window off the previous one's load.
-                denoise_t0 = None
-                last_step = 0
-                # H3-11 (plain chained windows, not a One Shot): the runner
-                # writes ONE file for the whole chain and has no per-window
-                # checkpoint API, so the only boundary this panel can act on
-                # is "a new window just started in the log" — the window
-                # before it is as done as this engine is ever going to report.
-                # /stop/after_part sets `stop_after_part` on the live job;
-                # honour it here, at the FIRST window transition seen after
-                # it was set, by asking the whole process group to stop.
-                # SIGTERM, not the hard-stop's immediate kill — ffmpeg is
-                # piped raw frames and needs the signal to flush and close
-                # the moov atom on whatever windows it already muxed. What
-                # lands at out_path afterward is checked below and, if
-                # playable, published instead of thrown away.
-                if (cur_window > _prev_window and cur_window > 1
-                        and job.get("stop_after_part") and not _stop_after_window_sent):
-                    _stop_after_window_sent = True
-                    push(f"[h3] stop-after-window requested — asking the engine to stop "
-                         f"before window {cur_window} of {tot_windows} (window "
-                         f"{_prev_window} already rendered)")
+                m_phase = phase_rx.match(line.strip())
+                if m_phase:
+                    raw_phase = m_phase.group(1).strip()
+                    # `w2_joint_denoise` → `joint_denoise` on a chained run.
+                    bare_phase = window_prefix_rx.sub("", raw_phase)
+                    phase_label = {
+                        "text_encode_q8": "Encoding prompt (Q8 text encoder)",
+                        "text_cache_load": "Loading cached prompt embedding",
+                        "keyframe_encode": "Encoding first frame",
+                        "dit_load_bf16": "Loading H3 transformer (bf16)",
+                        "dit_load_q8": "Loading H3 transformer (Q8)",
+                        "dit_load_q4": "Loading H3 transformer (Q4)",
+                        "adaln_cache_and_noise": "Building AdaLN cache",
+                        "joint_denoise": "Denoising video + audio",
+                        "video_vae_decode": "Decoding video",
+                        "audio_vae_decode": "Decoding audio",
+                        "encode_mux": "Encoding mp4",
+                        "stitch": "Stitching windows",
+                    }.get(bare_phase, bare_phase)
+                    if bare_phase == "joint_denoise":
+                        denoise_t0 = time.time()
+                m_step = step_rx.match(line.strip())
+                if m_step:
                     try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    except (ProcessLookupError, PermissionError, OSError):
+                        last_step = int(m_step.group(1))
+                        total_steps = max(1, int(m_step.group(2)))
+                    except (TypeError, ValueError):
                         pass
-            m_phase = phase_rx.match(line.strip())
-            if m_phase:
-                raw_phase = m_phase.group(1).strip()
-                # `w2_joint_denoise` → `joint_denoise` on a chained run.
-                bare_phase = window_prefix_rx.sub("", raw_phase)
-                phase_label = {
-                    "text_encode_q8": "Encoding prompt (Q8 text encoder)",
-                    "text_cache_load": "Loading cached prompt embedding",
-                    "keyframe_encode": "Encoding first frame",
-                    "dit_load_bf16": "Loading H3 transformer (bf16)",
-                    "dit_load_q8": "Loading H3 transformer (Q8)",
-                    "dit_load_q4": "Loading H3 transformer (Q4)",
-                    "adaln_cache_and_noise": "Building AdaLN cache",
-                    "joint_denoise": "Denoising video + audio",
-                    "video_vae_decode": "Decoding video",
-                    "audio_vae_decode": "Decoding audio",
-                    "encode_mux": "Encoding mp4",
-                    "stitch": "Stitching windows",
-                }.get(bare_phase, bare_phase)
-                if bare_phase == "joint_denoise":
-                    denoise_t0 = time.time()
-            m_step = step_rx.match(line.strip())
-            if m_step:
-                try:
-                    last_step = int(m_step.group(1))
-                    total_steps = max(1, int(m_step.group(2)))
-                except (TypeError, ValueError):
-                    pass
-            elapsed = time.time() - t0
-            # Denoise dominates wall time; give it the 5–92% band so the bar
-            # doesn't sit at 0 through a 30 s model load and then jump. On a
-            # chained run the band is split evenly across windows — each window
-            # is the same shape and measured within 0.3% of the others, so
-            # "window 2 of 3, step 4/8" is a real fraction of the whole clip.
-            win_span = 87.0 / float(tot_windows)
-            win_base = 5.0 + win_span * (cur_window - 1)
-            win_tag = f"Window {cur_window}/{tot_windows} · " if tot_windows > 1 else ""
-            post = bool(last_step) and bare_phase in _H3_POST_PHASES
-            if last_step:
-                pct = win_base + win_span * (last_step / float(total_steps))
-                spent = elapsed if denoise_t0 is None else max(0.0, time.time() - denoise_t0)
-                per_step = spent / max(1, last_step)
-                _h3_idle_limit = max(
-                    _h3_idle_limit,
-                    h3_idle_limit_sec(_modeled_per_step, _decode_est,
-                                      low_memory=_h3_lowmem,
-                                      measured_step_sec=per_step))
-                # H3-04: pace check. Needs a couple of steps before the
-                # measured per-step time means anything (the first step
-                # after a phase change often carries residual setup cost).
-                _slow_pace = (last_step >= 2 and _modeled_per_step > 0
-                             and per_step > _modeled_per_step * 1.5)
-                # Remaining steps in this window, plus every step of every
-                # window still to come — and the decodes still owed, so the
-                # clock does not read 0 through a minutes-long VAE decode.
-                later = tot_windows - cur_window
-                left = (total_steps - last_step) + total_steps * later
-                # Each window still to come also pays its staged loads, prompt
-                # encode and adaLN build before its first step (H3_LOAD_SEC in
-                # the cost model); leaving them out undersold a 15 s clip.
-                eta = max(0.0, left * per_step
-                          + _load_est * later
-                          + _decode_est * (later + (1 if not post
-                                                    or bare_phase == "video_vae_decode"
-                                                    else 0)))
-                label = (f"{win_tag}{phase_label}" if post else
-                         f"{win_tag}{phase_label} · step {last_step} / {total_steps}")
-            else:
-                pct = max(3.0, win_base)
-                # H3-23: counts down from the cell's own estimate rather
-                # than sitting on a hardcoded 0.0 (which the client reads
-                # as falsy and shows no ETA at all for).
-                eta = max(0.0, _load_eta_seed - elapsed)
-                label = f"{win_tag}{phase_label}"
-                _slow_pace = False
-            # H3-04: "expected 18, waited 43+" (Pinokio, 2026-09-20) matched a
-            # Standard 10s on an M4 Pro 48 GB exactly — the render was
-            # quietly running Best (2.6x Fast's price on that cell) with no
-            # sign of it anywhere on screen, AND running slower than even
-            # Best's own estimate (memory pressure). Named here so the Now
-            # card can say both: which speed is actually rendering, and
-            # whether it is keeping pace with what that speed promised.
-            _pace_note = ""
-            if _slow_pace:
-                _fast_alt = tier.get("tristep_min")
-                _pace_note = "running slower than estimated — may be swapping"
-                if not tristep and _fast_alt is not None:
-                    _pace_note += f"; Fast would take about {_fmt_eta(_fast_alt)}"
+                elapsed = time.time() - t0
+                # Denoise dominates wall time; give it the 5–92% band so the bar
+                # doesn't sit at 0 through a 30 s model load and then jump. On a
+                # chained run the band is split evenly across windows — each window
+                # is the same shape and measured within 0.3% of the others, so
+                # "window 2 of 3, step 4/8" is a real fraction of the whole clip.
+                win_span = 87.0 / float(tot_windows)
+                win_base = 5.0 + win_span * (cur_window - 1)
+                win_tag = f"Window {cur_window}/{tot_windows} · " if tot_windows > 1 else ""
+                post = bool(last_step) and bare_phase in _H3_POST_PHASES
+                if last_step:
+                    pct = win_base + win_span * (last_step / float(total_steps))
+                    spent = elapsed if denoise_t0 is None else max(0.0, time.time() - denoise_t0)
+                    per_step = spent / max(1, last_step)
+                    _h3_idle_limit = max(
+                        _h3_idle_limit,
+                        h3_idle_limit_sec(_modeled_per_step, _decode_est,
+                                          low_memory=_h3_lowmem,
+                                          measured_step_sec=per_step))
+                    # H3-04: pace check. Needs a couple of steps before the
+                    # measured per-step time means anything (the first step
+                    # after a phase change often carries residual setup cost).
+                    _slow_pace = (last_step >= 2 and _modeled_per_step > 0
+                                 and per_step > _modeled_per_step * 1.5)
+                    # Remaining steps in this window, plus every step of every
+                    # window still to come — and the decodes still owed, so the
+                    # clock does not read 0 through a minutes-long VAE decode.
+                    later = tot_windows - cur_window
+                    left = (total_steps - last_step) + total_steps * later
+                    # Each window still to come also pays its staged loads, prompt
+                    # encode and adaLN build before its first step (H3_LOAD_SEC in
+                    # the cost model); leaving them out undersold a 15 s clip.
+                    eta = max(0.0, left * per_step
+                              + _load_est * later
+                              + _decode_est * (later + (1 if not post
+                                                        or bare_phase == "video_vae_decode"
+                                                        else 0)))
+                    label = (f"{win_tag}{phase_label}" if post else
+                             f"{win_tag}{phase_label} · step {last_step} / {total_steps}")
+                else:
+                    pct = max(3.0, win_base)
+                    # H3-23: counts down from the cell's own estimate rather
+                    # than sitting on a hardcoded 0.0 (which the client reads
+                    # as falsy and shows no ETA at all for).
+                    eta = max(0.0, _load_eta_seed - elapsed)
+                    label = f"{win_tag}{phase_label}"
+                    _slow_pace = False
+                # H3-04: "expected 18, waited 43+" (Pinokio, 2026-09-20) matched a
+                # Standard 10s on an M4 Pro 48 GB exactly — the render was
+                # quietly running Best (2.6x Fast's price on that cell) with no
+                # sign of it anywhere on screen, AND running slower than even
+                # Best's own estimate (memory pressure). Named here so the Now
+                # card can say both: which speed is actually rendering, and
+                # whether it is keeping pace with what that speed promised.
+                _pace_note = ""
+                if _slow_pace:
+                    _fast_alt = tier.get("tristep_min")
+                    _pace_note = "running slower than estimated — may be swapping"
+                    if not tristep and _fast_alt is not None:
+                        _pace_note += f"; Fast would take about {_fmt_eta(_fast_alt)}"
+                with LOCK:
+                    cur = STATE.get("current")
+                    if cur and cur.get("id") == job["id"]:
+                        cur["progress"] = {
+                            "phase": ("decode" if post else
+                                      "denoise" if last_step else "load"),
+                            "phase_label": label,
+                            "pct": min(99.0, pct),
+                            "elapsed_sec": elapsed,
+                            "eta_sec": eta,
+                            # eta_sec here is the time LEFT, and the Now card
+                            # printed it as "27m 23s / ~18m 21s", which a user read
+                            # as an 18-minute total (Pinokio, 2026-09-20). Handing
+                            # it over as remaining_sec makes the card say
+                            # "27m 23s in · ~18m 21s left". Populated during load
+                            # too now (H3-23) — the seeded cell estimate, not a
+                            # per-step extrapolation, but a real number beats none.
+                            "remaining_sec": eta,
+                            # H3-04: which speed is actually rendering (a Now
+                            # card had no way to show this before) and, when the
+                            # render is running meaningfully slower than even
+                            # that speed's own estimate, why and what would help.
+                            "h3_speed": ("fast" if tristep else "flex" if flex else "flex_turbo" if flex_turbo else "best"),
+                            "h3_pace_warning": _pace_note,
+                            "denoise_step": last_step,
+                            "denoise_total": total_steps,
+                            "window": cur_window,
+                            "window_total": tot_windows,
+                        }
+            rc = proc.wait()
+            proc = None
             with LOCK:
-                cur = STATE.get("current")
-                if cur and cur.get("id") == job["id"]:
-                    cur["progress"] = {
-                        "phase": ("decode" if post else
-                                  "denoise" if last_step else "load"),
-                        "phase_label": label,
-                        "pct": min(99.0, pct),
-                        "elapsed_sec": elapsed,
-                        "eta_sec": eta,
-                        # eta_sec here is the time LEFT, and the Now card
-                        # printed it as "27m 23s / ~18m 21s", which a user read
-                        # as an 18-minute total (Pinokio, 2026-09-20). Handing
-                        # it over as remaining_sec makes the card say
-                        # "27m 23s in · ~18m 21s left". Populated during load
-                        # too now (H3-23) — the seeded cell estimate, not a
-                        # per-step extrapolation, but a real number beats none.
-                        "remaining_sec": eta,
-                        # H3-04: which speed is actually rendering (a Now
-                        # card had no way to show this before) and, when the
-                        # render is running meaningfully slower than even
-                        # that speed's own estimate, why and what would help.
-                        "h3_speed": ("fast" if tristep else "flex" if flex else "flex_turbo" if flex_turbo else "best"),
-                        "h3_pace_warning": _pace_note,
-                        "denoise_step": last_step,
-                        "denoise_total": total_steps,
-                        "window": cur_window,
-                        "window_total": tot_windows,
-                    }
-        rc = proc.wait()
-        proc = None
-        with LOCK:
-            STATE["pid"] = None
-            STATE["h3_pgid"] = None
-        _proc_guard_clear("h3")
+                STATE["pid"] = None
+                STATE["h3_pgid"] = None
+            _proc_guard_clear("h3")
+        finally:
+            if proc is not None:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except (OSError, ProcessLookupError):
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except Exception:      # noqa: BLE001
+                    try:
+                        proc.kill()
+                    except Exception:  # noqa: BLE001
+                        pass
+                with LOCK:
+                    STATE["pid"] = None
+                    STATE["h3_pgid"] = None
+                _proc_guard_clear("h3")
+            # Whatever happened (done, stopped, failed), the runner's mux WAVs are
+            # intermediates. Extend still needs <out>.wav for its splice; it is
+            # dropped after that below.
+            _h3_drop_runner_wavs(out_path, t0, keep_main=(mode == "extend"))
         try:
             # Analytics mem_mode: which memory path the runner took (its metrics file).
             job["mem_mode"] = _h3_mem_mode_from_metrics(metrics_path, "--low-memory" in cmd)
@@ -46468,6 +46648,27 @@ def run_h3_job_inner(job: dict) -> None:
                 job["crash_line"] = _h3_crash_line
                 job["crash_phase"] = _h3_cphase
             if h3_metal_oom_line(list(_h3_tail)):
+                if (_h3_attempt == 0
+                        and _h3_oom_can_retry_lowmem(cmd, job, _h3_lowmem_streamable)):
+                    # H75: a large Mac that started in resident mode and hit Metal OOM
+                    # mid-render (memory contention or a peak pass) retries once in
+                    # streamed low-memory mode (same clip, ~6-9 GB peak).
+                    cmd = _h3_cmd_lowmem_retry(cmd)
+                    job["h3_oom_retried_lowmem"] = True
+                    push("[h3] Hailuo H3 ran out of Metal memory in resident mode — "
+                         "retrying once in low-memory streamed mode (same clip, lower peak).")
+                    try:
+                        metrics_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    _raise_if_cancelled(job, "the H3 render")
+                    h3_memory_hold(job, cmd, env, str(H3_ROOT))
+                    denoise_t0 = None
+                    last_step, cur_window, bare_phase = 0, 1, ""
+                    phase_label = "Loading H3 text encoder"
+                    job.pop("crash_line", None)
+                    job.pop("crash_phase", None)
+                    continue
                 job["crash_line"] = "gpu_oom"
                 job["crash_phase"] = _h3_cphase
                 # Fleet 18 Nov: Metal "Insufficient Memory" on 16 GB Macs making
@@ -46539,27 +46740,8 @@ def run_h3_job_inner(job: dict) -> None:
                 f"H3 render exited with code {rc}"
                 + (f" — last line: {_last[:220]}" if _last else "")
                 + f" (see the log above; metrics at {metrics_path}).")
-    finally:
-        if proc is not None:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (OSError, ProcessLookupError):
-                pass
-            try:
-                proc.wait(timeout=5)
-            except Exception:      # noqa: BLE001
-                try:
-                    proc.kill()
-                except Exception:  # noqa: BLE001
-                    pass
-            with LOCK:
-                STATE["pid"] = None
-                STATE["h3_pgid"] = None
-            _proc_guard_clear("h3")
-        # Whatever happened (done, stopped, failed), the runner's mux WAVs are
-        # intermediates. Extend still needs <out>.wav for its splice; it is
-        # dropped after that below.
-        _h3_drop_runner_wavs(out_path, t0, keep_main=(mode == "extend"))
+        break
+
 
     if not out_path.is_file():
         raise RuntimeError(

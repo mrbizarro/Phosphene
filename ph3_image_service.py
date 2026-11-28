@@ -1,4 +1,4 @@
-"""Bounded, evictable P-H3-Image worker. No model or MLX imports in Studio."""
+"""Bounded, evictable image workers (P-H3-Image, MiniMax-H3-Image). No model or MLX imports in Studio."""
 from __future__ import annotations
 import atexit
 import json
@@ -15,8 +15,9 @@ class ResidencyUnavailable(RuntimeError):
 
 
 class ImageWorker:
-    def __init__(self, idle_seconds=60):
+    def __init__(self, idle_seconds=60, prefix='PH3_RESULT ', label='P-H3-Image'):
         self.idle_seconds = idle_seconds
+        self.prefix, self.label = prefix, label
         self._lock = threading.RLock()
         self._proc = None
         self._key = None
@@ -94,21 +95,21 @@ class ImageWorker:
                 while True:
                     remaining = timeout - (time.monotonic() - started)
                     if remaining <= 0:
-                        raise RuntimeError('P-H3-Image timed out')
+                        raise RuntimeError(f'{self.label} timed out')
                     try:
                         line = self._events.get(timeout=min(remaining, .25))
                     except queue.Empty:
                         continue
                     if line is None:
-                        raise RuntimeError('P-H3-Image worker stopped before completing the image')
-                    if line.startswith('PH3_RESULT '):
-                        receipt = json.loads(line[len('PH3_RESULT '):])
+                        raise RuntimeError(f'{self.label} worker stopped before completing the image')
+                    if line.startswith(self.prefix):
+                        receipt = json.loads(line[len(self.prefix):])
                         if receipt.get('id') != token:
-                            raise RuntimeError('P-H3-Image returned an unexpected request receipt')
+                            raise RuntimeError(f'{self.label} returned an unexpected request receipt')
                         if not receipt.get('ok'):
-                            raise RuntimeError(receipt.get('error') or 'P-H3-Image failed')
+                            raise RuntimeError(receipt.get('error') or f'{self.label} failed')
                         if not Path(request['output']).is_file():
-                            raise RuntimeError('P-H3-Image returned no image')
+                            raise RuntimeError(f'{self.label} returned no image')
                         self._serial += 1
                         self._timer = threading.Timer(self.idle_seconds, self._expire, (self._serial,))
                         self._timer.daemon = True
@@ -125,9 +126,18 @@ class ImageWorker:
 
 
 WORKER = ImageWorker()
+# MiniMax-H3-Image keeps its DiT (and decoder) loaded between pictures on big Macs.
+H3I_WORKER = ImageWorker(prefix='H3I_RESULT ', label='MiniMax-H3-Image')
 atexit.register(WORKER.close)
+atexit.register(H3I_WORKER.close)
+_BY_KIND = {'ph3image': WORKER, 'h3image': H3I_WORKER}
 
 
-def evict():
-    """Call under Studio's GPU gate before another engine loads weights."""
-    WORKER.close()
+def evict(keep=None):
+    """Call under Studio's GPU gate before another engine loads weights.
+
+    ``keep`` is the image engine kind about to run ('ph3image' or 'h3image'): its own worker stays,
+    every other resident worker is closed. Without it every worker is closed."""
+    for kind, worker in _BY_KIND.items():
+        if kind != keep:
+            worker.close()

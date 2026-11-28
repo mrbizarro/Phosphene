@@ -1012,3 +1012,53 @@ Re-voice uses the existing render events with `mode=revoice`. Phrase detection
 (`revoice_detect`) is preparation and emits no render event. Phrase text in
 local alignment errors, including one-word lines, is redacted before any error
 signature leaves the Studio. No transcripts or voice selections are sent.
+
+
+## New-Mac guarded H3 trial: M5/M6 and M4 Max (candidate, 26 November 2026)
+
+`render_completed`, `render_failed` and the existing refusal path carry three
+bounded arrays. They obey the existing analytics switch and owner/test exclusions.
+No prompt, file, seed, identity or additional hardware detail is collected.
+
+| Property | Meaning |
+| --- | --- |
+| `m5_accel` | Sorted, unique speed-up IDs whose compiled call returned a graph for this job. Empty on other chips, unsupported requests, offline controls, and unused items. A later asynchronous GPU failure retains these IDs. It means the accelerated path was dispatched, not that the GPU completed successfully. |
+| `m5_accel_attempted` | IDs entered before compilation/dispatch, including a synchronous refusal or fatal process failure. Use this cohort for failure-rate denominators. |
+| `m5_accel_fallback` | IDs whose synchronous compile/dispatch raised and resumed the original operation. They remain disabled for the rest of that process. |
+
+The entire closed vocabulary is `h3_m5_a1`, `h3_m5_b1` (M5/M6) and `h3_m4_c1` (M4 Max).
+The signed private H3 video adapter emits fixed receipts; the Studio consumes them before
+user-facing logs and sanitizes them again in `_analytics_clean_props`. Request
+parameters cannot label a render. These lists accumulate across windows/retries
+in one job: an item that ran earlier is not erased by a later remote disable.
+
+Eligibility: the current chip-family parser, followed by an exact per-item family
+allowlist (`h3_m5_a1`/`h3_m5_b1`: M5/M6; `h3_m4_c1`: M4 Max with 36 GB or more, on
+the resident path only), macOS 26.2+, and a valid Pro pass. Jobs the private Pro
+engine (Faster H3) admits keep that route; the trial wraps only jobs that would
+otherwise run on the Free engine. The adapter wraps the current Free H3 video runner only
+when its complete source fingerprint matches the current public H3 pin (`26010372`, SHA-256 `37da4227...`). Text and
+picture to video keep their existing arguments, weights, low-memory planning,
+sampler and output settings, including on 16–24 GB Macs. Other chips, engines,
+H3 image workers and unknown engine revisions keep their existing route. Each item requires a fresh true flag from
+`GET https://phosphene.video/api/v1/render-controls`; missing/malformed/stale/offline
+policy is off. Checks occur at most 60 seconds apart at operation boundaries;
+already submitted GPU work is not interrupted.
+
+Before/after comparisons use the 14 days immediately before the actual release,
+matched by chip, RAM, engine, mode, tier, resolution, frames, sampler, edition,
+steps, existing acceleration and helper warm state. Time remains the existing
+`wall_sec_bucket` plus `wall_sec_fine` on M5/M6 and M4 Max H3 renders. Compare outcomes in the
+attempted-item cohort, including failed and fallback jobs. Co-enabled items do
+not establish independent causation. A 1.3x whole-render claim requires measured
+matched evidence; this candidate has none yet.
+
+### New Mac trial timing (candidate)
+
+Only H3 renders on M5/M6 families and M4 Max add `m5_trial_schema: 1` and, when known,
+`wall_sec_fine` rounded to the nearest five seconds (minimum 5, maximum 86400).
+This includes the disabled arm, completed and failed renders. Invalid or missing
+wall clocks are omitted; M1–M3, M4 and M4 Pro, and other engines are unchanged. Ordinary analytics
+consent and sanitization still apply. No prompt, file, licence or identity fields
+are added. Compare the same app version, OS and workload after collecting a
+switched-off baseline on this build. Old timing buckets cannot prove a small gain.
