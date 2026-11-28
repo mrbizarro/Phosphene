@@ -39,8 +39,27 @@ def _clean(t: str) -> str:
     return re.sub(r"\s+", " ", t).strip(" :;-")
 
 
+# Chinese and Japanese end a sentence with 。！？ and no space after it. Not
+# inside a quote (「また会おう。」と言った), the same as ASCII, where `."` is
+# never followed by the space a split needs.
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+|(?<=[。！？])(?![。！？」』”’\"'）)])\s*")
+_SENT_END = ".!?。！？"
+# The short-sentence skip below ("Soft light.", "Wow!") counts characters. A
+# Chinese or Japanese character or a Hangul syllable carries what two or three
+# Latin letters do, so it counts twice: 女性が浜辺を歩いている and 여자가 웃는다
+# are whole first sentences, not bare lead-ins. Hangul Syllables only: a
+# conjoining Jamo (U+1100) is a third of a syllable, and a compatibility Jamo
+# (U+3130, ㅋㅋ) a lone letter.
+_WIDE = re.compile(
+    r"[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7a3\uf900-\ufaff\uff01-\uff60]")
+
+
+def _width(t: str) -> int:
+    return len(t) + len(_WIDE.findall(t))
+
+
 def _sentences(t: str) -> list[str]:
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", t) if s.strip()]
+    return [s.strip() for s in _SENT_SPLIT.split(t) if s.strip()]
 
 
 def _trim(t: str, limit: int) -> str:
@@ -66,16 +85,16 @@ def display_title(prompt, label=None, limit: int = TITLE_MAX) -> str:
     sents = _sentences(t)
     first = ""
     for i, sent in enumerate(sents):
-        cand = sent.rstrip(".!?")
+        cand = sent.rstrip(_SENT_END)
         while _STYLE_LEAD.match(cand):
             cand = _STYLE_LEAD.sub("", cand, 1)
         last = i == len(sents) - 1
         cand = _TRIGGER_LEAD.sub("", cand, 1).strip()
-        if not last and (_STYLE_ONLY.search(cand) or len(cand) < 12):
+        if not last and (_STYLE_ONLY.search(cand) or _width(cand) < 12):
             continue
         first = cand
         break
-    first = first or sents[0].rstrip(".!?")
+    first = first or sents[0].rstrip(_SENT_END)
     if first and first[0].islower():
         first = first[0].upper() + first[1:]
     return _trim(first, limit)
