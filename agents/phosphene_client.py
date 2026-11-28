@@ -307,12 +307,15 @@ class Phosphene:
             form["label"] = label
         return self.post("/queue/add", form=form)
 
-    def speech(self, text: str, *, voice: str | None = None, speed: float | None = None) -> dict:
+    def speech(self, text: str, *, voice: str | None = None, speed: float | None = None,
+               seed: int | None = None) -> dict:
         spec: dict = {"text": text, "wait": False}
         if voice:
             spec["voice"] = voice
         if speed:
             spec["speed"] = speed
+        if seed is not None:
+            spec["seed"] = seed
         try:
             return self.post("/speech/generate", json_body=spec)
         except PhospheneError as e:
@@ -330,7 +333,9 @@ class Phosphene:
         if title:
             form["music_title"] = title
         if seed is not None:
-            form["seed"] = seed
+            # music_params reads `music_seed` (the field the page posts); a plain
+            # `seed` is not in its allowlist and the song got a random one.
+            form["music_seed"] = seed
         return self.post("/queue/add", form=form)
 
     # ---- jobs
